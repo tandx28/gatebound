@@ -10,6 +10,9 @@ export const ROOM = { w: 1600, h: 1000 };
 export const PLAYER = {
   radius: 14,
   maxHp: 60,
+  maxMana: 20,
+  /** Mana regained per second. */
+  manaRegen: 1.5,
   speed: 230,
   dashSpeed: 760,
   dashTime: 0.17,
@@ -39,4 +42,5 @@ export const SWARMER = {
   recover: 0.65,
   /** Three hits kill a fresh player: the early game is meant to be hard. */
   damage: 20,
+  xp: 10,
 };

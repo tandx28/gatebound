@@ -10,9 +10,24 @@ import {
   type Circle,
 } from "./combat";
 import { PLAYER, ROOM, SWARMER, VIEW_H, VIEW_W } from "./config";
+import {
+  addXp,
+  allocate,
+  derive,
+  newProgress,
+  POINTS_PER_LEVEL,
+  STAT_KEYS,
+  type Derived,
+  type Progress,
+} from "./stats";
+import { pointIn, statButton } from "./ui";
 
 export interface Player extends Circle {
   hp: number;
+  mana: number;
+  prog: Progress;
+  /** Combat values derived from stats. Refresh with `refreshDerived`. */
+  d: Derived;
   facing: number;
   dashT: number;
   dashCd: number;
@@ -62,7 +77,18 @@ export interface Particle {
   color: string;
 }
 
+/** A System message shown briefly at the top of the screen. */
+export interface Notice {
+  title: string;
+  body: string;
+  life: number;
+}
+
+export type Menu = "none" | "status";
+
 export interface World {
+  menu: Menu;
+  notices: Notice[];
   player: Player;
   enemies: Enemy[];
   texts: FloatText[];
@@ -79,12 +105,19 @@ export interface World {
 }
 
 export function createWorld(rng: () => number = Math.random): World {
+  const prog = newProgress();
+  const d = derive(prog.stats);
   const w: World = {
+    menu: "none",
+    notices: [],
     player: {
       x: ROOM.w / 2,
       y: ROOM.h / 2,
       radius: PLAYER.radius,
-      hp: PLAYER.maxHp,
+      hp: d.maxHp,
+      mana: d.maxMana,
+      prog,
+      d,
       facing: 0,
       dashT: 0,
       dashCd: 0,
@@ -149,11 +182,40 @@ function spawnWave(w: World): void {
     });
     burst(w, x, y, "#e5484d", 8, 140);
   }
-  if (w.wave > 1) {
-    // Placeholder until levelling lands: a small heal between waves.
-    w.player.hp = Math.min(PLAYER.maxHp, w.player.hp + 15);
-    w.texts.push({ x: w.player.x, y: w.player.y - 30, text: "+15", life: 0.9, color: "#6dff9c", big: false });
-  }
+}
+
+/** Recompute derived values after stats change, keeping gains in max HP and mana. */
+export function refreshDerived(p: Player): void {
+  const next = derive(p.prog.stats);
+  p.hp = Math.max(1, p.hp + (next.maxHp - p.d.maxHp));
+  p.mana = Math.max(0, p.mana + (next.maxMana - p.d.maxMana));
+  p.d = next;
+}
+
+/** Award experience. A level-up fully restores health and mana. */
+export function grantXp(w: World, amount: number): void {
+  const p = w.player;
+  const gained = addXp(p.prog, amount);
+  if (gained === 0) return;
+  p.hp = p.d.maxHp;
+  p.mana = p.d.maxMana;
+  w.notices.push({
+    title: "LEVEL UP",
+    body: `Level ${p.prog.level}  ·  +${gained * POINTS_PER_LEVEL} stat points  ·  fully restored`,
+    life: 3,
+  });
+  burst(w, p.x, p.y, "#ffd84a", 26, 320);
+}
+
+/** Status window input: number keys or the [+] buttons spend stat points. */
+function stepStatus(w: World, input: Controls): void {
+  const p = w.player;
+  const clicked = input.consume("Mouse0");
+  STAT_KEYS.forEach((key, i) => {
+    const byKey = input.consume(`Digit${i + 1}`);
+    const byClick = clicked && pointIn(statButton(i), input.mouseX, input.mouseY);
+    if ((byKey || byClick) && allocate(p.prog, key)) refreshDerived(p);
+  });
 }
 
 function burst(w: World, x: number, y: number, color: string, n: number, speed: number): void {
@@ -189,13 +251,13 @@ function stepPlayer(w: World, input: Controls, dt: number): void {
       w.particles.push({ x: p.x, y: p.y, vx: 0, vy: 0, life: 0.18, color: "#5ee6ff" });
     }
   } else {
-    p.x += move.x * PLAYER.speed * dt;
-    p.y += move.y * PLAYER.speed * dt;
+    p.x += move.x * p.d.moveSpeed * dt;
+    p.y += move.y * p.d.moveSpeed * dt;
   }
   clampToRoom(p, ROOM.w, ROOM.h);
 
   if (p.attackCd <= 0 && p.dashT <= 0 && (input.attackHeld || input.consume("Mouse0"))) {
-    p.attackCd = PLAYER.attackCooldown;
+    p.attackCd = p.d.attackCooldown;
     p.attackT = PLAYER.attackActive;
     p.attackFacing = p.facing;
     p.swingId += 1;
@@ -206,7 +268,7 @@ function stepPlayer(w: World, input: Controls, dt: number): void {
       if (e.lastSwing === p.swingId) continue;
       if (!inArc(p.x, p.y, p.attackFacing, PLAYER.attackHalfAngle, PLAYER.attackRange, e)) continue;
       e.lastSwing = p.swingId;
-      const roll = rollDamage(PLAYER.attackDamage, PLAYER.critChance, PLAYER.critMult, w.rng);
+      const roll = rollDamage(p.d.damage, p.d.critChance, PLAYER.critMult, w.rng);
       e.hp = applyDamage(e.hp, roll.amount);
       e.flash = 0.1;
       const k = norm(e.x - p.x, e.y - p.y);
@@ -237,6 +299,7 @@ function stepPlayer(w: World, input: Controls, dt: number): void {
   p.attackCd = Math.max(0, p.attackCd - dt);
   p.iframes = Math.max(0, p.iframes - dt);
   p.hurtFlash = Math.max(0, p.hurtFlash - dt);
+  p.mana = Math.min(p.d.maxMana, p.mana + PLAYER.manaRegen * dt);
 }
 
 function stepEnemy(w: World, e: Enemy, dt: number): void {
@@ -316,6 +379,17 @@ function hurtPlayer(w: World, amount: number): void {
 
 /** Advance the simulation by one fixed step. */
 export function step(w: World, input: Controls, dt: number): void {
+  for (const n of w.notices) n.life -= dt;
+  w.notices = w.notices.filter((n) => n.life > 0);
+
+  // The status window pauses the fight.
+  if (!w.dead && input.consume("KeyC", "Tab")) w.menu = w.menu === "status" ? "none" : "status";
+  if (w.menu !== "none") {
+    if (input.consume("Escape")) w.menu = "none";
+    else stepStatus(w, input);
+    return;
+  }
+
   // Effects keep animating through hit-stop and death.
   for (const t of w.texts) {
     t.life -= dt;
@@ -360,6 +434,7 @@ export function step(w: World, input: Controls, dt: number): void {
       alive.push(e);
     } else {
       w.kills += 1;
+      grantXp(w, SWARMER.xp);
       burst(w, e.x, e.y, "#e5484d", 16, 260);
     }
   }

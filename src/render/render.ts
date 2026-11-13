@@ -1,11 +1,19 @@
 import { PLAYER, ROOM, SWARMER, VIEW_H, VIEW_W } from "../game/config";
+import { STAT_KEYS, STAT_NAMES, xpToNext, type StatKey } from "../game/stats";
+import { pointIn, STATUS_PANEL, statButton, statRowY } from "../game/ui";
 import type { Enemy, World } from "../game/world";
 
 const BLUE = "#3aa0ff";
 const CYAN = "#5ee6ff";
+const GOLD = "#ffd84a";
+
+/** Cursor position in view coordinates, for hover states. */
+const mouse = { x: 0, y: 0 };
 const FONT = '"SF Mono", Menlo, Consolas, monospace';
 
-export function render(ctx: CanvasRenderingContext2D, w: World): void {
+export function render(ctx: CanvasRenderingContext2D, w: World, mouseX = 0, mouseY = 0): void {
+  mouse.x = mouseX;
+  mouse.y = mouseY;
   ctx.fillStyle = "#04060b";
   ctx.fillRect(0, 0, VIEW_W, VIEW_H);
 
@@ -35,6 +43,8 @@ export function render(ctx: CanvasRenderingContext2D, w: World): void {
   ctx.restore();
 
   drawHud(ctx, w);
+  drawNotices(ctx, w);
+  if (w.menu === "status") drawStatus(ctx, w);
   if (w.dead) drawDeath(ctx, w);
 }
 
@@ -161,25 +171,48 @@ function panel(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h
   ctx.strokeRect(x + 0.5, y + 0.5, w, h);
 }
 
+function bar(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  frac: number,
+  color: string,
+): void {
+  ctx.fillStyle = "#1a2540";
+  ctx.fillRect(x, y, w, h);
+  ctx.fillStyle = color;
+  ctx.fillRect(x, y, w * Math.max(0, Math.min(1, frac)), h);
+}
+
 function drawHud(ctx: CanvasRenderingContext2D, w: World): void {
   const p = w.player;
-  panel(ctx, 20, 20, 280, 74);
+  const need = xpToNext(p.prog.level);
+  panel(ctx, 20, 20, 280, 112);
   ctx.textAlign = "left";
   ctx.font = `bold 13px ${FONT}`;
+  ctx.fillStyle = "#cfe4ff";
+  ctx.fillText(`LV ${p.prog.level}`, 34, 42);
   ctx.fillStyle = "#9fc8ff";
-  ctx.fillText(`HP  ${p.hp} / ${PLAYER.maxHp}`, 34, 42);
-  ctx.fillStyle = "#1a2540";
-  ctx.fillRect(34, 50, 252, 10);
-  ctx.fillStyle = p.hp / PLAYER.maxHp > 0.34 ? "#ff5a60" : "#ff2030";
-  ctx.fillRect(34, 50, 252 * (p.hp / PLAYER.maxHp), 10);
-
-  ctx.fillStyle = "#1a2540";
-  ctx.fillRect(34, 70, 252, 6);
-  ctx.fillStyle = p.dashCd > 0 ? "#2f6f8f" : CYAN;
-  ctx.fillRect(34, 70, 252 * (1 - p.dashCd / PLAYER.dashCooldown), 6);
+  ctx.fillText(`HP ${p.hp} / ${p.d.maxHp}`, 96, 42);
+  bar(ctx, 34, 50, 252, 10, p.hp / p.d.maxHp, p.hp / p.d.maxHp > 0.34 ? "#ff5a60" : "#ff2030");
+  bar(ctx, 34, 66, 252, 6, p.mana / p.d.maxMana, "#4f7bff");
+  bar(ctx, 34, 78, 252, 4, 1 - p.dashCd / PLAYER.dashCooldown, p.dashCd > 0 ? "#2f6f8f" : CYAN);
+  bar(ctx, 34, 88, 252, 4, need === Infinity ? 1 : p.prog.xp / need, GOLD);
   ctx.font = `10px ${FONT}`;
   ctx.fillStyle = "#6f8fbf";
-  ctx.fillText("DASH", 34, 88);
+  ctx.fillText(
+    need === Infinity ? "MAX LEVEL" : `EXP ${p.prog.xp} / ${need}`,
+    34,
+    108,
+  );
+  if (p.prog.points > 0) {
+    // Pulse so unspent points are hard to miss.
+    ctx.fillStyle = `rgba(255,216,74,${0.6 + 0.4 * Math.sin(performance.now() / 180)})`;
+    ctx.textAlign = "right";
+    ctx.fillText(`[C] ${p.prog.points} POINTS`, 286, 108);
+  }
 
   panel(ctx, VIEW_W - 200, 20, 180, 58);
   ctx.textAlign = "right";
@@ -193,7 +226,107 @@ function drawHud(ctx: CanvasRenderingContext2D, w: World): void {
   ctx.textAlign = "center";
   ctx.font = `12px ${FONT}`;
   ctx.fillStyle = "rgba(159,200,255,0.55)";
-  ctx.fillText("WASD move   ·   MOUSE aim   ·   CLICK attack   ·   SPACE dash", VIEW_W / 2, VIEW_H - 18);
+  ctx.fillText(
+    "WASD move   ·   MOUSE aim   ·   CLICK attack   ·   SPACE dash   ·   C status",
+    VIEW_W / 2,
+    VIEW_H - 18,
+  );
+}
+
+function drawNotices(ctx: CanvasRenderingContext2D, w: World): void {
+  w.notices.forEach((n, i) => {
+    const y = 120 + i * 84;
+    ctx.globalAlpha = Math.min(1, n.life * 2);
+    panel(ctx, VIEW_W / 2 - 250, y, 500, 70);
+    ctx.textAlign = "center";
+    ctx.font = `bold 18px ${FONT}`;
+    ctx.fillStyle = GOLD;
+    ctx.fillText(n.title, VIEW_W / 2, y + 28);
+    ctx.font = `13px ${FONT}`;
+    ctx.fillStyle = "#cfe4ff";
+    ctx.fillText(n.body, VIEW_W / 2, y + 52);
+  });
+  ctx.globalAlpha = 1;
+}
+
+function drawStatus(ctx: CanvasRenderingContext2D, w: World): void {
+  const p = w.player;
+  const s = STATUS_PANEL;
+  const need = xpToNext(p.prog.level);
+  ctx.fillStyle = "rgba(4,6,11,0.72)";
+  ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+  ctx.shadowColor = BLUE;
+  ctx.shadowBlur = 24;
+  panel(ctx, s.x, s.y, s.w, s.h);
+  ctx.shadowBlur = 0;
+
+  const left = s.x + 36;
+  const right = s.x + s.w - 36;
+  ctx.textAlign = "center";
+  ctx.font = `bold 22px ${FONT}`;
+  ctx.fillStyle = "#cfe4ff";
+  ctx.fillText("STATUS", VIEW_W / 2, s.y + 44);
+  ctx.strokeStyle = "rgba(58,160,255,0.4)";
+  ctx.beginPath();
+  ctx.moveTo(left, s.y + 60);
+  ctx.lineTo(right, s.y + 60);
+  ctx.stroke();
+
+  ctx.font = `14px ${FONT}`;
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#9fc8ff";
+  ctx.fillText(`LEVEL  ${p.prog.level}`, left, s.y + 92);
+  ctx.fillText(`RANK   E`, left, s.y + 116);
+  ctx.fillText(`HP  ${p.hp} / ${p.d.maxHp}`, left + 200, s.y + 92);
+  ctx.fillText(`MP  ${Math.floor(p.mana)} / ${p.d.maxMana}`, left + 200, s.y + 116);
+  ctx.fillText(need === Infinity ? "EXP  MAX" : `EXP  ${p.prog.xp} / ${need}`, left, s.y + 140);
+
+  const readouts: Record<StatKey, string> = {
+    str: `${Math.round(p.d.damage)} damage`,
+    agi: `${Math.round(p.d.moveSpeed)} speed`,
+    vit: `${p.d.maxHp} health`,
+    sen: `${Math.round(p.d.critChance * 100)}% crit`,
+    int: `${p.d.maxMana} mana`,
+  };
+  STAT_KEYS.forEach((key, i) => {
+    const y = statRowY(i);
+    ctx.textAlign = "left";
+    ctx.font = `10px ${FONT}`;
+    ctx.fillStyle = "#6f8fbf";
+    ctx.fillText(String(i + 1), left, y);
+    ctx.font = `15px ${FONT}`;
+    ctx.fillStyle = "#cfe4ff";
+    ctx.fillText(STAT_NAMES[key], left + 20, y);
+    ctx.textAlign = "right";
+    ctx.font = `bold 16px ${FONT}`;
+    ctx.fillText(String(p.prog.stats[key]), s.x + 280, y);
+    ctx.font = `13px ${FONT}`;
+    ctx.fillStyle = "#6f8fbf";
+    ctx.fillText(readouts[key], right, y);
+
+    if (p.prog.points > 0) {
+      const b = statButton(i);
+      const hover = pointIn(b, mouse.x, mouse.y);
+      ctx.fillStyle = hover ? "rgba(255,216,74,0.25)" : "rgba(58,160,255,0.12)";
+      ctx.fillRect(b.x, b.y, b.w, b.h);
+      ctx.strokeStyle = hover ? GOLD : BLUE;
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(b.x + 0.5, b.y + 0.5, b.w, b.h);
+      ctx.textAlign = "center";
+      ctx.font = `bold 16px ${FONT}`;
+      ctx.fillStyle = hover ? GOLD : "#cfe4ff";
+      ctx.fillText("+", b.x + b.w / 2, b.y + 19);
+    }
+  });
+
+  ctx.textAlign = "left";
+  ctx.font = `bold 14px ${FONT}`;
+  ctx.fillStyle = p.prog.points > 0 ? GOLD : "#6f8fbf";
+  ctx.fillText(`AVAILABLE POINTS  ${p.prog.points}`, left, s.y + s.h - 56);
+  ctx.textAlign = "center";
+  ctx.font = `12px ${FONT}`;
+  ctx.fillStyle = "rgba(159,200,255,0.6)";
+  ctx.fillText("1-5 or click [+] to spend a point   ·   C to close", VIEW_W / 2, s.y + s.h - 24);
 }
 
 function drawDeath(ctx: CanvasRenderingContext2D, w: World): void {

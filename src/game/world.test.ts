@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { Controls } from "../engine/input";
 import { PLAYER, STEP, SWARMER, VIEW_H, VIEW_W } from "./config";
-import { createWorld, step, type Enemy, type World } from "./world";
+import { xpToNext } from "./stats";
+import { statButton } from "./ui";
+import { createWorld, grantXp, step, type Enemy, type World } from "./world";
 
 /** Scripted controls. The cursor defaults to directly right of the player. */
 class FakeControls implements Controls {
@@ -170,5 +172,92 @@ describe("waves", () => {
     for (const e of w.enemies) {
       expect(Math.hypot(e.x - w.player.x, e.y - w.player.y)).toBeGreaterThan(300);
     }
+  });
+});
+
+describe("experience and levelling", () => {
+  it("a kill grants the swarmer's experience", () => {
+    const w = emptyWorld();
+    const c = new FakeControls();
+    enemyAt(w, 40, 0, "recover", 99);
+    c.attackHeld = true;
+    c.move = { x: 1, y: 0 };
+    run(w, c, PLAYER.attackCooldown * 3 + 0.3);
+    expect(w.player.prog.xp).toBe(SWARMER.xp);
+  });
+
+  it("a level-up restores health and mana, gives points, and posts a notice", () => {
+    const w = emptyWorld();
+    w.player.hp = 5;
+    w.player.mana = 0;
+    grantXp(w, xpToNext(1));
+    expect(w.player.prog.level).toBe(2);
+    expect(w.player.prog.points).toBe(3);
+    expect(w.player.hp).toBe(w.player.d.maxHp);
+    expect(w.player.mana).toBe(w.player.d.maxMana);
+    expect(w.notices[0].title).toBe("LEVEL UP");
+  });
+
+  it("experience short of a level changes nothing else", () => {
+    const w = emptyWorld();
+    w.player.hp = 5;
+    grantXp(w, xpToNext(1) - 1);
+    expect(w.player.prog.level).toBe(1);
+    expect(w.player.hp).toBe(5);
+    expect(w.notices.length).toBe(0);
+  });
+});
+
+describe("status window", () => {
+  it("pauses the fight while open", () => {
+    const w = emptyWorld();
+    const c = new FakeControls();
+    enemyAt(w, 50, 0, "chase");
+    c.press("KeyC");
+    run(w, c, 3);
+    expect(w.menu).toBe("status");
+    expect(w.player.hp).toBe(PLAYER.maxHp);
+    c.press("KeyC");
+    run(w, c, 0.05);
+    expect(w.menu).toBe("none");
+  });
+
+  it("a number key spends a point and raises the stat", () => {
+    const w = emptyWorld();
+    const c = new FakeControls();
+    grantXp(w, xpToNext(1));
+    c.press("KeyC");
+    run(w, c, 0.02);
+    c.press("Digit1");
+    run(w, c, 0.02);
+    expect(w.player.prog.stats.str).toBe(6);
+    expect(w.player.prog.points).toBe(2);
+    expect(w.player.d.damage).toBeGreaterThan(PLAYER.attackDamage);
+  });
+
+  it("clicking a [+] button spends a point; vitality also raises current health", () => {
+    const w = emptyWorld();
+    const c = new FakeControls();
+    grantXp(w, xpToNext(1));
+    const hp0 = w.player.hp;
+    c.press("KeyC");
+    run(w, c, 0.02);
+    const b = statButton(2);
+    c.mouseX = b.x + b.w / 2;
+    c.mouseY = b.y + b.h / 2;
+    c.press("Mouse0");
+    run(w, c, 0.02);
+    expect(w.player.prog.stats.vit).toBe(6);
+    expect(w.player.hp).toBe(hp0 + 8);
+  });
+
+  it("does nothing without points", () => {
+    const w = emptyWorld();
+    const c = new FakeControls();
+    c.press("KeyC");
+    run(w, c, 0.02);
+    c.press("Digit1");
+    run(w, c, 0.02);
+    expect(w.player.prog.stats.str).toBe(5);
   });
 });

@@ -27,19 +27,22 @@ export class Input implements Controls {
       if (e.repeat) return;
       this.keys.add(e.code);
       this.queued.add(e.code);
-      if (e.code === "Space") e.preventDefault();
+      if (e.code === "Space" || e.code === "Tab") e.preventDefault();
     });
     window.addEventListener("keyup", (e) => this.keys.delete(e.code));
     window.addEventListener("blur", () => {
       this.keys.clear();
       this.attackHeld = false;
     });
-    canvas.addEventListener("mousemove", (e) => {
+    const track = (e: MouseEvent) => {
       const r = canvas.getBoundingClientRect();
       this.mouseX = ((e.clientX - r.left) / r.width) * VIEW_W;
       this.mouseY = ((e.clientY - r.top) / r.height) * VIEW_H;
-    });
+    };
+    canvas.addEventListener("mousemove", track);
     canvas.addEventListener("mousedown", (e) => {
+      // A press can arrive without a preceding move (touchpads, automation).
+      track(e);
       if (e.button === 0) {
         this.attackHeld = true;
         // Also queue the press, so a click shorter than one frame still swings.

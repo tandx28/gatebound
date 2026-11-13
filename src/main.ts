@@ -40,7 +40,7 @@ function frame(now: number): void {
   // the simulation has had a chance to read them.
   if (stepped) input.endFrame();
 
-  render(ctx, world);
+  render(ctx, world, input.mouseX, input.mouseY);
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
