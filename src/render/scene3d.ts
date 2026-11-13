@@ -25,6 +25,7 @@ import type { Enemy, World } from "../game/state";
  */
 
 const RANK_TINT: Record<Rank, number> = { E: 0x3aa0ff, D: 0x35e0a0, C: 0xb070ff };
+const SEALED_TINT = 0xff3355;
 const KIND_COLOR: Record<EnemyKind, number> = {
   swarmer: 0xe5484d,
   charger: 0xff8a3c,
@@ -196,9 +197,11 @@ export class Scene3D {
   private camera = new THREE.PerspectiveCamera(38, VIEW_W / VIEW_H, 10, 5000);
   private target = new THREE.Vector3(ROOM.w / 2, 0, ROOM.h / 2);
   private roomGroup = new THREE.Group();
-  private barriers: { mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial; boss: boolean }[] = [];
+  private barriers: { mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial; boss: boolean; trial: boolean }[] = [];
   private builtFor: Dungeon | null | undefined = undefined;
   private builtRoom = -1;
+  private builtRev = -1;
+  private builtSealed = false;
 
   private player = new THREE.Group();
   private playerBody: THREE.MeshStandardMaterial;
@@ -345,7 +348,8 @@ export class Scene3D {
       });
     }
     this.barriers = [];
-    const tint = RANK_TINT[w.rank];
+    // A sealed gate is lit red throughout.
+    const tint = w.sealed ? SEALED_TINT : RANK_TINT[w.rank];
     const room = w.dungeon ? w.dungeon.rooms[w.roomId] : null;
     const isBoss = room?.kind === "boss";
 
@@ -420,7 +424,7 @@ export class Scene3D {
       const off = side === "n" || side === "w" ? -WALL_T / 2 : (along ? ROOM.h : ROOM.w) + WALL_T / 2;
       mesh.position.set(along ? c : off, h / 2, along ? off : c);
       this.roomGroup.add(mesh);
-      this.barriers.push({ mesh, mat, boss });
+      this.barriers.push({ mesh, mat, boss, trial: w.dungeon!.rooms[to].kind === "trial" });
     }
   }
 
@@ -456,6 +460,11 @@ export class Scene3D {
         v.core.emissiveIntensity = e.state === "recover" ? 0.45 : e.phase === 2 ? 2.6 : 1.6;
       }
       v.group.visible = e.inv <= 0 || Math.floor(this.clock * 30) % 2 === 0;
+      // Penalty-zone enemies cannot be hurt: they burn a steady, colourless white.
+      if (e.immortal && !winding) {
+        v.core.emissive.setHex(0xd8e4ff);
+        v.core.emissiveIntensity = 1.2;
+      }
       const pulse = e.kind === "exploder" && e.state === "fuse" ? 1 + 0.35 * Math.sin(this.clock * 40) : 1;
       v.group.scale.setScalar(pulse);
     }
@@ -560,15 +569,19 @@ export class Scene3D {
   render(w: World, dt: number): void {
     this.clock += dt;
     let snap = false;
-    if (this.builtFor !== w.dungeon || this.builtRoom !== w.roomId) {
+    const moved = this.builtFor !== w.dungeon || this.builtRoom !== w.roomId;
+    if (moved || this.builtRev !== w.layoutRev || this.builtSealed !== w.sealed) {
       this.buildRoom(w);
       this.builtFor = w.dungeon;
       this.builtRoom = w.roomId;
-      snap = true;
+      this.builtRev = w.layoutRev;
+      this.builtSealed = w.sealed;
+      // A new door in the same room must not jolt the camera.
+      snap = moved;
     }
 
     for (const b of this.barriers) {
-      b.mat.color.setHex(w.doorsOpen ? (b.boss ? 0xff3355 : RANK_TINT[w.rank]) : 0xff2030);
+      b.mat.color.setHex(w.doorsOpen ? (b.boss ? 0xff3355 : b.trial ? 0xffd84a : RANK_TINT[w.rank]) : 0xff2030);
       b.mat.opacity = w.doorsOpen ? 0.1 + 0.05 * Math.sin(this.clock * 3) : 0.3;
     }
 
@@ -580,7 +593,7 @@ export class Scene3D {
     this.playerBody.emissiveIntensity = p.hurtFlash > 0 ? 3 : fast ? 3 : p.surgeT > 0 ? 1 : 0.25;
     this.playerLight.color.setHex(p.surgeT > 0 ? 0xffd84a : 0x5ee6ff);
     // Blink while invulnerable after a hit (not during a dash).
-    this.player.visible = !(p.iframes > 0 && !fast && Math.floor(p.iframes * 20) % 2 === 0) && w.mode !== "dead";
+    this.player.visible = !(p.iframes > 0 && !fast && Math.floor(p.iframes * 20) % 2 === 0) && w.mode !== "dead" && w.mode !== "title";
 
     this.syncEnemies(w);
     this.syncShots(w);

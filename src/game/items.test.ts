@@ -1,12 +1,21 @@
 import { describe, expect, it } from "vitest";
 import { PLAYER } from "./config";
-import { BOSS_DROP, describeBonus, gearBonus, ITEMS, sellValue, SHOP_STOCK, sumBonus, TITLES } from "./items";
+import { seeded } from "../engine/rng";
+import { BOSS_DROP, describeBonus, gearBonus, ITEMS, RARITIES, rollStock, sellValue, SHOP_POOL, SHOP_SLOTS, sumBonus, TITLES } from "./items";
 import { derive, newProgress } from "./stats";
 
 describe("items", () => {
-  it("the shop sells nine items and never a boss drop", () => {
-    expect(SHOP_STOCK.length).toBe(9);
-    for (const id of SHOP_STOCK) expect(ITEMS[id].unique).toBeFalsy();
+  it("the shop pool holds every rarity and never a unique drop", () => {
+    expect(SHOP_POOL.length).toBe(18);
+    for (const id of SHOP_POOL) expect(ITEMS[id].unique).toBeFalsy();
+    for (const r of RARITIES) expect(SHOP_POOL.some((id) => ITEMS[id].rarity === r)).toBe(true);
+  });
+
+  it("rarer items cost more", () => {
+    const price = (r: string) => ITEMS[SHOP_POOL.find((id) => ITEMS[id].rarity === r)!].price;
+    expect(price("common")).toBeLessThan(price("uncommon"));
+    expect(price("uncommon")).toBeLessThan(price("rare"));
+    expect(price("rare")).toBeLessThan(price("epic"));
   });
 
   it("every boss drop is a real, unique item", () => {
@@ -60,5 +69,41 @@ describe("derive with gear", () => {
     expect(d.maxMana).toBe(PLAYER.maxMana + 12);
     expect(d.moveSpeed).toBeCloseTo(PLAYER.speed * 1.1);
     expect(d.critChance).toBeCloseTo(PLAYER.critChance + 0.08);
+  });
+});
+
+describe("rollStock", () => {
+  it("gives six distinct items from the pool", () => {
+    for (let seed = 1; seed <= 50; seed++) {
+      const stock = rollStock(seeded(seed));
+      expect(stock.length).toBe(SHOP_SLOTS);
+      expect(new Set(stock).size).toBe(SHOP_SLOTS);
+      for (const id of stock) expect(SHOP_POOL).toContain(id);
+    }
+  });
+
+  it("is the same for the same seed and differs between seeds", () => {
+    expect(rollStock(seeded(9))).toEqual(rollStock(seeded(9)));
+    const all = new Set(Array.from({ length: 20 }, (_, i) => rollStock(seeded(i + 1)).join()));
+    expect(all.size).toBeGreaterThan(15);
+  });
+
+  it("never offers an excluded item", () => {
+    for (let seed = 1; seed <= 50; seed++) {
+      expect(rollStock(seeded(seed), ["iron_fang", "padded_coat"])).not.toContain("iron_fang");
+    }
+  });
+
+  it("returns fewer items when the pool runs short", () => {
+    expect(rollStock(seeded(1), SHOP_POOL.slice(2)).sort()).toEqual(SHOP_POOL.slice(0, 2).sort());
+  });
+
+  it("offers common items far more often than epic ones", () => {
+    const seen = { common: 0, uncommon: 0, rare: 0, epic: 0 };
+    for (let seed = 1; seed <= 400; seed++) for (const id of rollStock(seeded(seed))) seen[ITEMS[id].rarity] += 1;
+    expect(seen.common).toBeGreaterThan(seen.rare);
+    expect(seen.uncommon).toBeGreaterThan(seen.epic);
+    expect(seen.common).toBeGreaterThan(seen.epic * 2);
+    expect(seen.epic).toBeGreaterThan(0);
   });
 });

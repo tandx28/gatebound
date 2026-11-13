@@ -12,6 +12,7 @@ export interface Reward {
   gold: number;
   potions?: number;
   points?: number;
+  keys?: number;
 }
 
 export interface QuestDef {
@@ -32,7 +33,7 @@ const gateOf = (rank: Rank) => (ev: QuestEvent) => (ev.type === "gate" && ev.ran
 export const MAIN: QuestDef[] = [
   { id: "m1", title: "Entered in the Ledger", desc: "Clear one room in a Rank E gate", goal: 1, reward: { gold: 30, potions: 1 }, count: (ev) => (ev.type === "room" && ev.rank === "E" ? 1 : 0) },
   { id: "m2", title: "Tanner Row", desc: "Clear a Rank E gate", goal: 1, reward: { gold: 80, points: 2 }, count: gateOf("E") },
-  { id: "m3", title: "No Longer Carrying Bags", desc: "Reach level 6", goal: 6, reward: { gold: 120, potions: 2 }, count: (ev) => (ev.type === "level" ? ev.level : 0), absolute: true },
+  { id: "m3", title: "No Longer Carrying Bags", desc: "Reach level 6", goal: 6, reward: { gold: 120, potions: 2, keys: 1 }, count: (ev) => (ev.type === "level" ? ev.level : 0), absolute: true },
   { id: "m4", title: "The Choir Below", desc: "Clear a Rank D gate", goal: 1, reward: { gold: 250, points: 3 }, count: gateOf("D") },
   { id: "m5", title: "What the Mirror Shows", desc: "Clear a Rank C gate", goal: 1, reward: { gold: 600, points: 5 }, count: gateOf("C") },
 ];

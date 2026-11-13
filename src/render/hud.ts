@@ -1,5 +1,7 @@
 import {
+  DAILY,
   KINDS,
+  PENALTY,
   PLAYER,
   RANKS,
   SKILL_IDS,
@@ -8,10 +10,20 @@ import {
   VIEW_W,
 } from "../game/config";
 import type { World } from "../game/state";
-import { POTION, TITLES } from "../game/items";
+import { POTION, STONE, TITLES, type Rarity } from "../game/items";
 import { activeQuests, MAIN, questProgress } from "../game/quests";
 import { STAT_KEYS, STAT_NAMES, xpToNext, type StatKey } from "../game/stats";
-import { hubButtons, hubHeadings, pointIn, STATUS_PANEL, statButton, statRowY, type Button } from "../game/ui";
+import {
+  hubButtons,
+  hubHeadings,
+  pauseButtons,
+  pointIn,
+  STATUS_PANEL,
+  statButton,
+  statRowY,
+  titleButton,
+  type Button,
+} from "../game/ui";
 
 /** 2D overlay drawn on top of the 3D view: bars, labels, windows. */
 
@@ -21,6 +33,7 @@ const GOLD = "#ffd84a";
 const FONT = '"SF Mono", Menlo, Consolas, monospace';
 const RANK_CSS = { E: "#3aa0ff", D: "#35e0a0", C: "#b070ff" } as const;
 const RANK_KEY = { E: 1, D: 2, C: 3 } as const;
+const RARITY_CSS: Record<Rarity, string> = { common: "#cfd8e6", uncommon: "#6dff9c", rare: "#5aa8ff", epic: "#c58bff" };
 
 type Ctx = CanvasRenderingContext2D;
 /** Sim position and height to view coordinates. */
@@ -343,7 +356,7 @@ function drawButton(ctx: Ctx, w: World, b: Button): void {
   if (b.kind === "row" && b.text !== undefined) {
     ctx.textAlign = "left";
     ctx.font = `14px ${FONT}`;
-    ctx.fillStyle = b.on ? GOLD : "#cfe4ff";
+    ctx.fillStyle = b.on ? GOLD : b.rarity ? RARITY_CSS[b.rarity] : "#cfe4ff";
     ctx.fillText(b.text, b.textX!, r.y + 13);
     ctx.font = `11px ${FONT}`;
     ctx.fillStyle = "#6f8fbf";
@@ -366,6 +379,30 @@ function drawQuests(ctx: Ctx, w: World): void {
   const q = w.profile.quests;
   const x = 240;
   let y = 262;
+
+  // Daily quest: three goals, all needed, reset at midnight.
+  const d = w.profile.daily;
+  if (d.day > 0) {
+    ctx.textAlign = "left";
+    ctx.font = `bold 12px ${FONT}`;
+    ctx.fillStyle = d.done ? "#6dff9c" : CYAN;
+    ctx.fillText(d.done ? "DAILY QUEST  ·  COMPLETE" : "DAILY QUEST  ·  miss it and the penalty zone follows", x, y - 22);
+    const goals: [string, number, number][] = [
+      ["Kill enemies", d.kills, DAILY.kills],
+      ["Clear rooms", d.rooms, DAILY.rooms],
+      ["Clear a gate", d.gates, DAILY.gates],
+    ];
+    goals.forEach(([label, got, goal], i) => {
+      const gx = x + i * 270;
+      ctx.font = `12px ${FONT}`;
+      ctx.fillStyle = "#9fc8ff";
+      ctx.fillText(`${label}  ${Math.min(got, goal)} / ${goal}`, gx, y);
+      bar(ctx, gx, y + 7, 230, 5, got / goal, d.done ? "#6dff9c" : CYAN);
+    });
+    ctx.fillStyle = "#6f8fbf";
+    ctx.fillText(`Reward: ${DAILY.points} stat points, potions refilled`, x, y + 32);
+    y += 78;
+  }
   ctx.textAlign = "left";
   ctx.font = `bold 12px ${FONT}`;
   ctx.fillStyle = "#6f8fbf";
@@ -394,7 +431,8 @@ function drawQuests(ctx: Ctx, w: World): void {
     ctx.fillStyle = "#9fc8ff";
     ctx.fillText(def.desc, x, y + 19);
     const r = def.reward;
-    const reward = [`${r.gold} gold`, r.potions ? `${r.potions} potion${r.potions > 1 ? "s" : ""}` : "", r.points ? `${r.points} stat point${r.points > 1 ? "s" : ""}` : ""]
+    const some = (n: number | undefined, word: string) => (n ? `${n} ${word}${n > 1 ? "s" : ""}` : "");
+    const reward = [`${r.gold} gold`, some(r.potions, "potion"), some(r.points, "stat point"), some(r.keys, "key")]
       .filter(Boolean)
       .join(", ");
     ctx.fillStyle = "#6f8fbf";
@@ -404,7 +442,7 @@ function drawQuests(ctx: Ctx, w: World): void {
     ctx.fillStyle = "#cfe4ff";
     ctx.fillText(`${got} / ${def.goal}`, x + 800, y);
     ctx.textAlign = "left";
-    y += 68;
+    y += 62;
   });
 }
 
@@ -451,7 +489,7 @@ function drawHub(ctx: Ctx, w: World): void {
   ctx.fillStyle = GOLD;
   const title = TITLES.find((t) => t.id === pr.title);
   ctx.fillText(
-    `${pr.gold} GOLD   ·   POTIONS ${pr.potions}/${POTION.max}${title ? `   ·   ${title.name.toUpperCase()}` : ""}`,
+    `${pr.gold} GOLD   ·   POTIONS ${pr.potions}/${POTION.max}   ·   STONES ${pr.stones}/${STONE.max}   ·   KEYS ${pr.keys}${title ? `   ·   ${title.name.toUpperCase()}` : ""}`,
     VIEW_W / 2,
     146,
   );
@@ -469,7 +507,7 @@ function drawHub(ctx: Ctx, w: World): void {
     ctx.fillStyle = "#9fc8ff";
     ctx.fillText("Progress is saved in this browser after every gate and every change here.", VIEW_W / 2, 244);
     ctx.fillStyle = "#6f8fbf";
-    ctx.fillText(`Gates cleared: ${pr.gatesCleared}   ·   Kills this session: ${w.kills}`, VIEW_W / 2, 480);
+    ctx.fillText(`Gates cleared: ${pr.gatesCleared}   ·   Kills this session: ${w.kills}`, VIEW_W / 2, 510);
   }
   if ((w.tab === "shop" || w.tab === "gear") && pr.inventory.length === 0) {
     ctx.textAlign = "left";
@@ -480,18 +518,116 @@ function drawHub(ctx: Ctx, w: World): void {
   ctx.textAlign = "center";
   ctx.font = `12px ${FONT}`;
   ctx.fillStyle = "rgba(159,200,255,0.6)";
-  ctx.fillText("Q / E  switch tab   ·   C  status and stat points", VIEW_W / 2, VIEW_H - 40);
+  ctx.fillText("Q / E  switch tab   ·   C  status and stat points", VIEW_W / 2, VIEW_H - 24);
 }
 
 function drawPurse(ctx: Ctx, w: World): void {
-  panel(ctx, 20, 140, 280, 30);
+  const pr = w.profile;
+  panel(ctx, 20, 140, 280, 48);
   ctx.textAlign = "left";
   ctx.font = `bold 12px ${FONT}`;
   ctx.fillStyle = GOLD;
-  ctx.fillText(`GOLD ${w.profile.gold}${w.run.gold > 0 && !w.run.settled ? `  +${w.run.gold}` : ""}`, 34, 160);
+  ctx.fillText(`GOLD ${pr.gold}${w.run.gold > 0 && !w.run.settled ? `  +${w.run.gold}` : ""}`, 34, 159);
+  if (w.run.keys > 0) ctx.fillText(`KEY +${w.run.keys}`, 34, 178);
   ctx.textAlign = "right";
-  ctx.fillStyle = w.profile.potions > 0 ? "#6dff9c" : "#4a5f85";
-  ctx.fillText(`[F] POTION x${w.profile.potions}`, 286, 160);
+  ctx.fillStyle = pr.potions > 0 ? "#6dff9c" : "#4a5f85";
+  ctx.fillText(`[F] POTION x${pr.potions}`, 286, 159);
+  // The stone is greyed out where it cannot work.
+  const dead = w.sealed || w.gateKind === "penalty";
+  ctx.fillStyle = w.bossDead ? GOLD : pr.stones > 0 && !dead ? "#9fc8ff" : "#4a5f85";
+  ctx.fillText(w.bossDead ? "[T] LEAVE GATE" : `[T] STONE x${pr.stones}`, 286, 178);
+}
+
+/** Timers and warnings for the gate in progress, under the boss bar. */
+function drawAlerts(ctx: Ctx, w: World): void {
+  const clock = (t: number) => `${Math.floor(Math.max(0, t) / 60)}:${String(Math.ceil(Math.max(0, t)) % 60).padStart(2, "0")}`;
+  let y = 74;
+  const banner = (text: string, frac: number, color: string) => {
+    const bw = 420;
+    const x = VIEW_W / 2 - bw / 2;
+    ctx.fillStyle = "rgba(4,6,11,0.8)";
+    ctx.fillRect(x, y, bw, 30);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(x + 0.5, y + 0.5, bw, 30);
+    ctx.fillStyle = color;
+    ctx.globalAlpha = 0.25;
+    ctx.fillRect(x, y, bw * Math.max(0, Math.min(1, frac)), 30);
+    ctx.globalAlpha = 1;
+    ctx.textAlign = "center";
+    ctx.font = `bold 13px ${FONT}`;
+    ctx.fillText(text, VIEW_W / 2, y + 20);
+    y += 36;
+  };
+  if (w.penaltyT > 0) banner(`PENALTY ZONE   ·   survive   ${clock(w.penaltyT)}`, w.penaltyT / PENALTY.time, "#ff5a60");
+  if (w.emergency) banner(`EMERGENCY QUEST   ·   kill them all   ${clock(w.emergency.t)}`, w.emergency.t / w.emergency.total, GOLD);
+  if (w.sealed) {
+    ctx.textAlign = "right";
+    ctx.font = `bold 11px ${FONT}`;
+    ctx.fillStyle = "#ff5a60";
+    ctx.fillText("SEALED  ·  NO RETREAT  ·  COLD", VIEW_W - 20, VIEW_H - 40);
+  }
+}
+
+function drawPause(ctx: Ctx): void {
+  ctx.fillStyle = "rgba(4,6,11,0.78)";
+  ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+  ctx.shadowColor = BLUE;
+  ctx.shadowBlur = 24;
+  panel(ctx, VIEW_W / 2 - 200, 200, 400, 320);
+  ctx.shadowBlur = 0;
+  ctx.textAlign = "center";
+  ctx.font = `bold 24px ${FONT}`;
+  ctx.fillStyle = "#cfe4ff";
+  ctx.fillText("PAUSED", VIEW_W / 2, 250);
+  for (const b of pauseButtons()) {
+    const r = b.rect;
+    const hover = pointIn(r, mouse.x, mouse.y);
+    ctx.fillStyle = hover ? "rgba(255,216,74,0.2)" : "rgba(8,16,34,0.85)";
+    ctx.fillRect(r.x, r.y, r.w, r.h);
+    ctx.strokeStyle = hover ? GOLD : BLUE;
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(r.x + 0.5, r.y + 0.5, r.w, r.h);
+    ctx.font = `bold 13px ${FONT}`;
+    ctx.fillStyle = hover ? GOLD : "#cfe4ff";
+    ctx.fillText(b.label, r.x + r.w / 2, r.y + r.h / 2 + 4.5);
+  }
+  ctx.font = `11px ${FONT}`;
+  ctx.fillStyle = "#6f8fbf";
+  ctx.fillText("A saved gate resumes from the start of the current room.", VIEW_W / 2, 496);
+  ctx.fillText("ESC  resume", VIEW_W / 2, 512);
+}
+
+function drawTitle(ctx: Ctx, w: World): void {
+  ctx.fillStyle = "rgba(4,6,11,0.82)";
+  ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+  ctx.textAlign = "center";
+  ctx.font = `bold 72px ${FONT}`;
+  ctx.fillStyle = "#cfe4ff";
+  ctx.shadowColor = BLUE;
+  ctx.shadowBlur = 36;
+  ctx.fillText("GATEBOUND", VIEW_W / 2, 270);
+  ctx.shadowBlur = 0;
+  ctx.font = `14px ${FONT}`;
+  ctx.fillStyle = "#9fc8ff";
+  ctx.fillText("Your name has been entered in the Ledger.", VIEW_W / 2, 316);
+
+  const r = titleButton();
+  const hover = pointIn(r, mouse.x, mouse.y);
+  const fresh = !w.profile.introSeen;
+  ctx.fillStyle = hover ? "rgba(255,216,74,0.2)" : "rgba(8,16,34,0.9)";
+  ctx.fillRect(r.x, r.y, r.w, r.h);
+  ctx.strokeStyle = hover ? GOLD : BLUE;
+  ctx.lineWidth = 2;
+  ctx.strokeRect(r.x + 0.5, r.y + 0.5, r.w, r.h);
+  ctx.font = `bold 18px ${FONT}`;
+  ctx.fillStyle = hover ? GOLD : "#cfe4ff";
+  ctx.fillText(fresh ? "NEW GAME" : "CONTINUE", r.x + r.w / 2, r.y + 33);
+  ctx.font = `12px ${FONT}`;
+  ctx.fillStyle = "#6f8fbf";
+  const where = w.afterTitle === "gate" && w.dungeon ? `Rank ${w.rank} gate in progress` : "At the gate board";
+  if (!fresh) ctx.fillText(`Level ${w.player.prog.level}   ·   ${w.profile.gold} gold   ·   ${where}`, VIEW_W / 2, 486);
+  ctx.fillText("ENTER or click to play   ·   close the tab to quit: progress is saved", VIEW_W / 2, VIEW_H - 40);
 }
 
 function drawEnd(ctx: Ctx, w: World): void {
@@ -505,10 +641,19 @@ function drawEnd(ctx: Ctx, w: World): void {
   ctx.textAlign = "center";
   ctx.fillStyle = dead ? "#ff5a60" : GOLD;
   ctx.font = `bold 34px ${FONT}`;
-  ctx.fillText(dead ? "YOU DIED" : "GATE CLEARED", VIEW_W / 2, top + 58);
+  const heading = dead
+    ? "YOU DIED"
+    : w.run.retreated
+      ? "RETURNED"
+      : w.gateKind === "penalty"
+        ? "PENALTY SERVED"
+        : w.gateKind === "key"
+          ? "DUNGEON CLEARED"
+          : "GATE CLEARED";
+  ctx.fillText(heading, VIEW_W / 2, top + 58);
   ctx.fillStyle = "#9fc8ff";
   ctx.font = `13px ${FONT}`;
-  ctx.fillText(`Rank ${w.rank} gate   ·   level ${w.player.prog.level}`, VIEW_W / 2, top + 86);
+  ctx.fillText(`Rank ${w.rank}${w.sealed ? " sealed" : ""} gate   ·   level ${w.player.prog.level}`, VIEW_W / 2, top + 86);
   ctx.font = `15px ${FONT}`;
   lines.forEach((t, i) => {
     ctx.fillStyle = dead ? "#ffb0b4" : "#cfe4ff";
@@ -524,6 +669,8 @@ export function drawHud(ctx: Ctx, w: World, mouseX: number, mouseY: number, proj
   mouse.y = mouseY;
   ctx.clearRect(0, 0, VIEW_W, VIEW_H);
 
+  if (w.mode === "title") return drawTitle(ctx, w);
+
   if (w.mode === "select") {
     drawHub(ctx, w);
     drawVitals(ctx, w);
@@ -534,13 +681,19 @@ export function drawHud(ctx: Ctx, w: World, mouseX: number, mouseY: number, proj
     drawSkills(ctx, w);
     drawMinimap(ctx, w);
     drawBossBar(ctx, w);
+    drawAlerts(ctx, w);
     ctx.textAlign = "center";
     ctx.font = `12px ${FONT}`;
     ctx.fillStyle = "rgba(159,200,255,0.55)";
-    ctx.fillText("WASD move  ·  MOUSE aim  ·  CLICK attack  ·  SPACE dash  ·  Q E R skills  ·  F potion  ·  C status", VIEW_W / 2, VIEW_H - 14);
+    ctx.fillText(
+      "WASD move · MOUSE aim · CLICK attack · SPACE dash · Q E R skills · F potion · T stone · C status · ESC pause",
+      VIEW_W / 2,
+      VIEW_H - 14,
+    );
   }
   drawNotices(ctx, w);
   if (w.menu === "status") drawStatus(ctx, w);
+  if (w.menu === "pause") drawPause(ctx);
   if (w.mode === "dead" || w.mode === "cleared") drawEnd(ctx, w);
   if (w.mode === "select" && w.menu === "none") drawDialogue(ctx, w);
 }

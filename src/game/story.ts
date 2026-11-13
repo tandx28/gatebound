@@ -19,6 +19,10 @@ export const DIALOGUES: Record<string, Line[]> = {
     { speaker: LEDGER, text: "Grow, or be struck from it." },
     { speaker: MARA, text: "You're alive? The report said... never mind. The gate on Tanner Row is still open, if you want the work." },
   ],
+  penalty: [
+    { speaker: LEDGER, text: "Daily quest: incomplete." },
+    { speaker: LEDGER, text: "Penalty issued. Survive." },
+  ],
   m1: [
     { speaker: LEDGER, text: "Entry verified. Rewards are issued for progress. Penalties are issued for death." },
     { speaker: DOV, text: "You cleared a room on your own? You? Huh. Don't let it go to your head. The Warden at the end of that gate breaks people." },

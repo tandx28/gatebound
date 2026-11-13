@@ -14,7 +14,7 @@ export interface RoomNode {
   gy: number;
   /** Neighbour room id per side that has a door. */
   doors: Partial<Record<Side, number>>;
-  kind: "start" | "normal" | "boss";
+  kind: "start" | "normal" | "boss" | "trial";
   /** Steps from the start room. */
   depth: number;
   cleared: boolean;
@@ -82,4 +82,49 @@ export function generateDungeon(rank: Rank, rng: () => number): Dungeon {
   }
 
   return { rank, rooms, startId: start.id, bossId: boss.id };
+}
+
+/** A key dungeon: a short straight run of packed rooms, with no boss. */
+export function keyDungeon(rank: Rank, rng: () => number): Dungeon {
+  const def = RANKS[rank];
+  const rooms: RoomNode[] = [0, 1, 2].map((i) => ({
+    id: i,
+    gx: i,
+    gy: 0,
+    doors: { ...(i > 0 ? { w: i - 1 } : {}), ...(i < 2 ? { e: i + 1 } : {}) },
+    kind: i === 0 ? "start" : "normal",
+    depth: i,
+    cleared: i === 0,
+    visited: false,
+    spawns: i === 0 ? [] : Array.from({ length: 5 + i }, () => def.kinds[pick(rng, def.kinds.length)]),
+  }));
+  return { rank, rooms, startId: 0, bossId: -1 };
+}
+
+/**
+ * Attach a hidden trial room to the boss room, on a side with a free cell.
+ * It holds an echo of the boss and a few guards. Returns null if boxed in.
+ */
+export function addTrialRoom(d: Dungeon, rng: () => number): RoomNode | null {
+  const boss = d.rooms[d.bossId];
+  if (!boss) return null;
+  const def = RANKS[d.rank];
+  const taken = new Set(d.rooms.map((r) => `${r.gx},${r.gy}`));
+  const free = SIDES.filter((s) => boss.doors[s] === undefined && !taken.has(`${boss.gx + DELTA[s][0]},${boss.gy + DELTA[s][1]}`));
+  if (free.length === 0) return null;
+  const side = free[pick(rng, free.length)];
+  const room: RoomNode = {
+    id: d.rooms.length,
+    gx: boss.gx + DELTA[side][0],
+    gy: boss.gy + DELTA[side][1],
+    doors: { [OPPOSITE[side]]: boss.id },
+    kind: "trial",
+    depth: boss.depth + 1,
+    cleared: false,
+    visited: false,
+    spawns: [def.boss, ...Array.from({ length: 3 }, () => def.kinds[pick(rng, def.kinds.length)])],
+  };
+  boss.doors[side] = room.id;
+  d.rooms.push(room);
+  return room;
 }

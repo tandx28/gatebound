@@ -63,6 +63,8 @@ export interface Enemy extends Circle {
   hasHit: boolean;
   /** Seconds of invulnerability left. */
   inv: number;
+  /** Cannot be damaged at all (penalty zone). */
+  immortal?: boolean;
 }
 
 export interface Projectile extends Circle {
@@ -145,6 +147,16 @@ export interface Profile {
   quests: QuestState;
   introSeen: boolean;
   gatesCleared: number;
+  /** Keys held for key dungeons. */
+  keys: number;
+  /** Return Stones held: each leaves a gate at once, loot kept. */
+  stones: number;
+  /** Today's shop. `day` is the day it was rolled for; one free reset a day. */
+  shop: { day: number; rerolls: number; stock: string[] };
+  /** Today's daily quest progress. `day` 0 means none has been issued yet. */
+  daily: { day: number; kills: number; rooms: number; gates: number; done: boolean };
+  /** A daily quest was missed: the penalty zone is owed. */
+  penaltyPending: boolean;
 }
 
 /** Loot and facts about the gate in progress. Lost on death. */
@@ -155,6 +167,9 @@ export interface Run {
   tookDamage: boolean;
   /** The player entered below the gate's suggested level. */
   overLevel: boolean;
+  keys: number;
+  /** Left through the entrance instead of clearing. */
+  retreated: boolean;
   /** Set once the result has been applied to the profile. */
   settled: boolean;
   /** Lines for the result screen. */
@@ -164,8 +179,22 @@ export interface Run {
 export type HubTab = "gates" | "shop" | "gear" | "quests" | "system";
 export const HUB_TABS: HubTab[] = ["gates", "shop", "gear", "quests", "system"];
 
-export type Menu = "none" | "status";
-export type Mode = "select" | "gate" | "cleared" | "dead";
+export type Menu = "none" | "status" | "pause";
+export type Mode = "title" | "select" | "gate" | "cleared" | "dead";
+export type GateKind = "normal" | "key" | "penalty";
+
+/** Enough of a gate in progress to resume it from the current room. */
+export interface GateSnapshot {
+  rank: Rank;
+  kind: "normal" | "key";
+  sealed: boolean;
+  bossDead: boolean;
+  dungeon: Dungeon;
+  roomId: number;
+  run: Run;
+  hp: number;
+  mana: number;
+}
 
 export interface World {
   profile: Profile;
@@ -179,6 +208,24 @@ export interface World {
   dirty: boolean;
   /** Side effects the browser shell must perform: export, import, reset. */
   requests: string[];
+  /** Calendar day number, supplied by the shell. 0 means no calendar (tests). */
+  today: number;
+  gateKind: GateKind;
+  /** This gate turned out to be sealed. */
+  sealed: boolean;
+  coldT: number;
+  /** A timed order in the current room. */
+  emergency: { t: number; total: number; bonus: number } | null;
+  /** Seconds left to survive in the penalty zone. */
+  penaltyT: number;
+  /** The gate's boss is dead but a hidden door keeps the gate open. */
+  bossDead: boolean;
+  /** Bumped when the current room's doors change, so the view rebuilds. */
+  layoutRev: number;
+  /** Chance of a hidden door after a boss kill. Tests override it. */
+  hiddenChance: number;
+  /** Where the title screen's Play button leads. */
+  afterTitle: "select" | "gate";
   mode: Mode;
   menu: Menu;
   notices: Notice[];

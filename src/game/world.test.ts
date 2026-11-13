@@ -549,7 +549,7 @@ describe("rooms and doors", () => {
 
   function gate(): { w: World; c: FakeControls; side: Side } {
     const w = createWorld(seeded(11));
-    enterGate(w, "E");
+    enterGate(w, "E", { sealed: false });
     const side = SIDES.find((s) => currentRoom(w)!.doors[s] !== undefined)!;
     return { w, c: new FakeControls(), side };
   }

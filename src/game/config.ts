@@ -129,3 +129,29 @@ export const RANKS: Record<Rank, RankDef> = {
   D: { minLevel: 6, hpMult: 2.2, dmgMult: 1.5, xpMult: 2.5, rooms: 6, kinds: ["shooter", "exploder", "brute"], boss: "summoner" },
   C: { minLevel: 13, hpMult: 4, dmgMult: 2.2, xpMult: 5, rooms: 7, kinds: ["charger", "healer", "brute"], boss: "duellist" },
 };
+
+/** A sealed gate: found out only once inside. No retreat, tougher, colder, richer. */
+export const SEALED = { chance: 1 / 8, hp: 1.8, dmg: 1.4, reward: 2, coldEvery: 3 };
+
+/** A sudden timed order on entering a room. */
+export const EMERGENCY = { chance: 0.15, base: 10, perEnemy: 7, hpLoss: 0.3, bonus: 0.5 };
+
+/** A hidden door behind the boss, leading to a harder echo of it. */
+export const HIDDEN = { chance: 0.15, hp: 0.7, dmg: 1.3, gold: 400 };
+
+/** Keys open short solo dungeons with a fixed reward. */
+export const KEYS = { dropChance: 0.03, gold: 150, points: 1 };
+
+/** Punishment for a missed daily quest: survive this long, in seconds. */
+export const PENALTY = { time: 90 };
+
+/** The daily quest: all three goals, reset each calendar day. */
+export const DAILY = { kills: 40, rooms: 5, gates: 1, points: 3 };
+
+/** Leaving a gate early keeps only this share of its gold. */
+export const RETREAT = { goldKeep: 0.5 };
+
+/** The rank suited to a level, for instances that scale to the player. */
+export function rankForLevel(level: number): Rank {
+  return level >= RANKS.C.minLevel ? "C" : level >= RANKS.D.minLevel ? "D" : "E";
+}

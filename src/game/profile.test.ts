@@ -36,7 +36,12 @@ function run(w: World, c: Controls, seconds: number): void {
   for (let i = 0; i < Math.round(seconds / STEP); i++) step(w, c, STEP);
 }
 
-const hub = () => createWorld(seeded(4));
+/** A world on the gate board with a known shop stock. */
+const hub = () => {
+  const w = createWorld(seeded(4));
+  w.profile.shop.stock = ["iron_fang", "padded_coat", "scale_vest"];
+  return w;
+};
 const arena = () => {
   const w = createWorld(() => 0.5);
   enterArena(w);
@@ -277,7 +282,7 @@ describe("quests in play", () => {
   it("clearing a room in an E gate completes the first quest and pays it", () => {
     const w = createWorld(seeded(11));
     const c = new FakeControls();
-    enterGate(w, "E");
+    enterGate(w, "E", { sealed: false });
     w.dungeon!.rooms[1].visited = true;
     w.roomId = 1;
     w.doorsOpen = false;

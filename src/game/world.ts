@@ -2,22 +2,39 @@ import type { Controls } from "../engine/input";
 import { clamp, norm } from "../engine/vec";
 import { circlesOverlap, inArc, rollDamage, separate } from "./combat";
 import {
+  EMERGENCY,
+  HIDDEN,
   KINDS,
+  PENALTY,
   PIERCE,
   PLAYER,
   RANK_IDS,
+  rankForLevel,
   RANKS,
   ROOM,
+  SEALED,
   SKILL_IDS,
   SKILLS,
   SURGE,
   WHIRL,
+  type EnemyKind,
   type Rank,
   type SkillId,
 } from "./config";
-import { generateDungeon, OPPOSITE, type RoomNode, type Side } from "./dungeon";
-import { damageEnemy, isCommitted, makeEnemy, spawnPoint, stepEnemy } from "./enemies";
-import { blast, burst, floatText, HUB_TABS, hurtPlayer, type Enemy, type Player, type World } from "./state";
+import { addTrialRoom, generateDungeon, keyDungeon, OPPOSITE, type Dungeon, type RoomNode, type Side } from "./dungeon";
+import { damageEnemy, isCommitted, spawnEnemy, spawnPoint, stepEnemy } from "./enemies";
+import {
+  blast,
+  burst,
+  floatText,
+  HUB_TABS,
+  hurtPlayer,
+  type Enemy,
+  type GateKind,
+  type GateSnapshot,
+  type Player,
+  type World,
+} from "./state";
 import {
   advanceDialogue,
   fireQuest,
@@ -29,10 +46,13 @@ import {
   refreshDerived,
   settleClear,
   settleDeath,
+  settleRetreat,
+  syncDay,
+  trialReward,
   usePotion,
 } from "./profile";
 import { addXp, allocate, derive, newProgress, POINTS_PER_LEVEL, STAT_KEYS } from "./stats";
-import { hubButtons, pointIn, statButton } from "./ui";
+import { hubButtons, pauseButtons, pointIn, statButton, titleButton } from "./ui";
 
 export type { Enemy, Player, World } from "./state";
 
@@ -47,6 +67,16 @@ export function createWorld(rng: () => number = Math.random): World {
     pendingDialogue: [],
     dirty: false,
     requests: [],
+    today: 0,
+    gateKind: "normal",
+    sealed: false,
+    coldT: 0,
+    emergency: null,
+    penaltyT: 0,
+    bossDead: false,
+    layoutRev: 0,
+    hiddenChance: HIDDEN.chance,
+    afterTitle: "select",
     mode: "select",
     menu: "none",
     notices: [],
@@ -122,45 +152,132 @@ function resetPlayer(p: Player): void {
   p.skillCd = { pierce: 0, whirl: 0, surge: 0 };
 }
 
-/** Start a gate of the given rank. The player enters rested. */
-export function enterGate(w: World, rank: Rank): void {
+/** Common setup for entering any kind of gate. The player enters rested. */
+function beginGate(w: World, rank: Rank, dungeon: Dungeon, kind: GateKind, sealed: boolean): void {
   w.rank = rank;
-  w.dungeon = generateDungeon(rank, w.rng);
+  w.dungeon = dungeon;
+  w.gateKind = kind;
+  w.sealed = sealed;
+  w.coldT = 0;
+  w.emergency = null;
+  w.penaltyT = 0;
+  w.bossDead = false;
   w.mode = "gate";
   w.menu = "none";
   w.clearT = 0;
   w.texts = [];
   w.fx = [];
   w.run = newRun();
-  w.run.overLevel = w.player.prog.level < RANKS[rank].minLevel;
   resetPlayer(w.player);
-  enterRoom(w, w.dungeon.startId, null);
-  w.notices.push({ title: `RANK ${rank} GATE`, body: "Find the boss room. Doors lock while enemies live.", life: 3 });
 }
 
-/** A single sealed, empty room with no doors. Used by tests. */
-export function enterArena(w: World, rank: Rank = "E"): void {
-  w.rank = rank;
-  w.dungeon = {
+/**
+ * Start a gate of the given rank. One gate in eight turns out to be sealed;
+ * pass `sealed` to decide it instead of rolling.
+ */
+export function enterGate(w: World, rank: Rank, opts: { sealed?: boolean } = {}): void {
+  const dungeon = generateDungeon(rank, w.rng);
+  const sealed = opts.sealed ?? w.rng() < SEALED.chance;
+  beginGate(w, rank, dungeon, "normal", sealed);
+  w.run.overLevel = w.player.prog.level < RANKS[rank].minLevel;
+  enterRoom(w, dungeon.startId, null);
+  if (sealed) {
+    w.notices.push({ title: "SEALED GATE", body: "The way out is gone. Stronger enemies, biting cold, double reward.", life: 5 });
+  } else {
+    w.notices.push({ title: `RANK ${rank} GATE`, body: "Find the boss room. Doors lock while enemies live.", life: 3 });
+  }
+}
+
+/** Spend a key on a short dungeon scaled to the player's level. */
+export function enterKeyGate(w: World): void {
+  if (w.profile.keys <= 0) return;
+  w.profile.keys -= 1;
+  w.dirty = true;
+  const rank = rankForLevel(w.player.prog.level);
+  const dungeon = keyDungeon(rank, w.rng);
+  beginGate(w, rank, dungeon, "key", false);
+  enterRoom(w, dungeon.startId, null);
+  w.notices.push({ title: "KEY DUNGEON", body: "Two rooms. Clear both for the reward.", life: 3 });
+}
+
+function arenaDungeon(rank: Rank): Dungeon {
+  return {
     rank,
     startId: 0,
     bossId: -1,
     rooms: [{ id: 0, gx: 0, gy: 0, doors: {}, kind: "start", depth: 0, cleared: true, visited: true, spawns: [] }],
   };
-  w.mode = "gate";
+}
+
+/** A single sealed, empty room with no doors. Used by tests. */
+export function enterArena(w: World, rank: Rank = "E"): void {
+  beginGate(w, rank, arenaDungeon(rank), "normal", false);
   w.roomId = 0;
   w.doorsOpen = true;
-  w.run = newRun();
   clearField(w);
-  resetPlayer(w.player);
   w.player.x = ROOM.w / 2;
   w.player.y = ROOM.h / 2;
+}
+
+/** The penalty zone: survive a set time against enemies that cannot be killed. */
+export function enterPenalty(w: World): void {
+  const rank = rankForLevel(w.player.prog.level);
+  beginGate(w, rank, arenaDungeon(rank), "penalty", false);
+  w.roomId = 0;
+  w.doorsOpen = false;
+  clearField(w);
+  w.player.x = ROOM.w / 2;
+  w.player.y = ROOM.h / 2;
+  w.penaltyT = PENALTY.time;
+  const pack: EnemyKind[] = ["swarmer", "swarmer", "swarmer", "swarmer", "charger", "charger", "shooter", "shooter"];
+  for (const kind of pack) {
+    const at = spawnPoint(w);
+    const e = spawnEnemy(w, kind, at.x, at.y);
+    e.immortal = true;
+    e.xp = 0;
+    e.t = 1 + w.rng();
+    w.enemies.push(e);
+  }
+  w.notices.push({ title: "PENALTY ZONE", body: `Survive ${PENALTY.time} seconds. They cannot be killed.`, life: 5 });
+}
+
+/** A copy of the gate in progress, for the save. Null when there is nothing to resume. */
+export function snapshotGate(w: World): GateSnapshot | null {
+  const inGate = w.mode === "gate" || (w.mode === "title" && w.afterTitle === "gate");
+  if (!inGate || !w.dungeon || w.gateKind === "penalty" || w.clearT > 0) return null;
+  return JSON.parse(
+    JSON.stringify({
+      rank: w.rank,
+      kind: w.gateKind,
+      sealed: w.sealed,
+      bossDead: w.bossDead,
+      dungeon: w.dungeon,
+      roomId: w.roomId,
+      run: w.run,
+      hp: w.player.hp,
+      mana: w.player.mana,
+    }),
+  );
+}
+
+/** Pick a saved gate back up at the start of the room it was saved in. */
+export function resumeGate(w: World, snap: GateSnapshot): void {
+  beginGate(w, snap.rank, snap.dungeon, snap.kind, snap.sealed);
+  w.run = snap.run;
+  w.bossDead = snap.bossDead;
+  enterRoom(w, snap.roomId, null);
+  w.player.hp = Math.max(1, Math.min(w.player.d.maxHp, snap.hp));
+  w.player.mana = Math.max(0, Math.min(w.player.d.maxMana, snap.mana));
 }
 
 /** Back to the gate board. */
 export function toSelect(w: World): void {
   w.mode = "select";
   w.dungeon = null;
+  w.gateKind = "normal";
+  w.sealed = false;
+  w.emergency = null;
+  w.bossDead = false;
   clearField(w);
   w.fx = [];
   w.texts = [];
@@ -187,6 +304,7 @@ export function enterRoom(w: World, id: number, from: Side | null): void {
   p.dashT = 0;
   p.lungeT = 0;
   room.visited = true;
+  w.emergency = null;
 
   if (room.cleared || room.spawns.length === 0) {
     room.cleared = true;
@@ -195,13 +313,31 @@ export function enterRoom(w: World, id: number, from: Side | null): void {
   }
   // Doors lock until the room is cleared.
   w.doorsOpen = false;
+  let reward = 0;
   for (const kind of room.spawns) {
     const at = KINDS[kind].boss ? { x: ROOM.w / 2, y: ROOM.h / 2 } : spawnPoint(w);
-    const e = makeEnemy(kind, at.x, at.y, w.rank);
+    const e = spawnEnemy(w, kind, at.x, at.y);
     e.t = 0.7 + w.rng() * 0.4;
+    if (e.boss && room.kind === "trial") {
+      // The echo starts where the boss left off: already in its second phase.
+      e.phase = 2;
+      e.maxHp = Math.round(e.maxHp * HIDDEN.hp);
+      e.hp = e.maxHp;
+      e.dmg *= HIDDEN.dmg;
+    }
+    reward += e.xp;
     w.enemies.push(e);
     burst(w, at.x, at.y, "#e5484d", 8, 140);
-    if (e.boss) w.notices.push({ title: KINDS[kind].name.toUpperCase(), body: "The gate's master has noticed you.", life: 3 });
+    if (e.boss) {
+      const body = room.kind === "trial" ? "An echo of what you just killed. It remembers." : "The gate's master has noticed you.";
+      w.notices.push({ title: KINDS[kind].name.toUpperCase(), body, life: 3 });
+    }
+  }
+  w.emergency = null;
+  if (room.kind === "normal" && w.rng() < EMERGENCY.chance) {
+    const t = EMERGENCY.base + EMERGENCY.perEnemy * room.spawns.length;
+    w.emergency = { t, total: t, bonus: Math.round(reward * EMERGENCY.bonus) };
+    w.notices.push({ title: "EMERGENCY QUEST", body: `Kill every enemy within ${t} seconds, or be punished.`, life: 4 });
   }
 }
 
@@ -313,6 +449,27 @@ function constrainPlayer(w: World): void {
   }
 }
 
+/**
+ * T: leave the gate. Free once the boss is dead; otherwise it costs a
+ * Return Stone, which does nothing in a sealed gate or the penalty zone.
+ */
+function tryLeave(w: World): void {
+  if (w.gateKind === "penalty" || w.clearT > 0) return;
+  if (w.bossDead) {
+    w.clearT = 0.01;
+    return;
+  }
+  if (w.sealed) {
+    w.notices.push({ title: "SEALED", body: "The stone is cold and dead in your hand.", life: 2.5 });
+    return;
+  }
+  if (w.profile.stones <= 0) return;
+  w.profile.stones -= 1;
+  clearField(w);
+  settleRetreat(w);
+  w.mode = "cleared";
+}
+
 function stepPlayer(w: World, input: Controls, dt: number): void {
   const p = w.player;
   const eff = effective(p);
@@ -324,6 +481,10 @@ function stepPlayer(w: World, input: Controls, dt: number): void {
 
   for (const id of SKILL_IDS) if (input.consume(SKILLS[id].code)) useSkill(w, id);
   if (input.consume("KeyF")) usePotion(w);
+  if (input.consume("KeyT")) {
+    tryLeave(w);
+    if (w.mode !== "gate") return;
+  }
 
   if (input.consume("Space", "ShiftLeft", "ShiftRight") && p.dashCd <= 0 && p.lungeT <= 0) {
     // Dash along the movement keys, or toward the cursor when standing still.
@@ -439,7 +600,11 @@ function stepStatus(w: World, input: Controls): void {
  * Otherwise: click a button, press 1-3 on the gates tab, or Q/E to change tab.
  */
 function stepSelect(w: World, input: Controls): void {
+  if (syncDay(w)) w.pendingDialogue.push("penalty");
+  nextDialogue(w);
   const clicked = input.consume("Mouse0");
+  // A missed daily quest is paid for before anything else.
+  if (!w.dialogue && w.profile.penaltyPending) return enterPenalty(w);
   if (w.dialogue) {
     if (input.consume("Escape")) advanceDialogue(w, true);
     else if (clicked || input.consume("Space", "Enter")) advanceDialogue(w, false);
@@ -462,8 +627,38 @@ function stepSelect(w: World, input: Controls): void {
     w.tab = HUB_TABS[(HUB_TABS.indexOf(w.tab) + turn + n) % n];
   }
   if (!action) return;
-  const rank = hubAction(w, action);
-  if (rank) enterGate(w, rank);
+  const enter = hubAction(w, action);
+  if (enter === "key") enterKeyGate(w);
+  else if (enter) enterGate(w, enter);
+}
+
+/** Title screen: Play, by click or key. */
+function stepTitle(w: World, input: Controls): void {
+  const clicked = input.consume("Mouse0") && pointIn(titleButton(), input.mouseX, input.mouseY);
+  if (!clicked && !input.consume("Enter", "Space")) return;
+  w.mode = w.afterTitle === "gate" && w.dungeon ? "gate" : "select";
+  w.menu = "none";
+}
+
+/** Pause menu: resume, save, or save and leave to the title screen. */
+function stepPause(w: World, input: Controls): void {
+  if (input.consume("Escape")) {
+    w.menu = "none";
+    return;
+  }
+  if (!input.consume("Mouse0")) return;
+  const hit = pauseButtons().find((b) => pointIn(b.rect, input.mouseX, input.mouseY));
+  if (!hit) return;
+  if (hit.id === "pause:resume") w.menu = "none";
+  else if (hit.id === "pause:save") {
+    w.dirty = true;
+    w.notices.push({ title: "GAME SAVED", body: "You will resume from the start of this room.", life: 3 });
+  } else if (hit.id === "pause:exit") {
+    w.dirty = true;
+    w.menu = "none";
+    w.afterTitle = "gate";
+    w.mode = "title";
+  }
 }
 
 function stepEffects(w: World, dt: number): void {
@@ -488,12 +683,19 @@ export function step(w: World, input: Controls, dt: number): void {
   for (const n of w.notices) n.life -= dt;
   w.notices = w.notices.filter((n) => n.life > 0);
 
-  // The status window pauses everything behind it.
-  const canMenu = w.mode === "gate" || w.mode === "select";
+  if (w.mode === "title") return stepTitle(w, input);
+
+  // The status window and the pause menu stop everything behind them.
+  const canMenu = (w.mode === "gate" || w.mode === "select") && w.menu !== "pause";
   if (canMenu && input.consume("KeyC", "Tab")) w.menu = w.menu === "status" ? "none" : "status";
-  if (w.menu !== "none") {
+  if (w.menu === "status") {
     if (input.consume("Escape")) w.menu = "none";
     else stepStatus(w, input);
+    return;
+  }
+  if (w.menu === "pause") return stepPause(w, input);
+  if (w.mode === "gate" && input.consume("Escape")) {
+    w.menu = "pause";
     return;
   }
 
@@ -513,7 +715,8 @@ export function step(w: World, input: Controls, dt: number): void {
   const roomBefore = w.roomId;
   stepPlayer(w, input, dt);
   // Walking through a door ends this step: the new room starts fresh.
-  if (w.roomId !== roomBefore) return;
+  // So does leaving by stone. (`mode` changes deep inside, so widen it.)
+  if (w.roomId !== roomBefore || (w.mode as string) !== "gate") return;
 
   for (const e of w.enemies) stepEnemy(w, e, dt);
   if (w.spawnQueue.length > 0) {
@@ -562,21 +765,76 @@ export function step(w: World, input: Controls, dt: number): void {
   }
   w.enemies = alive;
 
+  const room = currentRoom(w);
   if (bossDied) {
     // The boss's death ends the fight outright.
     for (const e of w.enemies) burst(w, e.x, e.y, "#e5484d", 10, 200);
     clearField(w);
     w.shake = Math.max(w.shake, 14);
-    w.clearT = 2.2;
-    floatText(w, p.x, p.y, "GATE CLEARED", "#ffd84a", true);
+    const trial = room?.kind === "trial";
+    if (trial) trialReward(w);
+    // Rarely, a hidden door opens behind the boss instead of the gate closing.
+    const hidden =
+      !trial && w.gateKind === "normal" && !w.bossDead && w.rng() < w.hiddenChance ? addTrialRoom(w.dungeon!, w.rng) : null;
+    if (hidden) {
+      w.bossDead = true;
+      w.layoutRev += 1;
+      w.notices.push({ title: "A HIDDEN DOOR", body: "Something waits behind it. Enter, or press T to leave with what you have.", life: 6 });
+    } else {
+      w.clearT = 2.2;
+      floatText(w, p.x, p.y, "GATE CLEARED", "#ffd84a", true);
+    }
   }
 
-  const room = currentRoom(w);
   if (room && !room.cleared && w.enemies.length === 0 && w.mode === "gate") {
     room.cleared = true;
     w.doorsOpen = true;
     if (!bossDied) floatText(w, p.x, p.y, "ROOM CLEARED", "#6dff9c", true);
+    if (w.emergency) {
+      const bonus = w.emergency.bonus;
+      w.emergency = null;
+      w.run.gold += bonus;
+      w.notices.push({ title: "EMERGENCY QUEST COMPLETE", body: `+${bonus} gold  ·  +${bonus} experience`, life: 4 });
+      grantXp(w, bonus);
+    }
     fireQuest(w, { type: "room", rank: w.rank });
+    // A key dungeon has no boss: it ends when every room is clear.
+    if (w.gateKind === "key" && w.dungeon!.rooms.every((r) => r.cleared)) {
+      w.clearT = 2.2;
+      floatText(w, p.x, p.y, "DUNGEON CLEARED", "#ffd84a", true);
+    }
+  }
+
+  if (w.emergency) {
+    w.emergency.t -= dt;
+    if (w.emergency.t <= 0) {
+      // Failure costs health, but never the last of it.
+      w.emergency = null;
+      const loss = Math.min(p.hp - 1, Math.round(p.d.maxHp * EMERGENCY.hpLoss));
+      p.hp -= loss;
+      p.hurtFlash = 0.4;
+      w.shake = Math.max(w.shake, 12);
+      w.notices.push({ title: "EMERGENCY QUEST FAILED", body: `Penalty: -${loss} health`, life: 4 });
+    }
+  }
+
+  if (w.sealed) {
+    // The cold wears health down slowly; it weakens but does not kill.
+    w.coldT += dt;
+    if (w.coldT >= SEALED.coldEvery) {
+      w.coldT = 0;
+      if (p.hp > 1) p.hp -= 1;
+    }
+  }
+
+  if (w.penaltyT > 0 && (w.mode as string) === "gate") {
+    w.penaltyT -= dt;
+    if (w.penaltyT <= 0) {
+      clearField(w);
+      w.mode = "cleared";
+      settleClear(w);
+      return;
+    }
   }
 
   // `mode` is set from deep inside the hit handling, so widen it back out.

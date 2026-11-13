@@ -17,41 +17,96 @@ export interface Bonus {
   damagePct?: number;
 }
 
+export type Rarity = "common" | "uncommon" | "rare" | "epic";
+export const RARITIES: Rarity[] = ["common", "uncommon", "rare", "epic"];
+
+/** How likely each rarity is to fill a shop slot. */
+export const RARITY_WEIGHT: Record<Rarity, number> = { common: 50, uncommon: 30, rare: 15, epic: 5 };
+const PRICE: Record<Rarity, number> = { common: 60, uncommon: 180, rare: 450, epic: 1000 };
+
 export interface ItemDef {
   id: string;
   name: string;
   slot: Slot;
+  rarity: Rarity;
   /** Shop price. Selling returns half. */
   price: number;
   bonus: Bonus;
-  /** Boss drops are never sold in the shop. */
+  /** Boss and trial drops are never sold in the shop. */
   unique?: boolean;
 }
 
+const shop = (id: string, name: string, slot: Slot, rarity: Rarity, bonus: Bonus): ItemDef => ({
+  id,
+  name,
+  slot,
+  rarity,
+  price: PRICE[rarity],
+  bonus,
+});
+
 const list: ItemDef[] = [
-  { id: "iron_fang", name: "Iron Fang", slot: "weapon", price: 60, bonus: { damage: 3 } },
-  { id: "hunters_kris", name: "Hunter's Kris", slot: "weapon", price: 180, bonus: { damage: 7, crit: 0.03 } },
-  { id: "voltaic_edge", name: "Voltaic Edge", slot: "weapon", price: 450, bonus: { damage: 13, crit: 0.05 } },
-  { id: "padded_coat", name: "Padded Coat", slot: "armour", price: 60, bonus: { hp: 20 } },
-  { id: "scale_vest", name: "Scale Vest", slot: "armour", price: 180, bonus: { hp: 50 } },
-  { id: "gatehide_mail", name: "Gatehide Mail", slot: "armour", price: 450, bonus: { hp: 100 } },
-  { id: "runners_band", name: "Runner's Band", slot: "accessory", price: 60, bonus: { speedPct: 0.06 } },
-  { id: "focus_ring", name: "Focus Ring", slot: "accessory", price: 180, bonus: { mana: 12 } },
-  { id: "keen_charm", name: "Keen Eye Charm", slot: "accessory", price: 450, bonus: { crit: 0.08 } },
-  { id: "wardens_knuckle", name: "Warden's Knuckle", slot: "accessory", price: 300, bonus: { hp: 30, damage: 4 }, unique: true },
-  { id: "choir_baton", name: "Choir Baton", slot: "weapon", price: 600, bonus: { damage: 10, mana: 18 }, unique: true },
-  { id: "mirror_edge", name: "Mirror Edge", slot: "weapon", price: 1200, bonus: { damage: 18, speedPct: 0.08 }, unique: true },
+  shop("iron_fang", "Iron Fang", "weapon", "common", { damage: 3 }),
+  shop("bone_shiv", "Bone Shiv", "weapon", "common", { damage: 2, crit: 0.02 }),
+  shop("hunters_kris", "Hunter's Kris", "weapon", "uncommon", { damage: 7, crit: 0.03 }),
+  shop("gale_knife", "Gale Knife", "weapon", "uncommon", { damage: 5, speedPct: 0.04 }),
+  shop("voltaic_edge", "Voltaic Edge", "weapon", "rare", { damage: 13, crit: 0.05 }),
+  shop("nightglass", "Nightglass Dagger", "weapon", "epic", { damage: 20, crit: 0.08 }),
+  shop("padded_coat", "Padded Coat", "armour", "common", { hp: 20 }),
+  shop("leather_wraps", "Leather Wraps", "armour", "common", { hp: 12, speedPct: 0.02 }),
+  shop("scale_vest", "Scale Vest", "armour", "uncommon", { hp: 50 }),
+  shop("warded_cloak", "Warded Cloak", "armour", "uncommon", { hp: 30, mana: 10 }),
+  shop("gatehide_mail", "Gatehide Mail", "armour", "rare", { hp: 100 }),
+  shop("bastion_plate", "Bastion Plate", "armour", "epic", { hp: 160 }),
+  shop("runners_band", "Runner's Band", "accessory", "common", { speedPct: 0.06 }),
+  shop("copper_charm", "Copper Charm", "accessory", "common", { hp: 10, mana: 6 }),
+  shop("focus_ring", "Focus Ring", "accessory", "uncommon", { mana: 12 }),
+  shop("hawk_pendant", "Hawk Pendant", "accessory", "uncommon", { crit: 0.04, speedPct: 0.03 }),
+  shop("keen_charm", "Keen Eye Charm", "accessory", "rare", { crit: 0.08 }),
+  shop("ledger_seal", "Ledger Seal", "accessory", "epic", { damagePct: 0.1, mana: 20 }),
+  { id: "wardens_knuckle", name: "Warden's Knuckle", slot: "accessory", rarity: "rare", price: 300, bonus: { hp: 30, damage: 4 }, unique: true },
+  { id: "choir_baton", name: "Choir Baton", slot: "weapon", rarity: "rare", price: 600, bonus: { damage: 10, mana: 18 }, unique: true },
+  { id: "mirror_edge", name: "Mirror Edge", slot: "weapon", rarity: "epic", price: 1200, bonus: { damage: 18, speedPct: 0.08 }, unique: true },
+  { id: "trial_sigil", name: "Trial Sigil", slot: "accessory", rarity: "epic", price: 1600, bonus: { damagePct: 0.1, hp: 40 }, unique: true },
 ];
 
 export const ITEMS: Record<string, ItemDef> = Object.fromEntries(list.map((i) => [i.id, i]));
-export const SHOP_STOCK: string[] = list.filter((i) => !i.unique).map((i) => i.id);
+/** Everything the shop can ever stock. */
+export const SHOP_POOL: string[] = list.filter((i) => !i.unique).map((i) => i.id);
+export const SHOP_SLOTS = 6;
 export const BOSS_DROP: Partial<Record<EnemyKind, string>> = {
   warden: "wardens_knuckle",
   summoner: "choir_baton",
   duellist: "mirror_edge",
 };
+export const TRIAL_DROP = "trial_sigil";
+
+/**
+ * Pick the day's shop stock: distinct items, weighted by rarity, skipping
+ * anything in `exclude`. The same generator state always gives the same stock.
+ */
+export function rollStock(rng: () => number, exclude: string[] = []): string[] {
+  const pool = SHOP_POOL.filter((id) => !exclude.includes(id));
+  const out: string[] = [];
+  while (out.length < SHOP_SLOTS && pool.length > 0) {
+    const total = pool.reduce((sum, id) => sum + RARITY_WEIGHT[ITEMS[id].rarity], 0);
+    let roll = rng() * total;
+    let index = pool.length - 1;
+    for (let i = 0; i < pool.length; i++) {
+      roll -= RARITY_WEIGHT[ITEMS[pool[i]].rarity];
+      if (roll < 0) {
+        index = i;
+        break;
+      }
+    }
+    out.push(pool.splice(index, 1)[0]);
+  }
+  return out;
+}
 
 export const POTION = { price: 40, max: 3, heal: 0.5 };
+/** A Return Stone leaves a gate at once with its loot. Useless in a sealed gate. */
+export const STONE = { price: 80, max: 2 };
 
 export interface TitleDef {
   id: string;

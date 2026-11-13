@@ -2,7 +2,7 @@ import { Input } from "./engine/input";
 import { STEP, VIEW_H, VIEW_W } from "./game/config";
 import { beginStory, refreshDerived } from "./game/profile";
 import { applySave, parseSave, SAVE_KEY, toSave } from "./game/save";
-import { createWorld, step } from "./game/world";
+import { createWorld, step, toSelect } from "./game/world";
 import { drawHud } from "./render/hud";
 import { Scene3D } from "./render/scene3d";
 
@@ -33,9 +33,19 @@ function writeStored(): void {
   }
 }
 
+/** Local calendar day number, so daily content turns over at local midnight. */
+function today(): number {
+  const now = new Date();
+  return Math.floor((now.getTime() - now.getTimezoneOffset() * 60000) / 86400000);
+}
+
+world.today = today();
 const stored = parseSave(readStored());
 if (stored) applySave(world, stored);
 beginStory(world);
+// Always open on the title screen; Play continues where the save left off.
+world.afterTitle = world.mode === "gate" ? "gate" : "select";
+world.mode = "title";
 
 /** Start over in place, keeping the same world object the loop holds. */
 function resetProgress(): void {
@@ -45,6 +55,7 @@ function resetProgress(): void {
     // Ignored for the same reason as above.
   }
   const fresh = createWorld();
+  toSelect(world);
   world.profile = fresh.profile;
   world.player.prog = fresh.player.prog;
   world.pendingDialogue = [];
@@ -81,6 +92,7 @@ function importSave(): void {
       world.notices.push({ title: "IMPORT FAILED", body: "That file is not a Gatebound save.", life: 4 });
       return;
     }
+    toSelect(world);
     applySave(world, data);
     world.dirty = true;
     world.notices.push({ title: "SAVE IMPORTED", body: `Level ${data.prog.level}  ·  ${data.profile.gold} gold`, life: 4 });
@@ -131,6 +143,7 @@ function frame(now: number): void {
   input.aimX = aim.x;
   input.aimY = aim.y;
 
+  world.today = today();
   let stepped = false;
   while (acc >= STEP) {
     step(world, input, STEP);

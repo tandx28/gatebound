@@ -8,6 +8,7 @@ import {
   KINDS,
   RANKS,
   ROOM,
+  SEALED,
   SHOOTER,
   SWARMER,
   type EnemyKind,
@@ -17,11 +18,18 @@ import { blast, burst, floatText, hurtPlayer, type Enemy, type World } from "./s
 
 /** Enemy construction, damage rules, and per-kind behaviour. */
 
-export function makeEnemy(kind: EnemyKind, x: number, y: number, rank: Rank): Enemy {
+/** Extra scaling on top of rank, as in a sealed gate. */
+export interface Boost {
+  hp: number;
+  dmg: number;
+  reward: number;
+}
+
+export function makeEnemy(kind: EnemyKind, x: number, y: number, rank: Rank, boost: Boost = { hp: 1, dmg: 1, reward: 1 }): Enemy {
   const def = KINDS[kind];
   const r = RANKS[rank];
   // Bosses are tuned per gate already; only regular enemies scale with rank.
-  const hp = Math.round(def.hp * (def.boss ? 1 : r.hpMult));
+  const hp = Math.round(def.hp * (def.boss ? 1 : r.hpMult) * boost.hp);
   return {
     x,
     y,
@@ -29,8 +37,8 @@ export function makeEnemy(kind: EnemyKind, x: number, y: number, rank: Rank): En
     kind,
     hp,
     maxHp: hp,
-    dmg: def.damage * (def.boss ? 1 : r.dmgMult),
-    xp: Math.round(def.xp * (def.boss ? 1 : r.xpMult)),
+    dmg: def.damage * (def.boss ? 1 : r.dmgMult) * boost.dmg,
+    xp: Math.round(def.xp * (def.boss ? 1 : r.xpMult) * boost.reward),
     boss: def.boss,
     phase: 1,
     state: "recover",
@@ -63,7 +71,7 @@ export function damageEnemy(
   fromY: number,
   knock: number,
 ): boolean {
-  if (e.inv > 0 || e.hp <= 0) return false;
+  if (e.inv > 0 || e.hp <= 0 || e.immortal) return false;
 
   // A brute's shield stops hits from the front, except while it recovers.
   if (e.kind === "brute" && e.state !== "recover") {
@@ -110,6 +118,11 @@ export function damageEnemy(
     e.cd = Math.max(e.cd, 0.7);
   }
   return true;
+}
+
+/** Make an enemy for the gate in progress, with its modifiers applied. */
+export function spawnEnemy(w: World, kind: EnemyKind, x: number, y: number): Enemy {
+  return makeEnemy(kind, x, y, w.rank, w.sealed ? SEALED : undefined);
 }
 
 function fire(w: World, e: Enemy, angle: number, speed: number, damage: number): void {
@@ -445,7 +458,7 @@ function stepSummoner(w: World, e: Enemy, dt: number, dx: number, dy: number, di
     const kinds: EnemyKind[] = two ? ["swarmer", "charger"] : ["swarmer", "swarmer"];
     kinds.forEach((kind, i) => {
       const a = w.rng() * Math.PI * 2;
-      const m = makeEnemy(kind, e.x + Math.cos(a) * 70, e.y + Math.sin(a) * 70, w.rank);
+      const m = spawnEnemy(w, kind, e.x + Math.cos(a) * 70, e.y + Math.sin(a) * 70);
       m.t = 0.6 + i * 0.2;
       m.xp = 0;
       clampToRoom(m, ROOM.w, ROOM.h);
