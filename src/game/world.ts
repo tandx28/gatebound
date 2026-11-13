@@ -6,6 +6,7 @@ import {
   PIERCE,
   PLAYER,
   RANK_IDS,
+  RANKS,
   ROOM,
   SKILL_IDS,
   SKILLS,
@@ -16,9 +17,22 @@ import {
 } from "./config";
 import { generateDungeon, OPPOSITE, type RoomNode, type Side } from "./dungeon";
 import { damageEnemy, isCommitted, makeEnemy, spawnPoint, stepEnemy } from "./enemies";
-import { blast, burst, floatText, hurtPlayer, type Enemy, type Player, type World } from "./state";
+import { blast, burst, floatText, HUB_TABS, hurtPlayer, type Enemy, type Player, type World } from "./state";
+import {
+  advanceDialogue,
+  fireQuest,
+  hubAction,
+  newProfile,
+  newRun,
+  nextDialogue,
+  onKill,
+  refreshDerived,
+  settleClear,
+  settleDeath,
+  usePotion,
+} from "./profile";
 import { addXp, allocate, derive, newProgress, POINTS_PER_LEVEL, STAT_KEYS } from "./stats";
-import { gateCard, pointIn, statButton } from "./ui";
+import { hubButtons, pointIn, statButton } from "./ui";
 
 export type { Enemy, Player, World } from "./state";
 
@@ -26,6 +40,13 @@ export function createWorld(rng: () => number = Math.random): World {
   const prog = newProgress();
   const d = derive(prog.stats);
   return {
+    profile: newProfile(),
+    run: newRun(),
+    tab: "gates",
+    dialogue: null,
+    pendingDialogue: [],
+    dirty: false,
+    requests: [],
     mode: "select",
     menu: "none",
     notices: [],
@@ -110,6 +131,8 @@ export function enterGate(w: World, rank: Rank): void {
   w.clearT = 0;
   w.texts = [];
   w.fx = [];
+  w.run = newRun();
+  w.run.overLevel = w.player.prog.level < RANKS[rank].minLevel;
   resetPlayer(w.player);
   enterRoom(w, w.dungeon.startId, null);
   w.notices.push({ title: `RANK ${rank} GATE`, body: "Find the boss room. Doors lock while enemies live.", life: 3 });
@@ -127,6 +150,7 @@ export function enterArena(w: World, rank: Rank = "E"): void {
   w.mode = "gate";
   w.roomId = 0;
   w.doorsOpen = true;
+  w.run = newRun();
   clearField(w);
   resetPlayer(w.player);
   w.player.x = ROOM.w / 2;
@@ -144,6 +168,8 @@ export function toSelect(w: World): void {
   resetPlayer(w.player);
   w.player.x = ROOM.w / 2;
   w.player.y = ROOM.h / 2;
+  w.tab = "gates";
+  nextDialogue(w);
 }
 
 /** Move into a room. `from` is the side of the new room the player arrives at. */
@@ -179,14 +205,6 @@ export function enterRoom(w: World, id: number, from: Side | null): void {
   }
 }
 
-/** Recompute derived values after stats change, keeping gains in max HP and mana. */
-export function refreshDerived(p: Player): void {
-  const next = derive(p.prog.stats);
-  p.hp = Math.max(1, p.hp + (next.maxHp - p.d.maxHp));
-  p.mana = Math.max(0, p.mana + (next.maxMana - p.d.maxMana));
-  p.d = next;
-}
-
 /** Award experience. A level-up fully restores health and mana. */
 export function grantXp(w: World, amount: number): void {
   const p = w.player;
@@ -200,6 +218,8 @@ export function grantXp(w: World, amount: number): void {
     body: `Level ${p.prog.level}  ·  +${gained * POINTS_PER_LEVEL} stat points  ·  fully restored`,
     life: 3,
   });
+  w.dirty = true;
+  fireQuest(w, { type: "level", level: p.prog.level });
   for (const id of SKILL_IDS) {
     const s = SKILLS[id];
     if (before < s.level && p.prog.level >= s.level) {
@@ -303,6 +323,7 @@ function stepPlayer(w: World, input: Controls, dt: number): void {
   p.moving = move.x !== 0 || move.y !== 0;
 
   for (const id of SKILL_IDS) if (input.consume(SKILLS[id].code)) useSkill(w, id);
+  if (input.consume("KeyF")) usePotion(w);
 
   if (input.consume("Space", "ShiftLeft", "ShiftRight") && p.dashCd <= 0 && p.lungeT <= 0) {
     // Dash along the movement keys, or toward the cursor when standing still.
@@ -406,19 +427,43 @@ function stepStatus(w: World, input: Controls): void {
   STAT_KEYS.forEach((key, i) => {
     const byKey = input.consume(`Digit${i + 1}`);
     const byClick = clicked && pointIn(statButton(i), input.mouseX, input.mouseY);
-    if ((byKey || byClick) && allocate(p.prog, key)) refreshDerived(p);
+    if ((byKey || byClick) && allocate(p.prog, key)) {
+      refreshDerived(w);
+      w.dirty = true;
+    }
   });
 }
 
-/** Gate board input: number keys or a click on a card enters that gate. */
+/**
+ * Gate board input. Dialogue comes first and blocks everything else.
+ * Otherwise: click a button, press 1-3 on the gates tab, or Q/E to change tab.
+ */
 function stepSelect(w: World, input: Controls): void {
   const clicked = input.consume("Mouse0");
-  RANK_IDS.forEach((rank, i) => {
-    if (w.mode !== "select") return;
-    const byKey = input.consume(`Digit${i + 1}`);
-    const byClick = clicked && pointIn(gateCard(i), input.mouseX, input.mouseY);
-    if (byKey || byClick) enterGate(w, rank);
-  });
+  if (w.dialogue) {
+    if (input.consume("Escape")) advanceDialogue(w, true);
+    else if (clicked || input.consume("Space", "Enter")) advanceDialogue(w, false);
+    return;
+  }
+
+  let action: string | null = null;
+  if (clicked) {
+    const hit = hubButtons(w).find((b) => b.enabled && pointIn(b.rect, input.mouseX, input.mouseY));
+    if (hit) action = hit.id;
+  }
+  if (w.tab === "gates") {
+    RANK_IDS.forEach((rank, i) => {
+      if (input.consume(`Digit${i + 1}`)) action = `gate:${rank}`;
+    });
+  }
+  const turn = (input.consume("KeyE") ? 1 : 0) - (input.consume("KeyQ") ? 1 : 0);
+  if (turn !== 0) {
+    const n = HUB_TABS.length;
+    w.tab = HUB_TABS[(HUB_TABS.indexOf(w.tab) + turn + n) % n];
+  }
+  if (!action) return;
+  const rank = hubAction(w, action);
+  if (rank) enterGate(w, rank);
 }
 
 function stepEffects(w: World, dt: number): void {
@@ -511,6 +556,7 @@ export function step(w: World, input: Controls, dt: number): void {
     }
     w.kills += 1;
     burst(w, e.x, e.y, "#e5484d", e.boss ? 60 : 16, e.boss ? 420 : 260);
+    onKill(w, e);
     if (e.xp > 0) grantXp(w, e.xp);
     if (e.boss) bossDied = true;
   }
@@ -530,10 +576,17 @@ export function step(w: World, input: Controls, dt: number): void {
     room.cleared = true;
     w.doorsOpen = true;
     if (!bossDied) floatText(w, p.x, p.y, "ROOM CLEARED", "#6dff9c", true);
+    fireQuest(w, { type: "room", rank: w.rank });
   }
+
+  // `mode` is set from deep inside the hit handling, so widen it back out.
+  if ((w.mode as string) === "dead") settleDeath(w);
 
   if (w.clearT > 0 && w.mode === "gate") {
     w.clearT -= dt;
-    if (w.clearT <= 0) w.mode = "cleared";
+    if (w.clearT <= 0) {
+      w.mode = "cleared";
+      settleClear(w);
+    }
   }
 }

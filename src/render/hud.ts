@@ -1,7 +1,6 @@
 import {
   KINDS,
   PLAYER,
-  RANK_IDS,
   RANKS,
   SKILL_IDS,
   SKILLS,
@@ -9,8 +8,10 @@ import {
   VIEW_W,
 } from "../game/config";
 import type { World } from "../game/state";
+import { POTION, TITLES } from "../game/items";
+import { activeQuests, MAIN, questProgress } from "../game/quests";
 import { STAT_KEYS, STAT_NAMES, xpToNext, type StatKey } from "../game/stats";
-import { gateCard, pointIn, STATUS_PANEL, statButton, statRowY } from "../game/ui";
+import { hubButtons, hubHeadings, pointIn, STATUS_PANEL, statButton, statRowY, type Button } from "../game/ui";
 
 /** 2D overlay drawn on top of the 3D view: bars, labels, windows. */
 
@@ -19,6 +20,7 @@ const CYAN = "#5ee6ff";
 const GOLD = "#ffd84a";
 const FONT = '"SF Mono", Menlo, Consolas, monospace';
 const RANK_CSS = { E: "#3aa0ff", D: "#35e0a0", C: "#b070ff" } as const;
+const RANK_KEY = { E: 1, D: 2, C: 3 } as const;
 
 type Ctx = CanvasRenderingContext2D;
 /** Sim position and height to view coordinates. */
@@ -281,8 +283,161 @@ function drawStatus(ctx: Ctx, w: World): void {
   ctx.fillText("1-5 or click [+] to spend a point   ·   C to close", VIEW_W / 2, s.y + s.h - 24);
 }
 
-function drawSelect(ctx: Ctx, w: World): void {
-  const level = w.player.prog.level;
+/** Break text into lines no wider than `max` pixels, using the current font. */
+function wrap(ctx: Ctx, text: string, max: number): string[] {
+  const lines: string[] = [];
+  let line = "";
+  for (const word of text.split(" ")) {
+    const next = line ? `${line} ${word}` : word;
+    if (line && ctx.measureText(next).width > max) {
+      lines.push(line);
+      line = word;
+    } else line = next;
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
+function drawGateCard(ctx: Ctx, w: World, b: Button, hover: boolean): void {
+  const r = b.rect;
+  const rank = b.rank!;
+  const def = RANKS[rank];
+  const over = w.player.prog.level < def.minLevel;
+  ctx.shadowColor = RANK_CSS[rank];
+  ctx.shadowBlur = hover ? 30 : 10;
+  ctx.fillStyle = hover ? "rgba(14,26,52,0.95)" : "rgba(8,16,34,0.9)";
+  ctx.fillRect(r.x, r.y, r.w, r.h);
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = RANK_CSS[rank];
+  ctx.lineWidth = hover ? 2.5 : 1.5;
+  ctx.strokeRect(r.x + 0.5, r.y + 0.5, r.w, r.h);
+
+  const cx = r.x + r.w / 2;
+  ctx.textAlign = "center";
+  ctx.font = `bold 84px ${FONT}`;
+  ctx.fillStyle = RANK_CSS[rank];
+  ctx.fillText(rank, cx, r.y + 104);
+  ctx.font = `bold 13px ${FONT}`;
+  ctx.fillStyle = "#cfe4ff";
+  ctx.fillText(`RANK ${rank} GATE`, cx, r.y + 138);
+  ctx.font = `12px ${FONT}`;
+  ctx.fillStyle = "#9fc8ff";
+  ctx.fillText(`Suited to level ${def.minLevel}+`, cx, r.y + 166);
+  ctx.fillText(`${def.rooms} rooms`, cx, r.y + 186);
+  ctx.fillText(def.kinds.map((k) => KINDS[k].name).join(" · "), cx, r.y + 206);
+  if (over) {
+    ctx.font = `bold 12px ${FONT}`;
+    ctx.fillStyle = "#ff5a60";
+    ctx.fillText("DANGER: ABOVE YOUR LEVEL", cx, r.y + 238);
+  }
+  ctx.font = `11px ${FONT}`;
+  ctx.fillStyle = "#6f8fbf";
+  ctx.fillText(`press ${RANK_KEY[rank]} or click`, cx, r.y + r.h - 16);
+}
+
+function drawButton(ctx: Ctx, w: World, b: Button): void {
+  const r = b.rect;
+  const hover = b.enabled && pointIn(r, mouse.x, mouse.y);
+  if (b.kind === "card") return drawGateCard(ctx, w, b, hover);
+
+  if (b.kind === "row" && b.text !== undefined) {
+    ctx.textAlign = "left";
+    ctx.font = `14px ${FONT}`;
+    ctx.fillStyle = b.on ? GOLD : "#cfe4ff";
+    ctx.fillText(b.text, b.textX!, r.y + 13);
+    ctx.font = `11px ${FONT}`;
+    ctx.fillStyle = "#6f8fbf";
+    ctx.fillText(b.sub ?? "", b.textX!, r.y + 27);
+  }
+
+  const edge = b.on ? GOLD : !b.enabled ? "#2a3a5c" : hover ? GOLD : BLUE;
+  ctx.fillStyle = b.on ? "rgba(255,216,74,0.14)" : hover ? "rgba(255,216,74,0.2)" : "rgba(8,16,34,0.85)";
+  ctx.fillRect(r.x, r.y, r.w, r.h);
+  ctx.strokeStyle = edge;
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(r.x + 0.5, r.y + 0.5, r.w, r.h);
+  ctx.textAlign = "center";
+  ctx.font = `bold ${b.kind === "row" ? 11 : 13}px ${FONT}`;
+  ctx.fillStyle = b.on ? GOLD : !b.enabled ? "#4a5f85" : hover ? GOLD : "#cfe4ff";
+  ctx.fillText(b.label, r.x + r.w / 2, r.y + r.h / 2 + 4.5);
+}
+
+function drawQuests(ctx: Ctx, w: World): void {
+  const q = w.profile.quests;
+  const x = 240;
+  let y = 262;
+  ctx.textAlign = "left";
+  ctx.font = `bold 12px ${FONT}`;
+  ctx.fillStyle = "#6f8fbf";
+  ctx.fillText(`MAIN QUEST  ${Math.min(q.main + 1, MAIN.length)} / ${MAIN.length}`, x, y - 22);
+  const open = activeQuests(q);
+  if (open.length === 0) {
+    ctx.font = `14px ${FONT}`;
+    ctx.fillStyle = "#cfe4ff";
+    ctx.fillText("Every quest is complete.", x, y + 10);
+    return;
+  }
+  open.forEach((def, i) => {
+    const main = MAIN.includes(def);
+    if (!main && (i === 0 || MAIN.includes(open[i - 1]))) {
+      y += 8;
+      ctx.font = `bold 12px ${FONT}`;
+      ctx.fillStyle = "#6f8fbf";
+      ctx.fillText("SIDE QUESTS", x, y);
+      y += 22;
+    }
+    const got = questProgress(q, def);
+    ctx.font = `bold 15px ${FONT}`;
+    ctx.fillStyle = main ? GOLD : "#cfe4ff";
+    ctx.fillText(def.title, x, y);
+    ctx.font = `12px ${FONT}`;
+    ctx.fillStyle = "#9fc8ff";
+    ctx.fillText(def.desc, x, y + 19);
+    const r = def.reward;
+    const reward = [`${r.gold} gold`, r.potions ? `${r.potions} potion${r.potions > 1 ? "s" : ""}` : "", r.points ? `${r.points} stat points` : ""]
+      .filter(Boolean)
+      .join(", ");
+    ctx.fillStyle = "#6f8fbf";
+    ctx.fillText(`Reward: ${reward}`, x, y + 37);
+    bar(ctx, x + 520, y - 8, 200, 8, got / def.goal, main ? GOLD : BLUE);
+    ctx.textAlign = "right";
+    ctx.fillStyle = "#cfe4ff";
+    ctx.fillText(`${got} / ${def.goal}`, x + 800, y);
+    ctx.textAlign = "left";
+    y += 68;
+  });
+}
+
+function drawDialogue(ctx: Ctx, w: World): void {
+  const d = w.dialogue;
+  if (!d) return;
+  const line = d.lines[d.i];
+  ctx.fillStyle = "rgba(4,6,11,0.78)";
+  ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+  const x = VIEW_W / 2 - 400;
+  const y = VIEW_H - 250;
+  ctx.shadowColor = BLUE;
+  ctx.shadowBlur = 20;
+  panel(ctx, x, y, 800, 180);
+  ctx.shadowBlur = 0;
+  ctx.textAlign = "left";
+  const system = line.speaker === "THE LEDGER";
+  if (line.speaker) {
+    ctx.font = `bold 13px ${FONT}`;
+    ctx.fillStyle = system ? CYAN : GOLD;
+    ctx.fillText(line.speaker, x + 30, y + 36);
+  }
+  ctx.font = `${system ? "bold " : ""}16px ${FONT}`;
+  ctx.fillStyle = system ? CYAN : "#cfe4ff";
+  wrap(ctx, line.text, 740).forEach((t, i) => ctx.fillText(t, x + 30, y + (line.speaker ? 68 : 52) + i * 24));
+  ctx.textAlign = "right";
+  ctx.font = `11px ${FONT}`;
+  ctx.fillStyle = "#6f8fbf";
+  ctx.fillText(`${d.i + 1} / ${d.lines.length}   ·   SPACE continue   ·   ESC skip`, x + 770, y + 164);
+}
+
+function drawHub(ctx: Ctx, w: World): void {
+  const pr = w.profile;
   ctx.fillStyle = "rgba(4,6,11,0.6)";
   ctx.fillRect(0, 0, VIEW_W, VIEW_H);
   ctx.textAlign = "center";
@@ -290,67 +445,78 @@ function drawSelect(ctx: Ctx, w: World): void {
   ctx.fillStyle = "#cfe4ff";
   ctx.shadowColor = BLUE;
   ctx.shadowBlur = 22;
-  ctx.fillText("GATEBOUND", VIEW_W / 2, 120);
+  ctx.fillText("GATEBOUND", VIEW_W / 2, 104);
   ctx.shadowBlur = 0;
   ctx.font = `14px ${FONT}`;
-  ctx.fillStyle = "#9fc8ff";
-  ctx.fillText("Choose a gate. Nothing stops you entering one above your rank.", VIEW_W / 2, 160);
+  ctx.fillStyle = GOLD;
+  const title = TITLES.find((t) => t.id === pr.title);
+  ctx.fillText(
+    `${pr.gold} GOLD   ·   POTIONS ${pr.potions}/${POTION.max}${title ? `   ·   ${title.name.toUpperCase()}` : ""}`,
+    VIEW_W / 2,
+    146,
+  );
 
-  RANK_IDS.forEach((rank, i) => {
-    const r = gateCard(i);
-    const def = RANKS[rank];
-    const hover = pointIn(r, mouse.x, mouse.y);
-    const over = level < def.minLevel;
-    ctx.shadowColor = RANK_CSS[rank];
-    ctx.shadowBlur = hover ? 30 : 10;
-    ctx.fillStyle = hover ? "rgba(14,26,52,0.95)" : "rgba(8,16,34,0.9)";
-    ctx.fillRect(r.x, r.y, r.w, r.h);
-    ctx.shadowBlur = 0;
-    ctx.strokeStyle = RANK_CSS[rank];
-    ctx.lineWidth = hover ? 2.5 : 1.5;
-    ctx.strokeRect(r.x + 0.5, r.y + 0.5, r.w, r.h);
+  ctx.textAlign = "left";
+  ctx.font = `bold 12px ${FONT}`;
+  ctx.fillStyle = "#6f8fbf";
+  for (const h of hubHeadings(w)) ctx.fillText(h.text, h.x, h.y);
+  for (const b of hubButtons(w)) drawButton(ctx, w, b);
 
-    const cx = r.x + r.w / 2;
-    ctx.font = `bold 84px ${FONT}`;
-    ctx.fillStyle = RANK_CSS[rank];
-    ctx.fillText(rank, cx, r.y + 110);
-    ctx.font = `bold 13px ${FONT}`;
-    ctx.fillStyle = "#cfe4ff";
-    ctx.fillText(`RANK ${rank} GATE`, cx, r.y + 146);
-    ctx.font = `12px ${FONT}`;
+  ctx.textAlign = "center";
+  if (w.tab === "quests") drawQuests(ctx, w);
+  if (w.tab === "system") {
+    ctx.font = `13px ${FONT}`;
     ctx.fillStyle = "#9fc8ff";
-    ctx.fillText(`Suited to level ${def.minLevel}+`, cx, r.y + 176);
-    ctx.fillText(`${def.rooms} rooms`, cx, r.y + 196);
-    ctx.fillText(def.kinds.map((k) => KINDS[k].name).join(" · "), cx, r.y + 216);
-    if (over) {
-      ctx.font = `bold 12px ${FONT}`;
-      ctx.fillStyle = "#ff5a60";
-      ctx.fillText("DANGER: ABOVE YOUR LEVEL", cx, r.y + 248);
-    }
-    ctx.font = `11px ${FONT}`;
+    ctx.fillText("Progress is saved in this browser after every gate and every change here.", VIEW_W / 2, 244);
     ctx.fillStyle = "#6f8fbf";
-    ctx.fillText(`press ${i + 1} or click`, cx, r.y + r.h - 16);
-  });
-
+    ctx.fillText(`Gates cleared: ${pr.gatesCleared}   ·   Kills this session: ${w.kills}`, VIEW_W / 2, 480);
+  }
+  if ((w.tab === "shop" || w.tab === "gear") && pr.inventory.length === 0) {
+    ctx.textAlign = "left";
+    ctx.font = `13px ${FONT}`;
+    ctx.fillStyle = "#4a5f85";
+    ctx.fillText("Nothing in your bag.", 680, 268);
+  }
+  ctx.textAlign = "center";
   ctx.font = `12px ${FONT}`;
   ctx.fillStyle = "rgba(159,200,255,0.6)";
-  ctx.fillText("C  status and stat points", VIEW_W / 2, 560);
+  ctx.fillText("Q / E  switch tab   ·   C  status and stat points", VIEW_W / 2, VIEW_H - 40);
+}
+
+function drawPurse(ctx: Ctx, w: World): void {
+  panel(ctx, 20, 140, 280, 30);
+  ctx.textAlign = "left";
+  ctx.font = `bold 12px ${FONT}`;
+  ctx.fillStyle = GOLD;
+  ctx.fillText(`GOLD ${w.profile.gold}${w.run.gold > 0 ? `  +${w.run.gold}` : ""}`, 34, 160);
+  ctx.textAlign = "right";
+  ctx.fillStyle = w.profile.potions > 0 ? "#6dff9c" : "#4a5f85";
+  ctx.fillText(`[F] POTION x${w.profile.potions}`, 286, 160);
 }
 
 function drawEnd(ctx: Ctx, w: World): void {
   const dead = w.mode === "dead";
+  const lines = w.run.summary;
+  const h = 170 + lines.length * 24;
+  const top = VIEW_H / 2 - h / 2;
   ctx.fillStyle = "rgba(4,6,11,0.72)";
   ctx.fillRect(0, 0, VIEW_W, VIEW_H);
-  panel(ctx, VIEW_W / 2 - 240, VIEW_H / 2 - 90, 480, 180);
+  panel(ctx, VIEW_W / 2 - 260, top, 520, h);
   ctx.textAlign = "center";
   ctx.fillStyle = dead ? "#ff5a60" : GOLD;
   ctx.font = `bold 34px ${FONT}`;
-  ctx.fillText(dead ? "YOU DIED" : "GATE CLEARED", VIEW_W / 2, VIEW_H / 2 - 28);
-  ctx.fillStyle = "#cfe4ff";
-  ctx.font = `15px ${FONT}`;
-  ctx.fillText(`Rank ${w.rank} gate   ·   level ${w.player.prog.level}`, VIEW_W / 2, VIEW_H / 2 + 10);
+  ctx.fillText(dead ? "YOU DIED" : "GATE CLEARED", VIEW_W / 2, top + 58);
   ctx.fillStyle = "#9fc8ff";
-  ctx.fillText("Press Enter to return to the gate board", VIEW_W / 2, VIEW_H / 2 + 48);
+  ctx.font = `13px ${FONT}`;
+  ctx.fillText(`Rank ${w.rank} gate   ·   level ${w.player.prog.level}`, VIEW_W / 2, top + 86);
+  ctx.font = `15px ${FONT}`;
+  lines.forEach((t, i) => {
+    ctx.fillStyle = dead ? "#ffb0b4" : "#cfe4ff";
+    ctx.fillText(t, VIEW_W / 2, top + 122 + i * 24);
+  });
+  ctx.fillStyle = "#6f8fbf";
+  ctx.font = `13px ${FONT}`;
+  ctx.fillText("Press Enter to return to the gate board", VIEW_W / 2, top + h - 24);
 }
 
 export function drawHud(ctx: Ctx, w: World, mouseX: number, mouseY: number, project: Project): void {
@@ -359,20 +525,22 @@ export function drawHud(ctx: Ctx, w: World, mouseX: number, mouseY: number, proj
   ctx.clearRect(0, 0, VIEW_W, VIEW_H);
 
   if (w.mode === "select") {
-    drawSelect(ctx, w);
+    drawHub(ctx, w);
     drawVitals(ctx, w);
   } else {
     drawWorldLabels(ctx, w, project);
     drawVitals(ctx, w);
+    drawPurse(ctx, w);
     drawSkills(ctx, w);
     drawMinimap(ctx, w);
     drawBossBar(ctx, w);
     ctx.textAlign = "center";
     ctx.font = `12px ${FONT}`;
     ctx.fillStyle = "rgba(159,200,255,0.55)";
-    ctx.fillText("WASD move  ·  MOUSE aim  ·  CLICK attack  ·  SPACE dash  ·  Q E R skills  ·  C status", VIEW_W / 2, VIEW_H - 14);
+    ctx.fillText("WASD move  ·  MOUSE aim  ·  CLICK attack  ·  SPACE dash  ·  Q E R skills  ·  F potion  ·  C status", VIEW_W / 2, VIEW_H - 14);
   }
   drawNotices(ctx, w);
   if (w.menu === "status") drawStatus(ctx, w);
   if (w.mode === "dead" || w.mode === "cleared") drawEnd(ctx, w);
+  if (w.mode === "select" && w.menu === "none") drawDialogue(ctx, w);
 }

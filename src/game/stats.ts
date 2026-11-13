@@ -1,4 +1,5 @@
 import { PLAYER } from "./config";
+import type { Bonus } from "./items";
 
 /** Pure stat and levelling maths. */
 
@@ -54,16 +55,19 @@ export interface Derived {
   skillPower: number;
 }
 
-/** Combat values from stats. At base stats these equal the PLAYER constants. */
-export function derive(s: Stats): Derived {
+/**
+ * Combat values from stats, plus any gear and title bonus.
+ * At base stats with no bonus these equal the PLAYER constants.
+ */
+export function derive(s: Stats, bonus: Bonus = {}): Derived {
   const over = (k: StatKey) => s[k] - BASE_STAT;
   return {
-    maxHp: PLAYER.maxHp + 8 * over("vit"),
-    maxMana: PLAYER.maxMana + 6 * over("int"),
-    damage: PLAYER.attackDamage + 1.5 * over("str"),
-    moveSpeed: PLAYER.speed * (1 + 0.012 * over("agi")),
+    maxHp: PLAYER.maxHp + 8 * over("vit") + (bonus.hp ?? 0),
+    maxMana: PLAYER.maxMana + 6 * over("int") + (bonus.mana ?? 0),
+    damage: (PLAYER.attackDamage + 1.5 * over("str") + (bonus.damage ?? 0)) * (1 + (bonus.damagePct ?? 0)),
+    moveSpeed: PLAYER.speed * (1 + 0.012 * over("agi")) * (1 + (bonus.speedPct ?? 0)),
     attackCooldown: PLAYER.attackCooldown / (1 + 0.02 * over("agi")),
-    critChance: Math.min(CRIT_CAP, PLAYER.critChance + 0.01 * over("sen")),
+    critChance: Math.min(CRIT_CAP, PLAYER.critChance + 0.01 * over("sen") + (bonus.crit ?? 0)),
     skillPower: 1 + 0.05 * over("int"),
   };
 }

@@ -1,6 +1,9 @@
 import { applyDamage, type Circle } from "./combat";
 import { PLAYER, type EnemyKind, type Rank, type SkillId } from "./config";
 import type { Dungeon } from "./dungeon";
+import type { Slot } from "./items";
+import type { QuestState } from "./quests";
+import type { Line } from "./story";
 import type { Derived, Progress } from "./stats";
 
 /** Shared simulation state and the small helpers every system needs. */
@@ -128,10 +131,54 @@ export interface Notice {
   life: number;
 }
 
+/** Everything that persists between gates and is written to the save. */
+export interface Profile {
+  gold: number;
+  potions: number;
+  /** Owned items not currently equipped. */
+  inventory: string[];
+  equipped: Partial<Record<Slot, string>>;
+  /** Earned title ids. */
+  titles: string[];
+  /** The one title in use. */
+  title: string | null;
+  quests: QuestState;
+  introSeen: boolean;
+  gatesCleared: number;
+}
+
+/** Loot and facts about the gate in progress. Lost on death. */
+export interface Run {
+  gold: number;
+  items: string[];
+  usedPotion: boolean;
+  tookDamage: boolean;
+  /** The player entered below the gate's suggested level. */
+  overLevel: boolean;
+  /** Set once the result has been applied to the profile. */
+  settled: boolean;
+  /** Lines for the result screen. */
+  summary: string[];
+}
+
+export type HubTab = "gates" | "shop" | "gear" | "quests" | "system";
+export const HUB_TABS: HubTab[] = ["gates", "shop", "gear", "quests", "system"];
+
 export type Menu = "none" | "status";
 export type Mode = "select" | "gate" | "cleared" | "dead";
 
 export interface World {
+  profile: Profile;
+  run: Run;
+  tab: HubTab;
+  /** Dialogue on screen, if any. It blocks the gate board. */
+  dialogue: { lines: Line[]; i: number } | null;
+  /** Dialogue ids waiting for the next visit to the gate board. */
+  pendingDialogue: string[];
+  /** True when the profile changed and should be saved. */
+  dirty: boolean;
+  /** Side effects the browser shell must perform: export, import, reset. */
+  requests: string[];
   mode: Mode;
   menu: Menu;
   notices: Notice[];
@@ -175,6 +222,7 @@ export function hurtPlayer(w: World, amount: number): boolean {
   if (p.iframes > 0 || w.mode !== "gate") return false;
   const dmg = Math.round(amount);
   p.hp = applyDamage(p.hp, dmg);
+  if (dmg > 0) w.run.tookDamage = true;
   p.iframes = PLAYER.hurtIframes;
   p.hurtFlash = 0.25;
   w.shake = Math.max(w.shake, 10);
