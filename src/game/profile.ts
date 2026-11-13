@@ -3,7 +3,7 @@ import { clamp } from "../engine/vec";
 import { DAILY, HIDDEN, KEYS, KINDS, RANK_IDS, RANKS, type Rank } from "./config";
 import { BOSS_DROP, gearBonus, ITEMS, POTION, rollStock, sellValue, SLOTS, STONE, TITLES, TRIAL_DROP, type Slot } from "./items";
 import { newQuests, questEvent, type QuestEvent, type Reward } from "./quests";
-import { burst, floatText, HUB_TABS, type Enemy, type HubTab, type Profile, type Run, type World } from "./state";
+import { burst, floatText, HUB_TABS, sfx, type Enemy, type HubTab, type Profile, type Run, type World } from "./state";
 import { derive, xpToNext } from "./stats";
 import { DIALOGUES } from "./story";
 
@@ -95,6 +95,7 @@ function earnTitle(w: World, id: string): void {
   const def = TITLES.find((t) => t.id === id)!;
   pr.titles.push(id);
   w.notices.push({ title: "TITLE EARNED", body: def.name, life: 4 });
+  sfx(w, "quest");
   if (pr.title === null) {
     pr.title = id;
     refreshDerived(w);
@@ -119,6 +120,7 @@ export function advanceDialogue(w: World, skip: boolean): void {
   const d = w.dialogue;
   if (!d) return;
   d.i += 1;
+  sfx(w, "tick");
   if (!skip && d.i < d.lines.length) return;
   w.dialogue = null;
   if (!w.profile.introSeen) {
@@ -159,6 +161,7 @@ function dailyEvent(w: World, ev: QuestEvent): void {
   w.player.prog.points += DAILY.points;
   w.profile.potions = POTION.max;
   w.notices.push({ title: "DAILY QUEST COMPLETE", body: `+${DAILY.points} stat points  ·  potions refilled`, life: 5 });
+  sfx(w, "quest");
 }
 
 /** Report something that happened to the quest logs, and pay out what it completes. */
@@ -175,6 +178,7 @@ export function fireQuest(w: World, ev: QuestEvent): void {
     w.notices.push({ title: "QUEST COMPLETE", body: `${q.title}  ·  ${rewardText(q.reward)}`, life: 4 });
     if (q.id.startsWith("m")) w.pendingDialogue.push(q.id);
   }
+  sfx(w, "quest");
   w.dirty = true;
   // A newly opened step may already be satisfied (a level goal, say).
   fireQuest(w, { type: "level", level: w.player.prog.level });
@@ -189,6 +193,7 @@ export function onKill(w: World, e: Enemy): void {
   if (!e.boss) {
     if (e.xp > 0 && w.gateKind === "normal" && w.rng() < KEYS.dropChance) {
       w.run.keys += 1;
+      sfx(w, "chime");
       w.notices.push({ title: "KEY FOUND", body: "It opens a key dungeon, if you get out alive.", life: 4 });
     }
     return;
@@ -197,6 +202,7 @@ export function onKill(w: World, e: Enemy): void {
   const drop = BOSS_DROP[e.kind];
   if (drop && !owns(w.profile, drop) && !w.run.items.includes(drop)) {
     w.run.items.push(drop);
+    sfx(w, "chime");
     w.notices.push({ title: "ITEM FOUND", body: ITEMS[drop].name, life: 4 });
   }
 }
@@ -219,6 +225,7 @@ export function usePotion(w: World): void {
   const heal = Math.min(p.d.maxHp - p.hp, Math.round(p.d.maxHp * POTION.heal));
   p.hp += heal;
   w.profile.potions -= 1;
+  sfx(w, "potion");
   w.run.usedPotion = true;
   w.dirty = true;
   floatText(w, p.x, p.y, `+${heal}`, "#6dff9c", true);
@@ -303,6 +310,19 @@ export function settleDeath(w: World): void {
   w.dirty = true;
 }
 
+/** Change one setting: "sfx+", "sfx-", "music+", "music-" or "shake". */
+export function applySetting(w: World, arg: string): void {
+  const s = w.settings;
+  const nudge = (v: number, up: boolean) => Math.round(Math.min(1, Math.max(0, v + (up ? 0.1 : -0.1))) * 10) / 10;
+  if (arg === "sfx+" || arg === "sfx-") s.sfx = nudge(s.sfx, arg.endsWith("+"));
+  else if (arg === "music+" || arg === "music-") s.music = nudge(s.music, arg.endsWith("+"));
+  else if (arg === "shake") s.shake = !s.shake;
+  else return;
+  w.settingsDirty = true;
+  // Play something so the new volume can be heard at once.
+  sfx(w, "click");
+}
+
 /** What a gate-board action asks the caller to start, if anything. */
 export type Enter = Rank | "key" | null;
 
@@ -310,7 +330,23 @@ export type Enter = Rank | "key" | null;
 export function hubAction(w: World, id: string): Enter {
   const pr = w.profile;
   const [verb, arg] = id.split(":");
+  const gold = pr.gold;
+  const wasDirty = w.dirty;
+  w.dirty = false;
+  const result = hubActionInner(w, verb, arg);
+  const worked = w.dirty || verb === "tab" || verb === "save" || result !== null;
+  w.dirty = w.dirty || wasDirty;
+  // A purchase or sale sounds like coins; anything else that worked, a click.
+  if (verb !== "set") sfx(w, pr.gold !== gold ? "buy" : worked ? "click" : "deny");
+  return result;
+}
+
+function hubActionInner(w: World, verb: string, arg: string): Enter {
+  const pr = w.profile;
   switch (verb) {
+    case "set":
+      applySetting(w, arg);
+      return null;
     case "tab":
       if (HUB_TABS.includes(arg as HubTab)) w.tab = arg as HubTab;
       return null;

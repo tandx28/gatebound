@@ -588,7 +588,7 @@ describe("pause menu and title", () => {
     c.press("Escape");
     run(w, c, 0.02);
     w.dirty = false;
-    c.click(pauseButtons().find((b) => b.id === "pause:save")!.rect);
+    c.click(pauseButtons(w).find((b) => b.id === "pause:save")!.rect);
     run(w, c, 0.02);
     expect(w.dirty).toBe(true);
     expect(w.mode).toBe("gate");
@@ -600,7 +600,7 @@ describe("pause menu and title", () => {
     const room = w.roomId;
     c.press("Escape");
     run(w, c, 0.02);
-    c.click(pauseButtons().find((b) => b.id === "pause:exit")!.rect);
+    c.click(pauseButtons(w).find((b) => b.id === "pause:exit")!.rect);
     run(w, c, 0.02);
     expect(w.mode).toBe("title");
     expect(toSave(w).gate).not.toBe(null);

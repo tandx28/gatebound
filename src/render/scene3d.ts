@@ -612,8 +612,9 @@ export class Scene3D {
     // Aiming and labels use the steady camera; shake is applied on top.
     this.camera.updateMatrixWorld();
     const steady = this.camera.position.clone();
-    this.camera.position.x += (Math.random() - 0.5) * w.shake * 1.5;
-    this.camera.position.y += (Math.random() - 0.5) * w.shake * 1.5;
+    const shake = w.settings.shake ? w.shake * 1.5 : 0;
+    this.camera.position.x += (Math.random() - 0.5) * shake;
+    this.camera.position.y += (Math.random() - 0.5) * shake;
 
     this.composer.render();
     this.camera.position.copy(steady);

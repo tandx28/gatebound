@@ -14,7 +14,7 @@ import {
   type EnemyKind,
   type Rank,
 } from "./config";
-import { blast, burst, floatText, hurtPlayer, type Enemy, type World } from "./state";
+import { blast, burst, floatText, hurtPlayer, sfx, type Enemy, type World } from "./state";
 
 /** Enemy construction, damage rules, and per-kind behaviour. */
 
@@ -78,6 +78,7 @@ export function damageEnemy(
     const toAttacker = Math.atan2(fromY - e.y, fromX - e.x);
     if (Math.abs(angleDiff(toAttacker, e.facing)) < BRUTE.shieldHalf) {
       floatText(w, e.x, e.y, "BLOCK", "#9fb4d0");
+      sfx(w, "block");
       burst(w, e.x, e.y, "#9fd0ff", 4, 160);
       w.hitstop = Math.max(w.hitstop, 0.03);
       return false;
@@ -87,6 +88,7 @@ export function damageEnemy(
   const dmg = Math.round(amount);
   e.hp = applyDamage(e.hp, dmg);
   e.flash = 0.1;
+  sfx(w, crit ? "crit" : "hit");
   floatText(w, e.x, e.y, String(dmg), crit ? "#ffd84a" : "#ffffff", crit);
   burst(w, e.x, e.y, "#ff8a8f", 5, 180);
   w.hitstop = Math.max(w.hitstop, crit ? 0.07 : 0.035);
@@ -95,6 +97,7 @@ export function damageEnemy(
   if (e.boss) {
     if (e.phase === 1 && e.hp > 0 && e.hp <= e.maxHp / 2) {
       e.phase = 2;
+      sfx(w, "phase");
       e.inv = 0.8;
       e.cd = 1;
       w.notices.push({ title: KINDS[e.kind].name.toUpperCase(), body: "It will not hold back any longer.", life: 2.5 });
@@ -126,6 +129,7 @@ export function spawnEnemy(w: World, kind: EnemyKind, x: number, y: number): Ene
 }
 
 function fire(w: World, e: Enemy, angle: number, speed: number, damage: number): void {
+  sfx(w, "shot");
   w.projectiles.push({
     x: e.x + Math.cos(angle) * e.radius,
     y: e.y + Math.sin(angle) * e.radius,
@@ -347,6 +351,7 @@ function stepHealer(w: World, e: Enemy, dt: number, dx: number, dy: number, dist
         floatText(w, o.x, o.y, `+${amount}`, "#6dff9c");
       }
       w.fx.push({ kind: "ring", x: e.x, y: e.y, radius: HEALER.radius, t: 0.4, total: 0.4, color: "#6dff9c" });
+      sfx(w, "heal");
       e.state = "idle";
       e.cd = HEALER.cooldown;
       e.n += 1;
@@ -455,6 +460,7 @@ function stepSummoner(w: World, e: Enemy, dt: number, dx: number, dy: number, di
 
   const minions = w.enemies.length + w.spawnQueue.length - 1;
   if (e.n % 2 === 0 && minions < (two ? 5 : 4)) {
+    sfx(w, "summon");
     const kinds: EnemyKind[] = two ? ["swarmer", "charger"] : ["swarmer", "swarmer"];
     kinds.forEach((kind, i) => {
       const a = w.rng() * Math.PI * 2;

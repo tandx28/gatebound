@@ -29,6 +29,7 @@ import {
   floatText,
   HUB_TABS,
   hurtPlayer,
+  sfx,
   type Enemy,
   type GateKind,
   type GateSnapshot,
@@ -37,6 +38,7 @@ import {
 } from "./state";
 import {
   advanceDialogue,
+  applySetting,
   fireQuest,
   hubAction,
   newProfile,
@@ -67,6 +69,9 @@ export function createWorld(rng: () => number = Math.random): World {
     pendingDialogue: [],
     dirty: false,
     requests: [],
+    sounds: [],
+    settings: { sfx: 0.7, music: 0.5, shake: true },
+    settingsDirty: false,
     today: 0,
     gateKind: "normal",
     sealed: false,
@@ -305,6 +310,7 @@ export function enterRoom(w: World, id: number, from: Side | null): void {
   p.lungeT = 0;
   room.visited = true;
   w.emergency = null;
+  if (from) sfx(w, "door");
 
   if (room.cleared || room.spawns.length === 0) {
     room.cleared = true;
@@ -337,6 +343,7 @@ export function enterRoom(w: World, id: number, from: Side | null): void {
   if (room.kind === "normal" && w.rng() < EMERGENCY.chance) {
     const t = EMERGENCY.base + EMERGENCY.perEnemy * room.spawns.length;
     w.emergency = { t, total: t, bonus: Math.round(reward * EMERGENCY.bonus) };
+    sfx(w, "alarm");
     w.notices.push({ title: "EMERGENCY QUEST", body: `Kill every enemy within ${t} seconds, or be punished.`, life: 4 });
   }
 }
@@ -349,6 +356,7 @@ export function grantXp(w: World, amount: number): void {
   if (gained === 0) return;
   p.hp = p.d.maxHp;
   p.mana = p.d.maxMana;
+  sfx(w, "levelup");
   w.notices.push({
     title: "LEVEL UP",
     body: `Level ${p.prog.level}  ·  +${gained * POINTS_PER_LEVEL} stat points  ·  fully restored`,
@@ -393,6 +401,7 @@ function useSkill(w: World, id: SkillId): void {
   p.skillCd[id] = SKILLS[id].cooldown;
   p.attackT = 0;
   p.swingId += 1;
+  sfx(w, id);
   if (id === "pierce") {
     p.lungeT = PIERCE.time;
     p.lungeX = Math.cos(p.facing);
@@ -465,6 +474,7 @@ function tryLeave(w: World): void {
   }
   if (w.profile.stones <= 0) return;
   w.profile.stones -= 1;
+  sfx(w, "stone");
   clearField(w);
   settleRetreat(w);
   w.mode = "cleared";
@@ -495,6 +505,7 @@ function stepPlayer(w: World, input: Controls, dt: number): void {
     p.dashCd = PLAYER.dashCooldown;
     p.iframes = Math.max(p.iframes, PLAYER.dashIframes);
     p.attackT = 0;
+    sfx(w, "dash");
   }
 
   if (p.lungeT > 0) {
@@ -524,6 +535,7 @@ function stepPlayer(w: World, input: Controls, dt: number): void {
     p.attackT = PLAYER.attackActive;
     p.attackFacing = p.facing;
     p.swingId += 1;
+    sfx(w, "swing");
   }
 
   if (p.attackT > 0) {
@@ -591,6 +603,7 @@ function stepStatus(w: World, input: Controls): void {
     if ((byKey || byClick) && allocate(p.prog, key)) {
       refreshDerived(w);
       w.dirty = true;
+      sfx(w, "click");
     }
   });
 }
@@ -623,6 +636,7 @@ function stepSelect(w: World, input: Controls): void {
   }
   const turn = (input.consume("KeyE") ? 1 : 0) - (input.consume("KeyQ") ? 1 : 0);
   if (turn !== 0) {
+    sfx(w, "click");
     const n = HUB_TABS.length;
     w.tab = HUB_TABS[(HUB_TABS.indexOf(w.tab) + turn + n) % n];
   }
@@ -638,6 +652,7 @@ function stepTitle(w: World, input: Controls): void {
   if (!clicked && !input.consume("Enter", "Space")) return;
   w.mode = w.afterTitle === "gate" && w.dungeon ? "gate" : "select";
   w.menu = "none";
+  sfx(w, "chime");
 }
 
 /** Pause menu: resume, save, or save and leave to the title screen. */
@@ -647,8 +662,10 @@ function stepPause(w: World, input: Controls): void {
     return;
   }
   if (!input.consume("Mouse0")) return;
-  const hit = pauseButtons().find((b) => pointIn(b.rect, input.mouseX, input.mouseY));
+  const hit = pauseButtons(w).find((b) => pointIn(b.rect, input.mouseX, input.mouseY));
   if (!hit) return;
+  if (hit.id.startsWith("set:")) return applySetting(w, hit.id.slice(4));
+  sfx(w, "click");
   if (hit.id === "pause:resume") w.menu = "none";
   else if (hit.id === "pause:save") {
     w.dirty = true;
@@ -696,6 +713,7 @@ export function step(w: World, input: Controls, dt: number): void {
   if (w.menu === "pause") return stepPause(w, input);
   if (w.mode === "gate" && input.consume("Escape")) {
     w.menu = "pause";
+    sfx(w, "click");
     return;
   }
 
@@ -758,6 +776,7 @@ export function step(w: World, input: Controls, dt: number): void {
       continue;
     }
     w.kills += 1;
+    sfx(w, e.boss ? "bosskill" : "kill");
     burst(w, e.x, e.y, "#e5484d", e.boss ? 60 : 16, e.boss ? 420 : 260);
     onKill(w, e);
     if (e.xp > 0) grantXp(w, e.xp);
@@ -789,7 +808,10 @@ export function step(w: World, input: Controls, dt: number): void {
   if (room && !room.cleared && w.enemies.length === 0 && w.mode === "gate") {
     room.cleared = true;
     w.doorsOpen = true;
-    if (!bossDied) floatText(w, p.x, p.y, "ROOM CLEARED", "#6dff9c", true);
+    if (!bossDied) {
+      floatText(w, p.x, p.y, "ROOM CLEARED", "#6dff9c", true);
+      sfx(w, "roomclear");
+    }
     if (w.emergency) {
       const bonus = w.emergency.bonus;
       w.emergency = null;
@@ -810,6 +832,7 @@ export function step(w: World, input: Controls, dt: number): void {
     if (w.emergency.t <= 0) {
       // Failure costs health, but never the last of it.
       w.emergency = null;
+      sfx(w, "fail");
       const loss = Math.min(p.hp - 1, Math.round(p.d.maxHp * EMERGENCY.hpLoss));
       p.hp -= loss;
       p.hurtFlash = 0.4;
@@ -833,6 +856,7 @@ export function step(w: World, input: Controls, dt: number): void {
       clearField(w);
       w.mode = "cleared";
       settleClear(w);
+      sfx(w, "gateclear");
       return;
     }
   }
@@ -845,6 +869,7 @@ export function step(w: World, input: Controls, dt: number): void {
     if (w.clearT <= 0) {
       w.mode = "cleared";
       settleClear(w);
+      sfx(w, "gateclear");
     }
   }
 }

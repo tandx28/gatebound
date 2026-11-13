@@ -176,6 +176,15 @@ export interface Run {
   summary: string[];
 }
 
+/** Player preferences. Kept apart from the save: they belong to the device. */
+export interface Settings {
+  /** Effects volume, 0 to 1. */
+  sfx: number;
+  /** Music volume, 0 to 1. */
+  music: number;
+  shake: boolean;
+}
+
 export type HubTab = "gates" | "shop" | "gear" | "quests" | "system";
 export const HUB_TABS: HubTab[] = ["gates", "shop", "gear", "quests", "system"];
 
@@ -208,6 +217,10 @@ export interface World {
   dirty: boolean;
   /** Side effects the browser shell must perform: export, import, reset. */
   requests: string[];
+  /** Sound effect ids raised this frame; the shell plays and clears them. */
+  sounds: string[];
+  settings: Settings;
+  settingsDirty: boolean;
   /** Calendar day number, supplied by the shell. 0 means no calendar (tests). */
   today: number;
   gateKind: GateKind;
@@ -251,6 +264,12 @@ export interface World {
   rng: () => number;
 }
 
+/** Ask for a sound effect. The simulation never touches audio itself. */
+export function sfx(w: World, id: string): void {
+  // Capped so a world nobody is listening to cannot grow without bound.
+  if (w.sounds.length < 64) w.sounds.push(id);
+}
+
 export function burst(w: World, x: number, y: number, color: string, n: number, speed: number): void {
   for (let i = 0; i < n; i++) {
     const a = w.rng() * Math.PI * 2;
@@ -276,6 +295,7 @@ export function hurtPlayer(w: World, amount: number): boolean {
   w.hitstop = Math.max(w.hitstop, 0.07);
   floatText(w, p.x, p.y, `-${dmg}`, "#ff5a60", true);
   burst(w, p.x, p.y, "#5ee6ff", 10, 220);
+  sfx(w, p.hp <= 0 ? "death" : "hurt");
   if (p.hp <= 0) w.mode = "dead";
   return true;
 }
@@ -283,6 +303,7 @@ export function hurtPlayer(w: World, amount: number): boolean {
 /** An immediate blast: visual, plus damage if the player is inside. */
 export function blast(w: World, x: number, y: number, radius: number, damage: number, color = "#ff5a60"): void {
   w.fx.push({ kind: "blast", x, y, radius, t: 0.3, total: 0.3, color });
+  sfx(w, "blast");
   burst(w, x, y, color, 14, 300);
   w.shake = Math.max(w.shake, 5);
   const p = w.player;

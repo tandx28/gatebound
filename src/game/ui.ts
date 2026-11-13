@@ -44,7 +44,7 @@ export interface Button {
   id: string;
   label: string;
   enabled: boolean;
-  kind: "tab" | "card" | "row" | "plain";
+  kind: "tab" | "card" | "row" | "plain" | "setting";
   text?: string;
   sub?: string;
   textX?: number;
@@ -78,20 +78,53 @@ export function titleButton(): Rect {
   return { x: VIEW_W / 2 - 130, y: 400, w: 260, h: 52 };
 }
 
-/** Buttons of the pause menu, top to bottom. */
-export function pauseButtons(): Button[] {
+/**
+ * The three settings rows: effects volume, music volume, screen shake.
+ * `labelX` is where the row's name starts and `ctlX` where its controls do.
+ */
+export function settingsButtons(w: World, labelX: number, ctlX: number, top: number): Button[] {
+  const s = w.settings;
+  const out: Button[] = [];
+  const volumes: ["sfx" | "music", string][] = [
+    ["sfx", "EFFECTS VOLUME"],
+    ["music", "MUSIC VOLUME"],
+  ];
+  volumes.forEach(([key, name], i) => {
+    const y = top + i * 40;
+    const value = `${Math.round(s[key] * 100)}%`;
+    out.push({ rect: { x: ctlX, y, w: 34, h: 28 }, id: `set:${key}-`, label: "-", enabled: s[key] > 0, kind: "setting", text: name, sub: value, textX: labelX });
+    out.push({ rect: { x: ctlX + 110, y, w: 34, h: 28 }, id: `set:${key}+`, label: "+", enabled: s[key] < 1, kind: "plain" });
+  });
+  out.push({
+    rect: { x: ctlX, y: top + 80, w: 144, h: 28 },
+    id: "set:shake",
+    label: s.shake ? "ON" : "OFF",
+    enabled: true,
+    kind: "setting",
+    text: "SCREEN SHAKE",
+    textX: labelX,
+    on: s.shake,
+  });
+  return out;
+}
+
+export const PAUSE_PANEL: Rect = { x: VIEW_W / 2 - 220, y: 130, w: 440, h: 460 };
+
+/** Buttons of the pause menu: actions on top, settings below. */
+export function pauseButtons(w: World): Button[] {
   const labels: [string, string][] = [
     ["resume", "RESUME"],
     ["save", "SAVE GAME"],
     ["exit", "SAVE AND EXIT"],
   ];
-  return labels.map(([id, label], i) => ({
-    rect: { x: VIEW_W / 2 - 130, y: 290 + i * 62, w: 260, h: 44 },
+  const actions: Button[] = labels.map(([id, label], i) => ({
+    rect: { x: VIEW_W / 2 - 130, y: 200 + i * 52, w: 260, h: 40 },
     id: `pause:${id}`,
     label,
     enabled: true,
     kind: "plain" as const,
   }));
+  return [...actions, ...settingsButtons(w, PAUSE_PANEL.x + 40, PAUSE_PANEL.x + 256, 384)];
 }
 
 /** Section headings on the current tab, positioned to match the rows. */
@@ -186,8 +219,9 @@ export function hubButtons(w: World): Button[] {
     ];
     labels.push(["exit", "EXIT TO TITLE"]);
     labels.forEach(([id, label], i) => {
-      out.push({ rect: { x: VIEW_W / 2 - 130, y: 262 + i * 54, w: 260, h: 40 }, id: `save:${id}`, label, enabled: true, kind: "plain" });
+      out.push({ rect: { x: 720, y: 262 + i * 54, w: 260, h: 40 }, id: `save:${id}`, label, enabled: true, kind: "plain" });
     });
+    out.push(...settingsButtons(w, 300, 500, 268));
   }
   return out;
 }

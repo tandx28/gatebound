@@ -1,3 +1,4 @@
+import { Sfx } from "./audio/sfx";
 import { Input } from "./engine/input";
 import { STEP, VIEW_H, VIEW_W } from "./game/config";
 import { beginStory, refreshDerived } from "./game/profile";
@@ -40,6 +41,28 @@ function today(): number {
 }
 
 world.today = today();
+const SETTINGS_KEY = "gatebound.settings";
+const audio = new Sfx();
+// Audio may only start from a user gesture.
+window.addEventListener("keydown", () => audio.unlock());
+window.addEventListener("mousedown", () => audio.unlock());
+
+/** Settings live apart from the save: they describe the device, not the hunter. */
+function loadSettings(): void {
+  try {
+    const raw: unknown = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? "null");
+    if (typeof raw !== "object" || raw === null) return;
+    const r = raw as Record<string, unknown>;
+    const vol = (v: unknown, fallback: number) => (typeof v === "number" && v >= 0 && v <= 1 ? v : fallback);
+    world.settings.sfx = vol(r.sfx, world.settings.sfx);
+    world.settings.music = vol(r.music, world.settings.music);
+    if (typeof r.shake === "boolean") world.settings.shake = r.shake;
+  } catch {
+    // Unreadable settings fall back to the defaults.
+  }
+}
+loadSettings();
+
 const stored = parseSave(readStored());
 if (stored) applySave(world, stored);
 beginStory(world);
@@ -111,6 +134,16 @@ function serviceWorld(): void {
     world.dirty = false;
     writeStored();
   }
+  if (world.settingsDirty) {
+    world.settingsDirty = false;
+    try {
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify(world.settings));
+    } catch {
+      // Settings simply will not persist on this device.
+    }
+  }
+  audio.setVolume(world.settings.sfx);
+  for (const id of world.sounds.splice(0)) audio.play(id);
 }
 
 /** Fit the fixed 16:9 view inside the window, sharp on high-density screens. */
@@ -168,6 +201,7 @@ if (import.meta.env.DEV) {
   Object.assign(window, {
     __world: world,
     __input: input,
+    __audio: audio,
     __advance: (seconds: number) => {
       for (let i = 0; i < Math.round(seconds / STEP); i++) step(world, input, STEP);
       scene.render(world, Math.min(0.1, seconds));

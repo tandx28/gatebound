@@ -16,6 +16,7 @@ import { STAT_KEYS, STAT_NAMES, xpToNext, type StatKey } from "../game/stats";
 import {
   hubButtons,
   hubHeadings,
+  PAUSE_PANEL,
   pauseButtons,
   pointIn,
   STATUS_PANEL,
@@ -353,6 +354,20 @@ function drawButton(ctx: Ctx, w: World, b: Button): void {
   const hover = b.enabled && pointIn(r, mouse.x, mouse.y);
   if (b.kind === "card") return drawGateCard(ctx, w, b, hover);
 
+  if (b.kind === "setting") {
+    // A settings row: its name on the left, its value between - and +.
+    ctx.textAlign = "left";
+    ctx.font = `13px ${FONT}`;
+    ctx.fillStyle = "#9fc8ff";
+    ctx.fillText(b.text ?? "", b.textX!, r.y + 19);
+    if (b.sub) {
+      ctx.textAlign = "center";
+      ctx.font = `bold 13px ${FONT}`;
+      ctx.fillStyle = "#cfe4ff";
+      ctx.fillText(b.sub, r.x + 72, r.y + 19);
+    }
+  }
+
   if (b.kind === "row" && b.text !== undefined) {
     ctx.textAlign = "left";
     ctx.font = `14px ${FONT}`;
@@ -506,6 +521,12 @@ function drawHub(ctx: Ctx, w: World): void {
     ctx.font = `13px ${FONT}`;
     ctx.fillStyle = "#9fc8ff";
     ctx.fillText("Progress is saved in this browser after every gate and every change here.", VIEW_W / 2, 244);
+    ctx.textAlign = "left";
+    ctx.font = `bold 12px ${FONT}`;
+    ctx.fillStyle = "#6f8fbf";
+    ctx.fillText("SETTINGS", 300, 258);
+    ctx.textAlign = "center";
+    ctx.font = `13px ${FONT}`;
     ctx.fillStyle = "#6f8fbf";
     ctx.fillText(`Gates cleared: ${pr.gatesCleared}   ·   Kills this session: ${w.kills}`, VIEW_W / 2, 510);
   }
@@ -569,33 +590,24 @@ function drawAlerts(ctx: Ctx, w: World): void {
   }
 }
 
-function drawPause(ctx: Ctx): void {
+function drawPause(ctx: Ctx, w: World): void {
+  const p = PAUSE_PANEL;
   ctx.fillStyle = "rgba(4,6,11,0.78)";
   ctx.fillRect(0, 0, VIEW_W, VIEW_H);
   ctx.shadowColor = BLUE;
   ctx.shadowBlur = 24;
-  panel(ctx, VIEW_W / 2 - 200, 200, 400, 320);
+  panel(ctx, p.x, p.y, p.w, p.h);
   ctx.shadowBlur = 0;
   ctx.textAlign = "center";
   ctx.font = `bold 24px ${FONT}`;
   ctx.fillStyle = "#cfe4ff";
-  ctx.fillText("PAUSED", VIEW_W / 2, 250);
-  for (const b of pauseButtons()) {
-    const r = b.rect;
-    const hover = pointIn(r, mouse.x, mouse.y);
-    ctx.fillStyle = hover ? "rgba(255,216,74,0.2)" : "rgba(8,16,34,0.85)";
-    ctx.fillRect(r.x, r.y, r.w, r.h);
-    ctx.strokeStyle = hover ? GOLD : BLUE;
-    ctx.lineWidth = 1.5;
-    ctx.strokeRect(r.x + 0.5, r.y + 0.5, r.w, r.h);
-    ctx.font = `bold 13px ${FONT}`;
-    ctx.fillStyle = hover ? GOLD : "#cfe4ff";
-    ctx.fillText(b.label, r.x + r.w / 2, r.y + r.h / 2 + 4.5);
-  }
+  ctx.fillText("PAUSED", VIEW_W / 2, p.y + 44);
+  for (const b of pauseButtons(w)) drawButton(ctx, w, b);
+  ctx.textAlign = "center";
   ctx.font = `11px ${FONT}`;
   ctx.fillStyle = "#6f8fbf";
-  ctx.fillText("A saved gate resumes from the start of the current room.", VIEW_W / 2, 496);
-  ctx.fillText("ESC  resume", VIEW_W / 2, 512);
+  ctx.fillText("A saved gate resumes from the start of the current room.", VIEW_W / 2, p.y + p.h - 34);
+  ctx.fillText("ESC  resume", VIEW_W / 2, p.y + p.h - 16);
 }
 
 function drawTitle(ctx: Ctx, w: World): void {
@@ -693,7 +705,7 @@ export function drawHud(ctx: Ctx, w: World, mouseX: number, mouseY: number, proj
   }
   drawNotices(ctx, w);
   if (w.menu === "status") drawStatus(ctx, w);
-  if (w.menu === "pause") drawPause(ctx);
+  if (w.menu === "pause") drawPause(ctx, w);
   if (w.mode === "dead" || w.mode === "cleared") drawEnd(ctx, w);
   if (w.mode === "select" && w.menu === "none") drawDialogue(ctx, w);
 }
