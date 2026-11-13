@@ -97,7 +97,7 @@ export function fireQuest(w: World, ev: QuestEvent): void {
     const extra = [
       `+${q.reward.gold} gold`,
       q.reward.potions ? `+${q.reward.potions} potion${q.reward.potions > 1 ? "s" : ""}` : "",
-      q.reward.points ? `+${q.reward.points} stat points` : "",
+      q.reward.points ? `+${q.reward.points} stat point${q.reward.points > 1 ? "s" : ""}` : "",
     ].filter(Boolean);
     w.notices.push({ title: "QUEST COMPLETE", body: `${q.title}  ·  ${extra.join("  ·  ")}`, life: 4 });
     if (q.id.startsWith("m")) w.pendingDialogue.push(q.id);

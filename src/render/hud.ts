@@ -88,7 +88,7 @@ function drawVitals(ctx: Ctx, w: World): void {
     // Pulse so unspent points are hard to miss.
     ctx.fillStyle = `rgba(255,216,74,${0.6 + 0.4 * Math.sin(performance.now() / 180)})`;
     ctx.textAlign = "right";
-    ctx.fillText(`[C] ${p.prog.points} POINTS`, 286, 108);
+    ctx.fillText(`[C] ${p.prog.points} POINT${p.prog.points > 1 ? "S" : ""}`, 286, 108);
   }
 }
 
@@ -394,7 +394,7 @@ function drawQuests(ctx: Ctx, w: World): void {
     ctx.fillStyle = "#9fc8ff";
     ctx.fillText(def.desc, x, y + 19);
     const r = def.reward;
-    const reward = [`${r.gold} gold`, r.potions ? `${r.potions} potion${r.potions > 1 ? "s" : ""}` : "", r.points ? `${r.points} stat points` : ""]
+    const reward = [`${r.gold} gold`, r.potions ? `${r.potions} potion${r.potions > 1 ? "s" : ""}` : "", r.points ? `${r.points} stat point${r.points > 1 ? "s" : ""}` : ""]
       .filter(Boolean)
       .join(", ");
     ctx.fillStyle = "#6f8fbf";
@@ -488,7 +488,7 @@ function drawPurse(ctx: Ctx, w: World): void {
   ctx.textAlign = "left";
   ctx.font = `bold 12px ${FONT}`;
   ctx.fillStyle = GOLD;
-  ctx.fillText(`GOLD ${w.profile.gold}${w.run.gold > 0 ? `  +${w.run.gold}` : ""}`, 34, 160);
+  ctx.fillText(`GOLD ${w.profile.gold}${w.run.gold > 0 && !w.run.settled ? `  +${w.run.gold}` : ""}`, 34, 160);
   ctx.textAlign = "right";
   ctx.fillStyle = w.profile.potions > 0 ? "#6dff9c" : "#4a5f85";
   ctx.fillText(`[F] POTION x${w.profile.potions}`, 286, 160);
