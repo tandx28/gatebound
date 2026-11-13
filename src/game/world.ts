@@ -1,113 +1,32 @@
 import type { Controls } from "../engine/input";
 import { clamp, norm } from "../engine/vec";
+import { circlesOverlap, inArc, rollDamage, separate } from "./combat";
 import {
-  applyDamage,
-  circlesOverlap,
-  clampToRoom,
-  inArc,
-  rollDamage,
-  separate,
-  type Circle,
-} from "./combat";
-import { PLAYER, ROOM, SWARMER, VIEW_H, VIEW_W } from "./config";
-import {
-  addXp,
-  allocate,
-  derive,
-  newProgress,
-  POINTS_PER_LEVEL,
-  STAT_KEYS,
-  type Derived,
-  type Progress,
-} from "./stats";
-import { pointIn, statButton } from "./ui";
+  KINDS,
+  PIERCE,
+  PLAYER,
+  RANK_IDS,
+  ROOM,
+  SKILL_IDS,
+  SKILLS,
+  SURGE,
+  WHIRL,
+  type Rank,
+  type SkillId,
+} from "./config";
+import { generateDungeon, OPPOSITE, type RoomNode, type Side } from "./dungeon";
+import { damageEnemy, isCommitted, makeEnemy, spawnPoint, stepEnemy } from "./enemies";
+import { blast, burst, floatText, hurtPlayer, type Enemy, type Player, type World } from "./state";
+import { addXp, allocate, derive, newProgress, POINTS_PER_LEVEL, STAT_KEYS } from "./stats";
+import { gateCard, pointIn, statButton } from "./ui";
 
-export interface Player extends Circle {
-  hp: number;
-  mana: number;
-  prog: Progress;
-  /** Combat values derived from stats. Refresh with `refreshDerived`. */
-  d: Derived;
-  facing: number;
-  dashT: number;
-  dashCd: number;
-  dashX: number;
-  dashY: number;
-  iframes: number;
-  attackCd: number;
-  attackT: number;
-  attackFacing: number;
-  /** Identifies the current swing so each enemy is hit once per swing. */
-  swingId: number;
-  hurtFlash: number;
-}
-
-export type EnemyState = "chase" | "windup" | "lunge" | "recover";
-
-export interface Enemy extends Circle {
-  hp: number;
-  state: EnemyState;
-  /** Time left in the current state. */
-  t: number;
-  dirX: number;
-  dirY: number;
-  /** Knockback velocity, decays quickly. */
-  kx: number;
-  ky: number;
-  lastSwing: number;
-  flash: number;
-  hasHit: boolean;
-}
-
-export interface FloatText {
-  x: number;
-  y: number;
-  text: string;
-  life: number;
-  color: string;
-  big: boolean;
-}
-
-export interface Particle {
-  x: number;
-  y: number;
-  vx: number;
-  vy: number;
-  life: number;
-  color: string;
-}
-
-/** A System message shown briefly at the top of the screen. */
-export interface Notice {
-  title: string;
-  body: string;
-  life: number;
-}
-
-export type Menu = "none" | "status";
-
-export interface World {
-  menu: Menu;
-  notices: Notice[];
-  player: Player;
-  enemies: Enemy[];
-  texts: FloatText[];
-  particles: Particle[];
-  wave: number;
-  kills: number;
-  waveDelay: number;
-  shake: number;
-  hitstop: number;
-  dead: boolean;
-  camX: number;
-  camY: number;
-  rng: () => number;
-}
+export type { Enemy, Player, World } from "./state";
 
 export function createWorld(rng: () => number = Math.random): World {
   const prog = newProgress();
   const d = derive(prog.stats);
-  const w: World = {
+  return {
+    mode: "select",
     menu: "none",
     notices: [],
     player: {
@@ -129,58 +48,134 @@ export function createWorld(rng: () => number = Math.random): World {
       attackFacing: 0,
       swingId: 0,
       hurtFlash: 0,
+      skillCd: { pierce: 0, whirl: 0, surge: 0 },
+      lungeT: 0,
+      lungeX: 1,
+      lungeY: 0,
+      surgeT: 0,
+      moving: false,
     },
     enemies: [],
+    spawnQueue: [],
+    projectiles: [],
+    zones: [],
+    shockwaves: [],
+    fx: [],
     texts: [],
     particles: [],
-    wave: 0,
+    dungeon: null,
+    roomId: 0,
+    rank: "E",
+    doorsOpen: true,
+    clearT: 0,
     kills: 0,
-    waveDelay: 1,
     shake: 0,
     hitstop: 0,
-    dead: false,
-    camX: 0,
-    camY: 0,
     rng,
   };
-  updateCamera(w);
-  return w;
 }
 
-function updateCamera(w: World): void {
-  const margin = 60;
-  w.camX = clamp(w.player.x - VIEW_W / 2, -margin, ROOM.w - VIEW_W + margin);
-  w.camY = clamp(w.player.y - VIEW_H / 2, -margin, ROOM.h - VIEW_H + margin);
+export function currentRoom(w: World): RoomNode | null {
+  return w.dungeon ? w.dungeon.rooms[w.roomId] : null;
 }
 
-function spawnWave(w: World): void {
-  w.wave += 1;
-  const count = 2 + w.wave;
-  for (let i = 0; i < count; i++) {
-    // Retry until the spawn point is clear of the player.
-    let x = 0;
-    let y = 0;
-    for (let tries = 0; tries < 20; tries++) {
-      x = 60 + w.rng() * (ROOM.w - 120);
-      y = 60 + w.rng() * (ROOM.h - 120);
-      if (Math.hypot(x - w.player.x, y - w.player.y) > 380) break;
-    }
-    w.enemies.push({
-      x,
-      y,
-      radius: SWARMER.radius,
-      hp: SWARMER.maxHp,
-      state: "recover",
-      t: 0.4 + w.rng() * 0.4,
-      dirX: 0,
-      dirY: 0,
-      kx: 0,
-      ky: 0,
-      lastSwing: -1,
-      flash: 0,
-      hasHit: false,
-    });
-    burst(w, x, y, "#e5484d", 8, 140);
+function clearField(w: World): void {
+  w.enemies = [];
+  w.spawnQueue = [];
+  w.projectiles = [];
+  w.zones = [];
+  w.shockwaves = [];
+}
+
+function resetPlayer(p: Player): void {
+  p.hp = p.d.maxHp;
+  p.mana = p.d.maxMana;
+  p.dashT = 0;
+  p.dashCd = 0;
+  p.iframes = 0;
+  p.attackT = 0;
+  p.attackCd = 0;
+  p.lungeT = 0;
+  p.surgeT = 0;
+  p.hurtFlash = 0;
+  p.skillCd = { pierce: 0, whirl: 0, surge: 0 };
+}
+
+/** Start a gate of the given rank. The player enters rested. */
+export function enterGate(w: World, rank: Rank): void {
+  w.rank = rank;
+  w.dungeon = generateDungeon(rank, w.rng);
+  w.mode = "gate";
+  w.menu = "none";
+  w.clearT = 0;
+  w.texts = [];
+  w.fx = [];
+  resetPlayer(w.player);
+  enterRoom(w, w.dungeon.startId, null);
+  w.notices.push({ title: `RANK ${rank} GATE`, body: "Find the boss room. Doors lock while enemies live.", life: 3 });
+}
+
+/** A single sealed, empty room with no doors. Used by tests. */
+export function enterArena(w: World, rank: Rank = "E"): void {
+  w.rank = rank;
+  w.dungeon = {
+    rank,
+    startId: 0,
+    bossId: -1,
+    rooms: [{ id: 0, gx: 0, gy: 0, doors: {}, kind: "start", depth: 0, cleared: true, visited: true, spawns: [] }],
+  };
+  w.mode = "gate";
+  w.roomId = 0;
+  w.doorsOpen = true;
+  clearField(w);
+  resetPlayer(w.player);
+  w.player.x = ROOM.w / 2;
+  w.player.y = ROOM.h / 2;
+}
+
+/** Back to the gate board. */
+export function toSelect(w: World): void {
+  w.mode = "select";
+  w.dungeon = null;
+  clearField(w);
+  w.fx = [];
+  w.texts = [];
+  w.particles = [];
+  resetPlayer(w.player);
+  w.player.x = ROOM.w / 2;
+  w.player.y = ROOM.h / 2;
+}
+
+/** Move into a room. `from` is the side of the new room the player arrives at. */
+export function enterRoom(w: World, id: number, from: Side | null): void {
+  const room = w.dungeon!.rooms[id];
+  const p = w.player;
+  w.roomId = id;
+  clearField(w);
+  const inset = 70;
+  if (from === "n") [p.x, p.y] = [ROOM.w / 2, inset];
+  else if (from === "s") [p.x, p.y] = [ROOM.w / 2, ROOM.h - inset];
+  else if (from === "w") [p.x, p.y] = [inset, ROOM.h / 2];
+  else if (from === "e") [p.x, p.y] = [ROOM.w - inset, ROOM.h / 2];
+  else [p.x, p.y] = [ROOM.w / 2, ROOM.h / 2];
+  p.dashT = 0;
+  p.lungeT = 0;
+  room.visited = true;
+
+  if (room.cleared || room.spawns.length === 0) {
+    room.cleared = true;
+    w.doorsOpen = true;
+    return;
+  }
+  // Doors lock until the room is cleared.
+  w.doorsOpen = false;
+  for (const kind of room.spawns) {
+    const at = KINDS[kind].boss ? { x: ROOM.w / 2, y: ROOM.h / 2 } : spawnPoint(w);
+    const e = makeEnemy(kind, at.x, at.y, w.rank);
+    e.t = 0.7 + w.rng() * 0.4;
+    w.enemies.push(e);
+    burst(w, at.x, at.y, "#e5484d", 8, 140);
+    if (e.boss) w.notices.push({ title: KINDS[kind].name.toUpperCase(), body: "The gate's master has noticed you.", life: 3 });
   }
 }
 
@@ -195,6 +190,7 @@ export function refreshDerived(p: Player): void {
 /** Award experience. A level-up fully restores health and mana. */
 export function grantXp(w: World, amount: number): void {
   const p = w.player;
+  const before = p.prog.level;
   const gained = addXp(p.prog, amount);
   if (gained === 0) return;
   p.hp = p.d.maxHp;
@@ -204,7 +200,203 @@ export function grantXp(w: World, amount: number): void {
     body: `Level ${p.prog.level}  ·  +${gained * POINTS_PER_LEVEL} stat points  ·  fully restored`,
     life: 3,
   });
+  for (const id of SKILL_IDS) {
+    const s = SKILLS[id];
+    if (before < s.level && p.prog.level >= s.level) {
+      w.notices.push({ title: "SKILL ACQUIRED", body: `${s.name}  ·  press ${s.key}`, life: 4 });
+    }
+  }
   burst(w, p.x, p.y, "#ffd84a", 26, 320);
+}
+
+/** Damage, speed and attack rate after temporary effects. */
+export function effective(p: Player): { damage: number; moveSpeed: number; attackCooldown: number } {
+  const on = p.surgeT > 0;
+  return {
+    damage: p.d.damage * (on ? SURGE.damage : 1),
+    moveSpeed: p.d.moveSpeed * (on ? SURGE.speed : 1),
+    attackCooldown: p.d.attackCooldown / (on ? SURGE.speed : 1),
+  };
+}
+
+export function skillReady(p: Player, id: SkillId): boolean {
+  const s = SKILLS[id];
+  return p.prog.level >= s.level && p.skillCd[id] <= 0 && p.mana >= s.mana;
+}
+
+function strike(w: World, e: Enemy, mult: number, knock: number): void {
+  const p = w.player;
+  const roll = rollDamage(effective(p).damage * mult, p.d.critChance, PLAYER.critMult, w.rng);
+  damageEnemy(w, e, roll.amount, roll.crit, p.x, p.y, knock);
+}
+
+function useSkill(w: World, id: SkillId): void {
+  const p = w.player;
+  if (!skillReady(p, id)) return;
+  p.mana -= SKILLS[id].mana;
+  p.skillCd[id] = SKILLS[id].cooldown;
+  p.attackT = 0;
+  p.swingId += 1;
+  if (id === "pierce") {
+    p.lungeT = PIERCE.time;
+    p.lungeX = Math.cos(p.facing);
+    p.lungeY = Math.sin(p.facing);
+    p.dashT = 0;
+    p.iframes = Math.max(p.iframes, PIERCE.time + 0.06);
+  } else if (id === "whirl") {
+    for (const e of w.enemies) {
+      if (Math.hypot(e.x - p.x, e.y - p.y) <= WHIRL.radius + e.radius) {
+        strike(w, e, WHIRL.mult * p.d.skillPower, WHIRL.knock);
+      }
+    }
+    w.fx.push({ kind: "ring", x: p.x, y: p.y, radius: WHIRL.radius, t: 0.25, total: 0.25, color: "#5ee6ff" });
+    w.shake = Math.max(w.shake, 5);
+  } else {
+    p.surgeT = SURGE.time;
+    burst(w, p.x, p.y, "#ffd84a", 20, 260);
+    w.fx.push({ kind: "ring", x: p.x, y: p.y, radius: 80, t: 0.4, total: 0.4, color: "#ffd84a" });
+  }
+}
+
+/**
+ * Keep the player inside the room. An open door lets them walk out through
+ * its gap; passing fully through moves them to the next room.
+ */
+function constrainPlayer(w: World): void {
+  const p = w.player;
+  const r = p.radius;
+  const room = currentRoom(w);
+  const cx = ROOM.w / 2;
+  const cy = ROOM.h / 2;
+  const half = ROOM.doorHalf - r;
+  const door = (s: Side) => (w.doorsOpen && room ? room.doors[s] : undefined);
+
+  // Each wall: [side, how far past the wall line, lateral offset from the door centre].
+  const walls: [Side, number, number][] = [
+    ["n", r - p.y, p.x - cx],
+    ["s", p.y - (ROOM.h - r), p.x - cx],
+    ["w", r - p.x, p.y - cy],
+    ["e", p.x - (ROOM.w - r), p.y - cy],
+  ];
+  for (const [s, past, lateral] of walls) {
+    if (past <= 0) continue;
+    const to = door(s);
+    if (to !== undefined && Math.abs(lateral) <= half) {
+      if (past > r * 2) return enterRoom(w, to, OPPOSITE[s]);
+      continue;
+    }
+    // Blocked: push back to the wall line.
+    if (s === "n") p.y = r;
+    else if (s === "s") p.y = ROOM.h - r;
+    else if (s === "w") p.x = r;
+    else p.x = ROOM.w - r;
+  }
+}
+
+function stepPlayer(w: World, input: Controls, dt: number): void {
+  const p = w.player;
+  const eff = effective(p);
+  p.facing = Math.atan2(input.aimY - p.y, input.aimX - p.x);
+
+  const axis = input.axis();
+  const move = norm(axis.x, axis.y);
+  p.moving = move.x !== 0 || move.y !== 0;
+
+  for (const id of SKILL_IDS) if (input.consume(SKILLS[id].code)) useSkill(w, id);
+
+  if (input.consume("Space", "ShiftLeft", "ShiftRight") && p.dashCd <= 0 && p.lungeT <= 0) {
+    // Dash along the movement keys, or toward the cursor when standing still.
+    const dir = p.moving ? move : { x: Math.cos(p.facing), y: Math.sin(p.facing) };
+    p.dashX = dir.x;
+    p.dashY = dir.y;
+    p.dashT = PLAYER.dashTime;
+    p.dashCd = PLAYER.dashCooldown;
+    p.iframes = Math.max(p.iframes, PLAYER.dashIframes);
+    p.attackT = 0;
+  }
+
+  if (p.lungeT > 0) {
+    p.x += p.lungeX * PIERCE.speed * dt;
+    p.y += p.lungeY * PIERCE.speed * dt;
+    for (const e of w.enemies) {
+      if (e.lastSwing === p.swingId) continue;
+      if (!circlesOverlap(e, { x: p.x, y: p.y, radius: p.radius + PIERCE.width })) continue;
+      e.lastSwing = p.swingId;
+      strike(w, e, PIERCE.mult * p.d.skillPower, 200);
+    }
+    w.particles.push({ x: p.x, y: p.y, vx: 0, vy: 0, life: 0.22, color: "#ffffff" });
+  } else if (p.dashT > 0) {
+    p.x += p.dashX * PLAYER.dashSpeed * dt;
+    p.y += p.dashY * PLAYER.dashSpeed * dt;
+    if (w.rng() < 0.6) w.particles.push({ x: p.x, y: p.y, vx: 0, vy: 0, life: 0.18, color: "#5ee6ff" });
+  } else {
+    p.x += move.x * eff.moveSpeed * dt;
+    p.y += move.y * eff.moveSpeed * dt;
+  }
+  const roomBefore = w.roomId;
+  constrainPlayer(w);
+  if (w.roomId !== roomBefore) return;
+
+  if (p.attackCd <= 0 && p.dashT <= 0 && p.lungeT <= 0 && (input.attackHeld || input.consume("Mouse0"))) {
+    p.attackCd = eff.attackCooldown;
+    p.attackT = PLAYER.attackActive;
+    p.attackFacing = p.facing;
+    p.swingId += 1;
+  }
+
+  if (p.attackT > 0) {
+    for (const e of w.enemies) {
+      if (e.lastSwing === p.swingId) continue;
+      if (!inArc(p.x, p.y, p.attackFacing, PLAYER.attackHalfAngle, PLAYER.attackRange, e)) continue;
+      e.lastSwing = p.swingId;
+      strike(w, e, 1, 300);
+    }
+  }
+
+  p.dashT = Math.max(0, p.dashT - dt);
+  p.dashCd = Math.max(0, p.dashCd - dt);
+  p.lungeT = Math.max(0, p.lungeT - dt);
+  p.surgeT = Math.max(0, p.surgeT - dt);
+  p.attackT = Math.max(0, p.attackT - dt);
+  p.attackCd = Math.max(0, p.attackCd - dt);
+  p.iframes = Math.max(0, p.iframes - dt);
+  p.hurtFlash = Math.max(0, p.hurtFlash - dt);
+  p.mana = Math.min(p.d.maxMana, p.mana + PLAYER.manaRegen * dt);
+  for (const id of SKILL_IDS) p.skillCd[id] = Math.max(0, p.skillCd[id] - dt);
+}
+
+function stepHazards(w: World, dt: number): void {
+  const p = w.player;
+
+  for (const s of w.projectiles) {
+    s.x += s.vx * dt;
+    s.y += s.vy * dt;
+    s.life -= dt;
+    if (s.x < 0 || s.x > ROOM.w || s.y < 0 || s.y > ROOM.h) s.life = 0;
+    // A shot passes through a dashing player and keeps flying.
+    if (s.life > 0 && circlesOverlap(s, p) && hurtPlayer(w, s.damage)) s.life = 0;
+  }
+  w.projectiles = w.projectiles.filter((s) => s.life > 0);
+
+  for (const z of w.zones) {
+    if (z.owner && z.owner.hp <= 0) {
+      z.t = -1;
+      continue;
+    }
+    z.t -= dt;
+    if (z.t <= 0) {
+      blast(w, z.x, z.y, z.radius, z.damage);
+      z.t = -1;
+    }
+  }
+  w.zones = w.zones.filter((z) => z.t > 0);
+
+  for (const s of w.shockwaves) {
+    s.r += s.speed * dt;
+    const d = Math.hypot(p.x - s.x, p.y - s.y);
+    if (!s.hit && Math.abs(d - s.r) < 16 + p.radius && hurtPlayer(w, s.damage)) s.hit = true;
+  }
+  w.shockwaves = w.shockwaves.filter((s) => s.r < s.maxR);
 }
 
 /** Status window input: number keys or the [+] buttons spend stat points. */
@@ -218,179 +410,18 @@ function stepStatus(w: World, input: Controls): void {
   });
 }
 
-function burst(w: World, x: number, y: number, color: string, n: number, speed: number): void {
-  for (let i = 0; i < n; i++) {
-    const a = w.rng() * Math.PI * 2;
-    const s = speed * (0.4 + w.rng() * 0.6);
-    w.particles.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: 0.25 + w.rng() * 0.3, color });
-  }
+/** Gate board input: number keys or a click on a card enters that gate. */
+function stepSelect(w: World, input: Controls): void {
+  const clicked = input.consume("Mouse0");
+  RANK_IDS.forEach((rank, i) => {
+    if (w.mode !== "select") return;
+    const byKey = input.consume(`Digit${i + 1}`);
+    const byClick = clicked && pointIn(gateCard(i), input.mouseX, input.mouseY);
+    if (byKey || byClick) enterGate(w, rank);
+  });
 }
 
-function stepPlayer(w: World, input: Controls, dt: number): void {
-  const p = w.player;
-  p.facing = Math.atan2(input.mouseY + w.camY - p.y, input.mouseX + w.camX - p.x);
-
-  const axis = input.axis();
-  const move = norm(axis.x, axis.y);
-
-  if (input.consume("Space", "ShiftLeft", "ShiftRight") && p.dashCd <= 0) {
-    // Dash along the movement keys, or toward the cursor when standing still.
-    const dir = move.x || move.y ? move : { x: Math.cos(p.facing), y: Math.sin(p.facing) };
-    p.dashX = dir.x;
-    p.dashY = dir.y;
-    p.dashT = PLAYER.dashTime;
-    p.dashCd = PLAYER.dashCooldown;
-    p.iframes = Math.max(p.iframes, PLAYER.dashIframes);
-    p.attackT = 0;
-  }
-
-  if (p.dashT > 0) {
-    p.x += p.dashX * PLAYER.dashSpeed * dt;
-    p.y += p.dashY * PLAYER.dashSpeed * dt;
-    if (w.rng() < 0.6) {
-      w.particles.push({ x: p.x, y: p.y, vx: 0, vy: 0, life: 0.18, color: "#5ee6ff" });
-    }
-  } else {
-    p.x += move.x * p.d.moveSpeed * dt;
-    p.y += move.y * p.d.moveSpeed * dt;
-  }
-  clampToRoom(p, ROOM.w, ROOM.h);
-
-  if (p.attackCd <= 0 && p.dashT <= 0 && (input.attackHeld || input.consume("Mouse0"))) {
-    p.attackCd = p.d.attackCooldown;
-    p.attackT = PLAYER.attackActive;
-    p.attackFacing = p.facing;
-    p.swingId += 1;
-  }
-
-  if (p.attackT > 0) {
-    for (const e of w.enemies) {
-      if (e.lastSwing === p.swingId) continue;
-      if (!inArc(p.x, p.y, p.attackFacing, PLAYER.attackHalfAngle, PLAYER.attackRange, e)) continue;
-      e.lastSwing = p.swingId;
-      const roll = rollDamage(p.d.damage, p.d.critChance, PLAYER.critMult, w.rng);
-      e.hp = applyDamage(e.hp, roll.amount);
-      e.flash = 0.1;
-      const k = norm(e.x - p.x, e.y - p.y);
-      e.kx = k.x * 300;
-      e.ky = k.y * 300;
-      // A hit interrupts a wind-up, but never a lunge already in flight.
-      if (e.state === "windup" || e.state === "chase") {
-        e.state = "recover";
-        e.t = 0.22;
-      }
-      w.texts.push({
-        x: e.x,
-        y: e.y - 18,
-        text: String(roll.amount),
-        life: 0.6,
-        color: roll.crit ? "#ffd84a" : "#ffffff",
-        big: roll.crit,
-      });
-      burst(w, e.x, e.y, "#ff8a8f", 5, 180);
-      w.hitstop = Math.max(w.hitstop, roll.crit ? 0.07 : 0.035);
-      w.shake = Math.max(w.shake, roll.crit ? 6 : 3);
-    }
-  }
-
-  p.dashT = Math.max(0, p.dashT - dt);
-  p.dashCd = Math.max(0, p.dashCd - dt);
-  p.attackT = Math.max(0, p.attackT - dt);
-  p.attackCd = Math.max(0, p.attackCd - dt);
-  p.iframes = Math.max(0, p.iframes - dt);
-  p.hurtFlash = Math.max(0, p.hurtFlash - dt);
-  p.mana = Math.min(p.d.maxMana, p.mana + PLAYER.manaRegen * dt);
-}
-
-function stepEnemy(w: World, e: Enemy, dt: number): void {
-  const p = w.player;
-  const dx = p.x - e.x;
-  const dy = p.y - e.y;
-  const dist = Math.hypot(dx, dy);
-
-  e.x += e.kx * dt;
-  e.y += e.ky * dt;
-  const decay = Math.exp(-10 * dt);
-  e.kx *= decay;
-  e.ky *= decay;
-  e.flash = Math.max(0, e.flash - dt);
-
-  switch (e.state) {
-    case "chase": {
-      const d = norm(dx, dy);
-      e.x += d.x * SWARMER.speed * dt;
-      e.y += d.y * SWARMER.speed * dt;
-      if (dist < SWARMER.engageRange) {
-        e.state = "windup";
-        e.t = SWARMER.windup;
-      }
-      break;
-    }
-    case "windup": {
-      // Track the player until just before release, so walking away is not
-      // enough: the lunge has to be dashed through or stepped around late.
-      if (e.t > 0.12) {
-        const d = norm(dx, dy);
-        e.dirX = d.x;
-        e.dirY = d.y;
-      }
-      e.t -= dt;
-      if (e.t <= 0) {
-        e.state = "lunge";
-        e.t = SWARMER.lungeTime;
-        e.hasHit = false;
-      }
-      break;
-    }
-    case "lunge": {
-      e.x += e.dirX * SWARMER.lungeSpeed * dt;
-      e.y += e.dirY * SWARMER.lungeSpeed * dt;
-      if (!e.hasHit && p.iframes <= 0 && circlesOverlap(e, { x: p.x, y: p.y, radius: p.radius + 3 })) {
-        e.hasHit = true;
-        hurtPlayer(w, SWARMER.damage);
-      }
-      e.t -= dt;
-      if (e.t <= 0) {
-        e.state = "recover";
-        e.t = SWARMER.recover;
-      }
-      break;
-    }
-    case "recover": {
-      e.t -= dt;
-      if (e.t <= 0) e.state = "chase";
-      break;
-    }
-  }
-  clampToRoom(e, ROOM.w, ROOM.h);
-}
-
-function hurtPlayer(w: World, amount: number): void {
-  const p = w.player;
-  p.hp = applyDamage(p.hp, amount);
-  p.iframes = PLAYER.hurtIframes;
-  p.hurtFlash = 0.25;
-  w.shake = Math.max(w.shake, 10);
-  w.hitstop = Math.max(w.hitstop, 0.07);
-  w.texts.push({ x: p.x, y: p.y - 24, text: `-${amount}`, life: 0.8, color: "#ff5a60", big: true });
-  burst(w, p.x, p.y, "#5ee6ff", 10, 220);
-  if (p.hp <= 0) w.dead = true;
-}
-
-/** Advance the simulation by one fixed step. */
-export function step(w: World, input: Controls, dt: number): void {
-  for (const n of w.notices) n.life -= dt;
-  w.notices = w.notices.filter((n) => n.life > 0);
-
-  // The status window pauses the fight.
-  if (!w.dead && input.consume("KeyC", "Tab")) w.menu = w.menu === "status" ? "none" : "status";
-  if (w.menu !== "none") {
-    if (input.consume("Escape")) w.menu = "none";
-    else stepStatus(w, input);
-    return;
-  }
-
-  // Effects keep animating through hit-stop and death.
+function stepEffects(w: World, dt: number): void {
   for (const t of w.texts) {
     t.life -= dt;
     t.y -= 40 * dt;
@@ -400,53 +431,109 @@ export function step(w: World, input: Controls, dt: number): void {
     pt.x += pt.vx * dt;
     pt.y += pt.vy * dt;
   }
+  for (const f of w.fx) f.t -= dt;
   w.texts = w.texts.filter((t) => t.life > 0);
   w.particles = w.particles.filter((pt) => pt.life > 0);
+  w.fx = w.fx.filter((f) => f.t > 0);
   w.shake = Math.max(0, w.shake - 40 * dt);
+}
 
-  if (w.dead) return;
+/** Advance the simulation by one fixed step. */
+export function step(w: World, input: Controls, dt: number): void {
+  for (const n of w.notices) n.life -= dt;
+  w.notices = w.notices.filter((n) => n.life > 0);
+
+  // The status window pauses everything behind it.
+  const canMenu = w.mode === "gate" || w.mode === "select";
+  if (canMenu && input.consume("KeyC", "Tab")) w.menu = w.menu === "status" ? "none" : "status";
+  if (w.menu !== "none") {
+    if (input.consume("Escape")) w.menu = "none";
+    else stepStatus(w, input);
+    return;
+  }
+
+  stepEffects(w, dt);
+
+  if (w.mode === "select") return stepSelect(w, input);
+  if (w.mode === "dead" || w.mode === "cleared") {
+    if (input.consume("Enter", "KeyR")) toSelect(w);
+    return;
+  }
+
   if (w.hitstop > 0) {
     w.hitstop -= dt;
     return;
   }
 
+  const roomBefore = w.roomId;
   stepPlayer(w, input, dt);
+  // Walking through a door ends this step: the new room starts fresh.
+  if (w.roomId !== roomBefore) return;
+
   for (const e of w.enemies) stepEnemy(w, e, dt);
+  if (w.spawnQueue.length > 0) {
+    w.enemies.push(...w.spawnQueue);
+    w.spawnQueue = [];
+  }
 
-  // Keep bodies from stacking. A lunging enemy passes through the player.
+  // Keep bodies from stacking. An attack in flight passes through.
   for (let i = 0; i < w.enemies.length; i++) {
-    for (let j = i + 1; j < w.enemies.length; j++) separate(w.enemies[i], w.enemies[j]);
+    for (let j = i + 1; j < w.enemies.length; j++) {
+      const a = w.enemies[i];
+      const b = w.enemies[j];
+      if (!isCommitted(a) && !isCommitted(b)) separate(a, b);
+    }
   }
+  const p = w.player;
   for (const e of w.enemies) {
-    if (e.state === "lunge" || w.player.dashT > 0) continue;
-    const before = { x: w.player.x, y: w.player.y };
-    separate(w.player, e);
-    // Only the enemy yields: restore the player and move the enemy the full way.
-    e.x += before.x - w.player.x;
-    e.y += before.y - w.player.y;
-    w.player.x = before.x;
-    w.player.y = before.y;
+    if (isCommitted(e) || p.dashT > 0 || p.lungeT > 0 || !circlesOverlap(p, e)) continue;
+    const gap = Math.hypot(e.x - p.x, e.y - p.y);
+    const d = gap > 1e-6 ? { x: (e.x - p.x) / gap, y: (e.y - p.y) / gap } : { x: 1, y: 0 };
+    const overlap = p.radius + e.radius - gap;
+    if (e.boss) {
+      // A boss does not budge: the player is pushed out.
+      p.x = clamp(p.x - d.x * overlap, p.radius, ROOM.w - p.radius);
+      p.y = clamp(p.y - d.y * overlap, p.radius, ROOM.h - p.radius);
+    } else {
+      e.x += d.x * overlap;
+      e.y += d.y * overlap;
+    }
   }
 
+  stepHazards(w, dt);
+
+  let bossDied = false;
   const alive: Enemy[] = [];
   for (const e of w.enemies) {
     if (e.hp > 0) {
       alive.push(e);
-    } else {
-      w.kills += 1;
-      grantXp(w, SWARMER.xp);
-      burst(w, e.x, e.y, "#e5484d", 16, 260);
+      continue;
     }
+    w.kills += 1;
+    burst(w, e.x, e.y, "#e5484d", e.boss ? 60 : 16, e.boss ? 420 : 260);
+    if (e.xp > 0) grantXp(w, e.xp);
+    if (e.boss) bossDied = true;
   }
   w.enemies = alive;
 
-  if (w.enemies.length === 0) {
-    w.waveDelay -= dt;
-    if (w.waveDelay <= 0) {
-      spawnWave(w);
-      w.waveDelay = 1.5;
-    }
+  if (bossDied) {
+    // The boss's death ends the fight outright.
+    for (const e of w.enemies) burst(w, e.x, e.y, "#e5484d", 10, 200);
+    clearField(w);
+    w.shake = Math.max(w.shake, 14);
+    w.clearT = 2.2;
+    floatText(w, p.x, p.y, "GATE CLEARED", "#ffd84a", true);
   }
 
-  updateCamera(w);
+  const room = currentRoom(w);
+  if (room && !room.cleared && w.enemies.length === 0 && w.mode === "gate") {
+    room.cleared = true;
+    w.doorsOpen = true;
+    if (!bossDied) floatText(w, p.x, p.y, "ROOM CLEARED", "#6dff9c", true);
+  }
+
+  if (w.clearT > 0 && w.mode === "gate") {
+    w.clearT -= dt;
+    if (w.clearT <= 0) w.mode = "cleared";
+  }
 }

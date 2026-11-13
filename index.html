@@ -7,11 +7,16 @@
     <style>
       html, body { margin: 0; height: 100%; background: #04060b; overflow: hidden; }
       body { display: flex; align-items: center; justify-content: center; }
-      canvas { display: block; margin: 0 auto; cursor: crosshair; }
+      #stage { position: relative; }
+      #stage canvas { position: absolute; left: 0; top: 0; width: 100%; height: 100%; display: block; }
+      #hud { cursor: crosshair; }
     </style>
   </head>
   <body>
-    <canvas id="game"></canvas>
+    <div id="stage">
+      <canvas id="view"></canvas>
+      <canvas id="hud"></canvas>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

@@ -2,8 +2,12 @@ import { VIEW_H, VIEW_W } from "../game/config";
 
 /** What the simulation reads from the player. Tests supply a fake. */
 export interface Controls {
+  /** Cursor in view coordinates, for menus. */
   mouseX: number;
   mouseY: number;
+  /** Cursor on the ground, in world coordinates, for aiming. */
+  aimX: number;
+  aimY: number;
   attackHeld: boolean;
   axis(): { x: number; y: number };
   consume(...codes: string[]): boolean;
@@ -20,6 +24,8 @@ export class Input implements Controls {
   /** Mouse position in view coordinates (0..VIEW_W, 0..VIEW_H). */
   mouseX = VIEW_W / 2;
   mouseY = VIEW_H / 2;
+  aimX = 0;
+  aimY = 0;
   attackHeld = false;
 
   constructor(canvas: HTMLCanvasElement) {

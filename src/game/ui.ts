@@ -24,3 +24,11 @@ export function statButton(i: number): Rect {
 export function pointIn(r: Rect, x: number, y: number): boolean {
   return x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
 }
+
+/** Gate card `i` on the gate board. */
+export function gateCard(i: number): Rect {
+  const w = 260;
+  const gap = 40;
+  const x0 = VIEW_W / 2 - (w * 3 + gap * 2) / 2;
+  return { x: x0 + i * (w + gap), y: 210, w, h: 300 };
+}
