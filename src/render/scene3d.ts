@@ -503,7 +503,7 @@ export class Scene3D {
       v.group.rotation.y = -a.facing;
       if (v.spin) v.spin.rotation[a.kind === "summoner" ? "y" : "z"] = this.clock * 2;
       v.core.emissive.setHex(a.flash > 0 ? 0xffffff : ECHO_TINT);
-      v.core.emissiveIntensity = a.flash > 0 ? 4 : 1.8;
+      v.core.emissiveIntensity = a.flash > 0 ? 2.6 : 1.8;
     }
   }
 
