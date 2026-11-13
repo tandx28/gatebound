@@ -490,7 +490,8 @@ describe("daily quest", () => {
   it("a missed daily forces the penalty zone on the next visit to the board", () => {
     const w = day(300);
     const c = new FakeControls();
-    w.today = 303;
+    // One missed day: long enough for the penalty, too short for a gate break.
+    w.today = 302;
     run(w, c, 0.02);
     expect(w.profile.penaltyPending).toBe(true);
     expect(w.dialogue?.lines).toBe(DIALOGUES.penalty);

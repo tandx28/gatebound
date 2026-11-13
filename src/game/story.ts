@@ -43,6 +43,24 @@ export const DIALOGUES: Record<string, Line[]> = {
     { speaker: "", text: "The Mirror Blade falls, and for a moment its shape stays standing where it died, like breath on glass." },
     { speaker: LEDGER, text: "Condition met. You may keep what you defeat." },
     { speaker: LEDGER, text: "New authority pending: ECHOES." },
-    { speaker: "", text: "To be continued." },
+    { speaker: LEDGER, text: "A rite has been prepared. Enter it from the gate board when you are ready to be remade." },
+  ],
+  m6: [
+    { speaker: "", text: "The last of them falls. This time you do not walk away. You hold out a hand, and something that was dying stops." },
+    { speaker: LEDGER, text: "Class granted: ECHO CALLER." },
+    { speaker: LEDGER, text: "Where an enemy falls, a remnant lingers. Stand near it and press G. What you bind will fight for you." },
+    { speaker: DOV, text: "There's something standing behind you. No, don't tell me. I don't want to know." },
+  ],
+  rankD: [
+    { speaker: MARA, text: "The Association has re-evaluated you. Rank D. I had to requisition a new card; nobody has gone up a rank in this office before." },
+    { speaker: MARA, text: "The shop keeps better stock for Rank D hunters. Apparently you are worth the good stuff now." },
+  ],
+  rankC: [
+    { speaker: MARA, text: "Rank C. That is two re-evaluations in one file. The director asked me whether you were a clerical error." },
+    { speaker: DOV, text: "Rank C. I've been E for nine years. Buy me a drink and tell me how." },
+  ],
+  break: [
+    { speaker: MARA, text: "Your gate has been open three days with nobody in it. It broke an hour ago. They are in the street." },
+    { speaker: LEDGER, text: "Gate break. Hold the line until it closes." },
   ],
 };

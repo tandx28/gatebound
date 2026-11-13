@@ -1,4 +1,4 @@
-import type { EnemyKind } from "./config";
+import type { EnemyKind, Rank } from "./config";
 
 /** Equipment, potions and titles: fixed definitions and bonus maths. */
 
@@ -22,6 +22,12 @@ export const RARITIES: Rarity[] = ["common", "uncommon", "rare", "epic"];
 
 /** How likely each rarity is to fill a shop slot. */
 export const RARITY_WEIGHT: Record<Rarity, number> = { common: 50, uncommon: 30, rare: 15, epic: 5 };
+/** A higher hunter rank is shown better stock. */
+export const RANK_WEIGHT: Record<Rank, Record<Rarity, number>> = {
+  E: RARITY_WEIGHT,
+  D: { common: 35, uncommon: 35, rare: 22, epic: 8 },
+  C: { common: 20, uncommon: 35, rare: 30, epic: 15 },
+};
 const PRICE: Record<Rarity, number> = { common: 60, uncommon: 180, rare: 450, epic: 1000 };
 
 export interface ItemDef {
@@ -85,15 +91,19 @@ export const TRIAL_DROP = "trial_sigil";
  * Pick the day's shop stock: distinct items, weighted by rarity, skipping
  * anything in `exclude`. The same generator state always gives the same stock.
  */
-export function rollStock(rng: () => number, exclude: string[] = []): string[] {
+export function rollStock(
+  rng: () => number,
+  exclude: string[] = [],
+  weights: Record<Rarity, number> = RARITY_WEIGHT,
+): string[] {
   const pool = SHOP_POOL.filter((id) => !exclude.includes(id));
   const out: string[] = [];
   while (out.length < SHOP_SLOTS && pool.length > 0) {
-    const total = pool.reduce((sum, id) => sum + RARITY_WEIGHT[ITEMS[id].rarity], 0);
+    const total = pool.reduce((sum, id) => sum + weights[ITEMS[id].rarity], 0);
     let roll = rng() * total;
     let index = pool.length - 1;
     for (let i = 0; i < pool.length; i++) {
-      roll -= RARITY_WEIGHT[ITEMS[pool[i]].rarity];
+      roll -= weights[ITEMS[pool[i]].rarity];
       if (roll < 0) {
         index = i;
         break;

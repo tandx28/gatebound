@@ -29,6 +29,8 @@ export interface Player extends Circle {
   skillCd: Record<SkillId, number>;
   /** Pierce in flight. */
   lungeT: number;
+  /** Damage multiplier of the Pierce in flight, from its skill rank. */
+  lungePower: number;
   lungeX: number;
   lungeY: number;
   surgeT: number;
@@ -157,6 +159,45 @@ export interface Profile {
   daily: { day: number; kills: number; rooms: number; gates: number; done: boolean };
   /** A daily quest was missed: the penalty zone is owed. */
   penaltyPending: boolean;
+  /** Official hunter rank: raised by clearing a gate above it. */
+  hunterRank: Rank;
+  /** Rank of each skill, 1 to 3, raised by skill books. */
+  skillRanks: Record<SkillId, number>;
+  /** The class-change rite is done: echoes can be bound. */
+  classUnlocked: boolean;
+  echoes: Echo[];
+  /** Day a gate of the hunter's own rank or higher was last cleared. 0 = not yet tracked. */
+  lastClear: number;
+  /** The hunter's own gate was neglected: a gate break is owed. */
+  breakPending: boolean;
+}
+
+/** A bound enemy. Active ones fight beside the player in every gate. */
+export interface Echo {
+  kind: EnemyKind;
+  rank: Rank;
+  active: boolean;
+}
+
+/** An echo on the field. Enemies cannot see or harm it. */
+export interface Ally extends Circle {
+  kind: EnemyKind;
+  rank: Rank;
+  dmg: number;
+  cd: number;
+  facing: number;
+  flash: number;
+}
+
+/** What an enemy leaves behind for a moment, for an Echo Caller to bind. */
+export interface Remnant {
+  x: number;
+  y: number;
+  kind: EnemyKind;
+  rank: Rank;
+  life: number;
+  /** Binding attempts left. */
+  tries: number;
 }
 
 /** Loot and facts about the gate in progress. Lost on death. */
@@ -168,6 +209,8 @@ export interface Run {
   /** The player entered below the gate's suggested level. */
   overLevel: boolean;
   keys: number;
+  /** Skill books found: each raises that skill a rank when banked. */
+  books: SkillId[];
   /** Left through the entrance instead of clearing. */
   retreated: boolean;
   /** Set once the result has been applied to the profile. */
@@ -185,12 +228,17 @@ export interface Settings {
   shake: boolean;
 }
 
-export type HubTab = "gates" | "shop" | "gear" | "quests" | "system";
-export const HUB_TABS: HubTab[] = ["gates", "shop", "gear", "quests", "system"];
+export type HubTab = "gates" | "shop" | "gear" | "quests" | "echoes" | "system";
+export const HUB_TABS: HubTab[] = ["gates", "shop", "gear", "quests", "echoes", "system"];
+
+/** Tabs on show: the Echoes tab appears once the class is earned. */
+export function visibleTabs(w: World): HubTab[] {
+  return HUB_TABS.filter((t) => t !== "echoes" || w.profile.classUnlocked);
+}
 
 export type Menu = "none" | "status" | "pause";
 export type Mode = "title" | "select" | "gate" | "cleared" | "dead";
-export type GateKind = "normal" | "key" | "penalty";
+export type GateKind = "normal" | "key" | "penalty" | "rite" | "break";
 
 /** Enough of a gate in progress to resume it from the current room. */
 export interface GateSnapshot {
@@ -231,6 +279,15 @@ export interface World {
   emergency: { t: number; total: number; bonus: number } | null;
   /** Seconds left to survive in the penalty zone. */
   penaltyT: number;
+  /** Echoes fighting in the current room. */
+  allies: Ally[];
+  allyShots: Projectile[];
+  remnants: Remnant[];
+  /** Current wave of the rite, from 0. */
+  riteWave: number;
+  /** Seconds left in a gate break, and until its next pack arrives. */
+  breakT: number;
+  breakSpawn: number;
   /** The gate's boss is dead but a hidden door keeps the gate open. */
   bossDead: boolean;
   /** Bumped when the current room's doors change, so the view rebuilds. */

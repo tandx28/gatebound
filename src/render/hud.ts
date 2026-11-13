@@ -1,9 +1,12 @@
 import {
+  BREAK,
   DAILY,
+  ECHO,
   KINDS,
   PENALTY,
   PLAYER,
   RANKS,
+  RITE,
   SKILL_IDS,
   SKILLS,
   VIEW_H,
@@ -67,6 +70,22 @@ function drawWorldLabels(ctx: Ctx, w: World, project: Project): void {
     ctx.fillStyle = "#ff5a60";
     ctx.fillRect(s.x - 16, s.y - 2, 32 * (e.hp / e.maxHp), 3);
   }
+  // Remnants: a prompt to bind, with the time and tries left.
+  ctx.textAlign = "center";
+  for (const r of w.remnants) {
+    const s = project(r.x, r.y, 40);
+    const near = Math.hypot(r.x - w.player.x, r.y - w.player.y) <= ECHO.bindRange;
+    ctx.globalAlpha = Math.min(1, r.life);
+    ctx.font = `bold ${near ? 14 : 11}px ${FONT}`;
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = "rgba(4,6,11,0.8)";
+    const label = near ? `[G] BIND${r.tries > 1 ? `  (${r.tries} tries)` : ""}` : "remnant";
+    ctx.strokeText(label, s.x, s.y);
+    ctx.fillStyle = near ? "#d8ccff" : "#8a6cff";
+    ctx.fillText(label, s.x, s.y);
+  }
+  ctx.globalAlpha = 1;
+
   ctx.textAlign = "center";
   for (const t of w.texts) {
     const s = project(t.x, t.y, 46);
@@ -136,6 +155,15 @@ function drawSkills(ctx: Ctx, w: World): void {
     ctx.font = `bold 20px ${FONT}`;
     ctx.fillStyle = cd > 0 || poor ? "#56719c" : id === "surge" && p.surgeT > 0 ? GOLD : "#cfe4ff";
     ctx.fillText(s.key, x + size / 2, y + 28);
+    // Skill rank, raised by skill books.
+    const rank = w.profile.skillRanks[id];
+    if (rank > 1) {
+      ctx.textAlign = "right";
+      ctx.font = `bold 10px ${FONT}`;
+      ctx.fillStyle = GOLD;
+      ctx.fillText(rank === 2 ? "II" : "III", x + size - 5, y + 13);
+      ctx.textAlign = "center";
+    }
     ctx.font = `10px ${FONT}`;
     ctx.fillStyle = poor ? "#ff5a60" : "#6f8fbf";
     ctx.fillText(cd > 0 ? cd.toFixed(1) : s.name.toUpperCase(), x + size / 2, y + 46);
@@ -244,7 +272,7 @@ function drawStatus(ctx: Ctx, w: World): void {
   ctx.textAlign = "left";
   ctx.fillStyle = "#9fc8ff";
   ctx.fillText(`LEVEL  ${p.prog.level}`, left, s.y + 92);
-  ctx.fillText(`RANK   E`, left, s.y + 116);
+  ctx.fillText(`RANK   ${w.profile.hunterRank}${w.profile.classUnlocked ? "   ·   ECHO CALLER" : ""}`, left, s.y + 116);
   ctx.fillText(`HP  ${p.hp} / ${p.d.maxHp}`, left + 200, s.y + 92);
   ctx.fillText(`MP  ${Math.floor(p.mana)} / ${p.d.maxMana}`, left + 200, s.y + 116);
   ctx.fillText(need === Infinity ? "EXP  MAX" : `EXP  ${p.prog.xp} / ${need}`, left, s.y + 140);
@@ -530,6 +558,12 @@ function drawHub(ctx: Ctx, w: World): void {
     ctx.fillStyle = "#6f8fbf";
     ctx.fillText(`Gates cleared: ${pr.gatesCleared}   ·   Kills this session: ${w.kills}`, VIEW_W / 2, 510);
   }
+  if (w.tab === "echoes" && pr.echoes.length === 0) {
+    ctx.textAlign = "left";
+    ctx.font = `13px ${FONT}`;
+    ctx.fillStyle = "#4a5f85";
+    ctx.fillText("No echoes yet. In a gate, stand by a fallen enemy's remnant and press G.", 150, 268);
+  }
   if ((w.tab === "shop" || w.tab === "gear") && pr.inventory.length === 0) {
     ctx.textAlign = "left";
     ctx.font = `13px ${FONT}`;
@@ -580,6 +614,10 @@ function drawAlerts(ctx: Ctx, w: World): void {
     ctx.fillText(text, VIEW_W / 2, y + 20);
     y += 36;
   };
+  if (w.gateKind === "rite" && w.mode === "gate") {
+    banner(`RITE OF ECHOES   ·   wave ${Math.min(w.riteWave + 1, RITE.waves.length)} of ${RITE.waves.length}`, (w.riteWave + 1) / RITE.waves.length, "#b9a4ff");
+  }
+  if (w.breakT > 0) banner(`GATE BREAK   ·   hold the line   ${clock(w.breakT)}`, w.breakT / BREAK.time, "#ff8a3c");
   if (w.penaltyT > 0) banner(`PENALTY ZONE   ·   survive   ${clock(w.penaltyT)}`, w.penaltyT / PENALTY.time, "#ff5a60");
   if (w.emergency) banner(`EMERGENCY QUEST   ·   kill them all   ${clock(w.emergency.t)}`, w.emergency.t / w.emergency.total, GOLD);
   if (w.sealed) {
@@ -661,7 +699,11 @@ function drawEnd(ctx: Ctx, w: World): void {
         ? "PENALTY SERVED"
         : w.gateKind === "key"
           ? "DUNGEON CLEARED"
-          : "GATE CLEARED";
+          : w.gateKind === "rite"
+            ? "RITE COMPLETE"
+            : w.gateKind === "break"
+              ? "BREAK CONTAINED"
+              : "GATE CLEARED";
   ctx.fillText(heading, VIEW_W / 2, top + 58);
   ctx.fillStyle = "#9fc8ff";
   ctx.font = `13px ${FONT}`;
@@ -698,7 +740,7 @@ export function drawHud(ctx: Ctx, w: World, mouseX: number, mouseY: number, proj
     ctx.font = `12px ${FONT}`;
     ctx.fillStyle = "rgba(159,200,255,0.55)";
     ctx.fillText(
-      "WASD move · MOUSE aim · CLICK attack · SPACE dash · Q E R skills · F potion · T stone · C status · ESC pause",
+      `WASD move · MOUSE aim · CLICK attack · SPACE dash · Q E R skills · F potion · T stone${w.profile.classUnlocked ? " · G bind" : ""} · C status · ESC pause`,
       VIEW_W / 2,
       VIEW_H - 14,
     );

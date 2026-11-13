@@ -155,3 +155,44 @@ export const RETREAT = { goldKeep: 0.5 };
 export function rankForLevel(level: number): Rank {
   return level >= RANKS.C.minLevel ? "C" : level >= RANKS.D.minLevel ? "D" : "E";
 }
+
+/** Skill books raise a skill's rank: stronger and quicker to come back. */
+export const SKILL_RANK = { max: 3, power: 0.25, cooldown: 0.1, surgeTime: 2, bossDrop: 0.35 };
+
+/** A Blank Page refunds every spent stat point. */
+export const RESET = { price: 400 };
+
+/**
+ * Echoes: the fallen, bound to fight beside you. A remnant lingers where an
+ * enemy dies; binding it costs mana. Bosses resist, and allow a few tries.
+ */
+export const ECHO = {
+  roster: 8,
+  bindRange: 90,
+  bindMana: 5,
+  remnantLife: 8,
+  bossChance: 0.35,
+  bossTries: 3,
+  /** Share of the living enemy's damage an echo deals. */
+  damage: 0.35,
+  bossDamage: 1.5,
+};
+
+/** How many echoes can fight at once: two at first, one more every three levels. */
+export function echoCap(level: number): number {
+  return Math.max(2, Math.min(5, 2 + Math.floor((level - RANKS.C.minLevel) / 3)));
+}
+
+/** The class-change rite: waves in a sealed arena. Clearing it grants echoes. */
+export const RITE: { waves: EnemyKind[][]; points: number } = {
+  waves: [
+    ["swarmer", "swarmer", "swarmer", "swarmer", "swarmer", "swarmer"],
+    ["charger", "charger", "charger", "shooter", "shooter", "shooter"],
+    ["brute", "brute", "healer", "healer", "exploder", "exploder"],
+    ["warden", "summoner"],
+  ],
+  points: 5,
+};
+
+/** A gate break: your rank's gate, left alone too long, spills into the city. */
+export const BREAK = { days: 3, time: 75, every: 10, pack: 4, maxAlive: 10, gold: 100 };

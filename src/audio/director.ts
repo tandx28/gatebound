@@ -35,6 +35,8 @@ export function musicState(w: World): MusicState {
   // After a death or a clear the gate's own song thins out to its pad.
   if (w.mode !== "gate") return { scene: "rest", intensity: 0, seed, kind: "gate" };
   if (w.gateKind === "penalty") return { scene: "penalty", intensity: 1, seed: 4242, kind: "boss" };
+  // The rite is one long boss fight.
+  if (w.gateKind === "rite") return { scene: "boss", intensity: 1, seed: 5151, kind: "boss" };
 
   const p = w.player;
   const boss = w.enemies.some((e) => e.boss);

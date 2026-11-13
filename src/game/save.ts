@@ -1,4 +1,4 @@
-import { KINDS, RANK_IDS, type EnemyKind, type Rank } from "./config";
+import { ECHO, KINDS, RANK_IDS, SKILL_IDS, SKILL_RANK, type EnemyKind, type Rank } from "./config";
 import { SIDES, type Dungeon, type RoomNode } from "./dungeon";
 import { ITEMS, SHOP_POOL, SLOTS, STONE, TITLES } from "./items";
 import { newProfile, newRun, refreshDerived } from "./profile";
@@ -9,7 +9,8 @@ import { resumeGate, snapshotGate } from "./world";
 
 /** Save format, validation and migration. Storage itself lives in the shell. */
 
-export const SAVE_VERSION = 1;
+/** 2 adds hunter rank, skill ranks, the class, echoes and gate breaks. */
+export const SAVE_VERSION = 2;
 export const SAVE_KEY = "gatebound.save";
 
 export interface SaveData {
@@ -103,7 +104,8 @@ function parseGate(raw: unknown): GateSnapshot | null {
 export function parseSave(raw: unknown): SaveData | null {
   if (!isObj(raw) || typeof raw.v !== "number" || raw.v < 1 || raw.v > SAVE_VERSION) return null;
   if (!isObj(raw.prog) || !isObj(raw.profile)) return null;
-  // Future versions migrate older shapes here before validation.
+  // Version 1 saves simply lack the version 2 fields, which then take their
+  // defaults below: Rank E, skills at rank 1, no class, no echoes.
 
   const rp = raw.prog;
   const prog = newProgress();
@@ -122,6 +124,20 @@ export function parseSave(raw: unknown): SaveData | null {
   profile.keys = int(rf.keys, 0, 99, 0);
   profile.stones = int(rf.stones, 0, STONE.max, 0);
   profile.penaltyPending = rf.penaltyPending === true;
+  profile.breakPending = rf.breakPending === true;
+  profile.lastClear = int(rf.lastClear, 0, 1e7, 0);
+  profile.classUnlocked = rf.classUnlocked === true;
+  if (RANK_IDS.includes(rf.hunterRank as Rank)) profile.hunterRank = rf.hunterRank as Rank;
+  const rsk = isObj(rf.skillRanks) ? rf.skillRanks : {};
+  for (const id of SKILL_IDS) profile.skillRanks[id] = int(rsk[id], 1, SKILL_RANK.max, 1);
+  if (Array.isArray(rf.echoes)) {
+    for (const e of rf.echoes.slice(0, ECHO.roster) as unknown[]) {
+      if (!isObj(e) || !KINDS[e.kind as EnemyKind] || !RANK_IDS.includes(e.rank as Rank)) continue;
+      profile.echoes.push({ kind: e.kind as EnemyKind, rank: e.rank as Rank, active: e.active === true });
+    }
+  }
+  // Echoes need the class; without it a save cannot hold any.
+  if (!profile.classUnlocked) profile.echoes = [];
 
   // Older saves have no shop or daily quest: they keep the defaults, and the
   // first day rollover fills them in.

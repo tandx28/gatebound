@@ -1,6 +1,8 @@
-import { RANK_IDS, VIEW_H, VIEW_W, type Rank } from "./config";
+import { echoCap, KINDS, RANK_IDS, RESET, VIEW_H, VIEW_W, type Rank } from "./config";
 import { describeBonus, ITEMS, POTION, sellValue, SLOTS, STONE, TITLES, type Rarity } from "./items";
-import { HUB_TABS, type World } from "./state";
+import { activeEchoes, canActivate, riteOpen } from "./profile";
+import { visibleTabs, type World } from "./state";
+import { BASE_STAT, STAT_KEYS } from "./stats";
 
 /** Layout shared by the renderer and the click handling, so they agree. */
 
@@ -131,6 +133,9 @@ export function pauseButtons(w: World): Button[] {
 export function hubHeadings(w: World): { x: number; y: number; text: string }[] {
   const y = TOP - 14;
   if (w.tab === "shop") return [{ x: LEFT, y, text: "TODAY'S STOCK" }, { x: RIGHT, y, text: "YOUR ITEMS" }];
+  if (w.tab === "echoes") {
+    return [{ x: LEFT, y, text: `YOUR ECHOES   ·   fighting ${activeEchoes(w.profile)} of ${echoCap(w.player.prog.level)}   ·   only one boss echo at a time` }];
+  }
   if (w.tab === "gear") {
     return [
       { x: LEFT, y, text: "EQUIPPED" },
@@ -146,10 +151,11 @@ export function hubButtons(w: World): Button[] {
   const pr = w.profile;
   const out: Button[] = [];
 
+  const tabs = visibleTabs(w);
   const tw = 150;
   const gap = 10;
-  const x0 = VIEW_W / 2 - (tw * HUB_TABS.length + gap * (HUB_TABS.length - 1)) / 2;
-  HUB_TABS.forEach((tab, i) => {
+  const x0 = VIEW_W / 2 - (tw * tabs.length + gap * (tabs.length - 1)) / 2;
+  tabs.forEach((tab, i) => {
     out.push({
       rect: { x: x0 + i * (tw + gap), y: 180, w: tw, h: 32 },
       id: `tab:${tab}`,
@@ -171,6 +177,9 @@ export function hubButtons(w: World): Button[] {
       enabled: pr.keys > 0,
       kind: "plain",
     });
+    if (riteOpen(pr)) {
+      out.push({ rect: { x: VIEW_W / 2 - 150, y: 586, w: 300, h: 36 }, id: "gate:rite", label: "RITE OF ECHOES", enabled: true, kind: "plain", on: true });
+    }
   } else if (w.tab === "shop") {
     pr.shop.stock.forEach((id, i) => {
       const owned = pr.inventory.includes(id) || SLOTS.some((s) => pr.equipped[s] === id);
@@ -185,9 +194,13 @@ export function hubButtons(w: World): Button[] {
     out.push(
       row(LEFT, n + 1, "buy:stone", stoned ? "FULL" : `${STONE.price} G`, !stoned && pr.gold >= STONE.price, `Return Stone  (${pr.stones}/${STONE.max})`, "leave a gate with your loot; fails in sealed gates"),
     );
+    const spent = STAT_KEYS.reduce((sum, k) => sum + w.player.prog.stats[k] - BASE_STAT, 0);
+    out.push(
+      row(LEFT, n + 2, "buy:reset", spent > 0 ? `${RESET.price} G` : "NO NEED", spent > 0 && pr.gold >= RESET.price, "Blank Page", "refunds every spent stat point"),
+    );
     const used = pr.shop.rerolls >= 1;
     out.push({
-      rect: { x: LEFT, y: TOP + (n + 2) * ROW_H + 8, w: 460, h: 32 },
+      rect: { x: LEFT, y: TOP + (n + 3) * ROW_H + 8, w: 460, h: 32 },
       id: "shop:reroll",
       label: used ? "STOCK RESET USED  ·  new stock tomorrow" : "RESET STOCK  ·  free, once a day",
       enabled: !used,
@@ -210,6 +223,14 @@ export function hubButtons(w: World): Button[] {
     });
     pr.inventory.forEach((id, i) => {
       out.push(itemRow(RIGHT, i, `equip:${id}`, id, "EQUIP", true));
+    });
+  } else if (w.tab === "echoes") {
+    pr.echoes.forEach((e, i) => {
+      const boss = KINDS[e.kind].boss;
+      const b = row(LEFT, i, `echo:toggle:${i}`, e.active ? "FIGHTING" : "RESERVE", e.active || canActivate(w, e.kind), `${KINDS[e.kind].name} echo`, `Rank ${e.rank}${boss ? "  ·  boss" : ""}`, e.active);
+      if (boss) b.rarity = "epic";
+      out.push(b);
+      out.push({ rect: { x: LEFT + 470, y: TOP + i * ROW_H, w: 90, h: 28 }, id: `echo:release:${i}`, label: "RELEASE", enabled: true, kind: "plain" });
     });
   } else if (w.tab === "system") {
     const labels: [string, string][] = [

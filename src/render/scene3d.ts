@@ -16,7 +16,7 @@ import {
   type Rank,
 } from "../game/config";
 import type { Dungeon, Side } from "../game/dungeon";
-import type { Enemy, World } from "../game/state";
+import type { Ally, Enemy, World } from "../game/state";
 
 /**
  * 3D view of the simulation. The game itself is flat: a sim point (x, y)
@@ -26,6 +26,7 @@ import type { Enemy, World } from "../game/state";
 
 const RANK_TINT: Record<Rank, number> = { E: 0x3aa0ff, D: 0x35e0a0, C: 0xb070ff };
 const SEALED_TINT = 0xff3355;
+const ECHO_TINT = 0x8a6cff;
 const KIND_COLOR: Record<EnemyKind, number> = {
   swarmer: 0xe5484d,
   charger: 0xff8a3c,
@@ -208,8 +209,10 @@ export class Scene3D {
   private playerTrim: THREE.MeshStandardMaterial;
   private playerLight = new THREE.PointLight(0x5ee6ff, 1.2, 420, 1.4);
   private enemies = new Map<Enemy, EnemyView>();
+  private allies = new Map<Ally, EnemyView>();
   private shots: THREE.Mesh[] = [];
   private shotMat = glow(0xff4fd8, 3);
+  private allyShotMat = glow(0x8a6cff, 3);
   private shotGeo = new THREE.SphereGeometry(1, 10, 8);
 
   private circles: DecalPool;
@@ -470,14 +473,51 @@ export class Scene3D {
     }
   }
 
+  /** Echoes wear the shape they had in life, in a ghostly violet. */
+  private syncAllies(w: World): void {
+    for (const [a, v] of this.allies) {
+      if (!w.allies.includes(a)) {
+        this.scene.remove(v.group);
+        this.allies.delete(a);
+      }
+    }
+    for (const a of w.allies) {
+      let v = this.allies.get(a);
+      if (!v) {
+        v = buildEnemy(a.kind, a.radius);
+        v.group.traverse((o) => {
+          const m = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined;
+          if (!m || !("emissive" in m)) return;
+          m.transparent = true;
+          m.opacity = 0.72;
+          // The dark body parts take a faint glow too, so the whole figure reads as a shade.
+          if (m !== v!.core) {
+            m.emissive.setHex(ECHO_TINT);
+            m.emissiveIntensity = 0.35;
+          }
+        });
+        this.allies.set(a, v);
+        this.scene.add(v.group);
+      }
+      v.group.position.set(a.x, Math.sin(this.clock * 2.5 + a.x) * 2 + 2, a.y);
+      v.group.rotation.y = -a.facing;
+      if (v.spin) v.spin.rotation[a.kind === "summoner" ? "y" : "z"] = this.clock * 2;
+      v.core.emissive.setHex(a.flash > 0 ? 0xffffff : ECHO_TINT);
+      v.core.emissiveIntensity = a.flash > 0 ? 4 : 1.8;
+    }
+  }
+
   private syncShots(w: World): void {
-    while (this.shots.length < w.projectiles.length) {
+    const all = [...w.projectiles, ...w.allyShots];
+    while (this.shots.length < all.length) {
       const m = new THREE.Mesh(this.shotGeo, this.shotMat);
       this.scene.add(m);
       this.shots.push(m);
     }
     this.shots.forEach((m, i) => {
-      const s = w.projectiles[i];
+      const s = all[i];
+      // Echo shots are violet; enemy shots stay magenta.
+      if (s) m.material = i >= w.projectiles.length ? this.allyShotMat : this.shotMat;
       m.visible = !!s;
       if (s) {
         m.position.set(s.x, 22, s.y);
@@ -519,6 +559,15 @@ export class Scene3D {
         this.rings.place(e.x, e.y, 0, e.radius + 10, e.radius + 10, 0x8fb4ff, 0.25);
       }
     }
+
+    for (const r of w.remnants) {
+      // A remnant: a violet ring that tightens as it fades.
+      const k = Math.min(1, r.life / 2);
+      const pulse = 22 + 6 * Math.sin(this.clock * 6);
+      this.rings.place(r.x, r.y, 0, pulse, pulse, ECHO_TINT, 0.9 * k);
+      this.circles.place(r.x, r.y, 0, 12, 12, ECHO_TINT, 0.5 * k);
+    }
+    for (const a of w.allies) this.rings.place(a.x, a.y, 0, a.radius + 6, a.radius + 6, ECHO_TINT, 0.35);
 
     for (const z of w.zones) {
       const k = 1 - z.t / z.total;
@@ -596,6 +645,7 @@ export class Scene3D {
     this.player.visible = !(p.iframes > 0 && !fast && Math.floor(p.iframes * 20) % 2 === 0) && w.mode !== "dead" && w.mode !== "title";
 
     this.syncEnemies(w);
+    this.syncAllies(w);
     this.syncShots(w);
     this.syncDecals(w);
     this.syncParticles(w);

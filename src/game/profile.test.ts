@@ -5,6 +5,7 @@ import { KINDS, PLAYER, ROOM, STEP, SWARMER } from "./config";
 import { makeEnemy } from "./enemies";
 import { ITEMS, POTION } from "./items";
 import { beginStory, DEATH, hubAction, settleClear, settleDeath } from "./profile";
+import { MAIN } from "./quests";
 import { applySave, parseSave, SAVE_VERSION, toSave } from "./save";
 import { xpToNext } from "./stats";
 import { DIALOGUES } from "./story";
@@ -468,7 +469,7 @@ describe("save", () => {
     expect(data.profile.inventory).toEqual(["iron_fang"]);
     expect(data.profile.titles).toEqual(["first_gate"]);
     expect(data.profile.title).toBe(null);
-    expect(data.profile.quests.main).toBe(5);
+    expect(data.profile.quests.main).toBe(MAIN.length);
     expect(data.profile.quests.done).toEqual(["s1"]);
     expect(data.profile.quests.progress).toEqual({ s1: 12 });
     expect(data.profile.introSeen).toBe(false);

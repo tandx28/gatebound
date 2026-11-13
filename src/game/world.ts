@@ -1,7 +1,11 @@
 import type { Controls } from "../engine/input";
 import { clamp, norm } from "../engine/vec";
+import { makeAlly, stepAlly, stepAllyShots } from "./allies";
 import { circlesOverlap, inArc, rollDamage, separate } from "./combat";
 import {
+  BREAK,
+  ECHO,
+  echoCap,
   EMERGENCY,
   HIDDEN,
   KINDS,
@@ -11,8 +15,10 @@ import {
   RANK_IDS,
   rankForLevel,
   RANKS,
+  RITE,
   ROOM,
   SEALED,
+  SKILL_RANK,
   SKILL_IDS,
   SKILLS,
   SURGE,
@@ -27,9 +33,9 @@ import {
   blast,
   burst,
   floatText,
-  HUB_TABS,
   hurtPlayer,
   sfx,
+  visibleTabs,
   type Enemy,
   type GateKind,
   type GateSnapshot,
@@ -39,6 +45,7 @@ import {
 import {
   advanceDialogue,
   applySetting,
+  canActivate,
   fireQuest,
   hubAction,
   newProfile,
@@ -78,6 +85,12 @@ export function createWorld(rng: () => number = Math.random): World {
     coldT: 0,
     emergency: null,
     penaltyT: 0,
+    allies: [],
+    allyShots: [],
+    remnants: [],
+    riteWave: 0,
+    breakT: 0,
+    breakSpawn: 0,
     bossDead: false,
     layoutRev: 0,
     hiddenChance: HIDDEN.chance,
@@ -106,6 +119,7 @@ export function createWorld(rng: () => number = Math.random): World {
       hurtFlash: 0,
       skillCd: { pierce: 0, whirl: 0, surge: 0 },
       lungeT: 0,
+      lungePower: 1,
       lungeX: 1,
       lungeY: 0,
       surgeT: 0,
@@ -141,6 +155,18 @@ function clearField(w: World): void {
   w.projectiles = [];
   w.zones = [];
   w.shockwaves = [];
+  w.allyShots = [];
+  w.remnants = [];
+}
+
+/** Bring the active echoes onto the field, in a ring round the player. */
+function deployAllies(w: World): void {
+  const p = w.player;
+  const squad = w.profile.echoes.filter((e) => e.active).slice(0, echoCap(p.prog.level));
+  w.allies = squad.map((echo, i) => {
+    const a = (i / Math.max(1, squad.length)) * Math.PI * 2;
+    return makeAlly(echo, p.x + Math.cos(a) * 46, p.y + Math.sin(a) * 46);
+  });
 }
 
 function resetPlayer(p: Player): void {
@@ -166,6 +192,10 @@ function beginGate(w: World, rank: Rank, dungeon: Dungeon, kind: GateKind, seale
   w.coldT = 0;
   w.emergency = null;
   w.penaltyT = 0;
+  w.riteWave = 0;
+  w.breakT = 0;
+  w.breakSpawn = 0;
+  w.allies = [];
   w.bossDead = false;
   w.mode = "gate";
   w.menu = "none";
@@ -214,25 +244,52 @@ function arenaDungeon(rank: Rank): Dungeon {
   };
 }
 
-/** A single sealed, empty room with no doors. Used by tests. */
-export function enterArena(w: World, rank: Rank = "E"): void {
-  beginGate(w, rank, arenaDungeon(rank), "normal", false);
+/** Common setup for the single-room instances. */
+function beginArena(w: World, rank: Rank, kind: GateKind, doorsOpen: boolean): void {
+  beginGate(w, rank, arenaDungeon(rank), kind, false);
   w.roomId = 0;
-  w.doorsOpen = true;
+  w.doorsOpen = doorsOpen;
   clearField(w);
   w.player.x = ROOM.w / 2;
   w.player.y = ROOM.h / 2;
+  // Echoes follow everywhere except into the penalty zone and the rite.
+  if (kind !== "penalty" && kind !== "rite") deployAllies(w);
+}
+
+/** A single sealed, empty room with no doors. Used by tests. */
+export function enterArena(w: World, rank: Rank = "E"): void {
+  beginArena(w, rank, "normal", true);
+}
+
+function spawnPack(w: World, kinds: EnemyKind[]): void {
+  for (const kind of kinds) {
+    const at = KINDS[kind].boss ? { x: ROOM.w / 2 + (w.rng() - 0.5) * 500, y: 220 } : spawnPoint(w);
+    const e = spawnEnemy(w, kind, at.x, at.y);
+    e.t = 0.8 + w.rng() * 0.5;
+    w.enemies.push(e);
+    burst(w, at.x, at.y, "#e5484d", 8, 140);
+  }
+}
+
+/** The class-change rite: four waves, alone, at Rank C strength. */
+export function enterRite(w: World): void {
+  beginArena(w, "C", "rite", false);
+  spawnPack(w, RITE.waves[0]);
+  w.notices.push({ title: "RITE OF ECHOES", body: `Wave 1 of ${RITE.waves.length}. You enter alone.`, life: 4 });
+}
+
+/** A gate break: hold out against packs of your own rank until it closes. */
+export function enterBreak(w: World): void {
+  beginArena(w, w.profile.hunterRank, "break", false);
+  w.breakT = BREAK.time;
+  w.breakSpawn = 0;
+  w.notices.push({ title: "GATE BREAK", body: `Hold for ${BREAK.time} seconds. They keep coming.`, life: 5 });
 }
 
 /** The penalty zone: survive a set time against enemies that cannot be killed. */
 export function enterPenalty(w: World): void {
   const rank = rankForLevel(w.player.prog.level);
-  beginGate(w, rank, arenaDungeon(rank), "penalty", false);
-  w.roomId = 0;
-  w.doorsOpen = false;
-  clearField(w);
-  w.player.x = ROOM.w / 2;
-  w.player.y = ROOM.h / 2;
+  beginArena(w, rank, "penalty", false);
   w.penaltyT = PENALTY.time;
   const pack: EnemyKind[] = ["swarmer", "swarmer", "swarmer", "swarmer", "charger", "charger", "shooter", "shooter"];
   for (const kind of pack) {
@@ -249,7 +306,9 @@ export function enterPenalty(w: World): void {
 /** A copy of the gate in progress, for the save. Null when there is nothing to resume. */
 export function snapshotGate(w: World): GateSnapshot | null {
   const inGate = w.mode === "gate" || (w.mode === "title" && w.afterTitle === "gate");
-  if (!inGate || !w.dungeon || w.gateKind === "penalty" || w.clearT > 0) return null;
+  // Only real gates resume; the single-room trials start over.
+  const resumable = w.gateKind === "normal" || w.gateKind === "key";
+  if (!inGate || !w.dungeon || !resumable || w.clearT > 0) return null;
   return JSON.parse(
     JSON.stringify({
       rank: w.rank,
@@ -283,6 +342,7 @@ export function toSelect(w: World): void {
   w.sealed = false;
   w.emergency = null;
   w.bossDead = false;
+  w.allies = [];
   clearField(w);
   w.fx = [];
   w.texts = [];
@@ -308,6 +368,7 @@ export function enterRoom(w: World, id: number, from: Side | null): void {
   else [p.x, p.y] = [ROOM.w / 2, ROOM.h / 2];
   p.dashT = 0;
   p.lungeT = 0;
+  deployAllies(w);
   room.visited = true;
   w.emergency = null;
   if (from) sfx(w, "door");
@@ -397,13 +458,17 @@ function strike(w: World, e: Enemy, mult: number, knock: number): void {
 function useSkill(w: World, id: SkillId): void {
   const p = w.player;
   if (!skillReady(p, id)) return;
+  // Each rank from a skill book adds power and trims the cooldown.
+  const extra = w.profile.skillRanks[id] - 1;
+  const power = 1 + SKILL_RANK.power * extra;
   p.mana -= SKILLS[id].mana;
-  p.skillCd[id] = SKILLS[id].cooldown;
+  p.skillCd[id] = SKILLS[id].cooldown * (1 - SKILL_RANK.cooldown * extra);
   p.attackT = 0;
   p.swingId += 1;
   sfx(w, id);
   if (id === "pierce") {
     p.lungeT = PIERCE.time;
+    p.lungePower = power;
     p.lungeX = Math.cos(p.facing);
     p.lungeY = Math.sin(p.facing);
     p.dashT = 0;
@@ -411,13 +476,13 @@ function useSkill(w: World, id: SkillId): void {
   } else if (id === "whirl") {
     for (const e of w.enemies) {
       if (Math.hypot(e.x - p.x, e.y - p.y) <= WHIRL.radius + e.radius) {
-        strike(w, e, WHIRL.mult * p.d.skillPower, WHIRL.knock);
+        strike(w, e, WHIRL.mult * p.d.skillPower * power, WHIRL.knock);
       }
     }
     w.fx.push({ kind: "ring", x: p.x, y: p.y, radius: WHIRL.radius, t: 0.25, total: 0.25, color: "#5ee6ff" });
     w.shake = Math.max(w.shake, 5);
   } else {
-    p.surgeT = SURGE.time;
+    p.surgeT = SURGE.time + SKILL_RANK.surgeTime * extra;
     burst(w, p.x, p.y, "#ffd84a", 20, 260);
     w.fx.push({ kind: "ring", x: p.x, y: p.y, radius: 80, t: 0.4, total: 0.4, color: "#ffd84a" });
   }
@@ -463,7 +528,7 @@ function constrainPlayer(w: World): void {
  * Return Stone, which does nothing in a sealed gate or the penalty zone.
  */
 function tryLeave(w: World): void {
-  if (w.gateKind === "penalty" || w.clearT > 0) return;
+  if ((w.gateKind !== "normal" && w.gateKind !== "key") || w.clearT > 0) return;
   if (w.bossDead) {
     w.clearT = 0.01;
     return;
@@ -480,6 +545,55 @@ function tryLeave(w: World): void {
   w.mode = "cleared";
 }
 
+/**
+ * G: bind the nearest remnant as an echo. Costs mana. Regular enemies bind
+ * at once; a boss resists, and its remnant allows only a few tries.
+ */
+function tryBind(w: World): void {
+  const p = w.player;
+  const pr = w.profile;
+  if (!pr.classUnlocked) return;
+  let best = -1;
+  let d = ECHO.bindRange;
+  w.remnants.forEach((r, i) => {
+    const n = Math.hypot(r.x - p.x, r.y - p.y);
+    if (n <= d) {
+      d = n;
+      best = i;
+    }
+  });
+  if (best < 0) return;
+  const r = w.remnants[best];
+  if (pr.echoes.length >= ECHO.roster) {
+    sfx(w, "deny");
+    w.notices.push({ title: "ROSTER FULL", body: "Release an echo on the gate board to bind another.", life: 2.5 });
+    return;
+  }
+  if (p.mana < ECHO.bindMana) {
+    sfx(w, "deny");
+    floatText(w, p.x, p.y, "NO MANA", "#4f7bff");
+    return;
+  }
+  p.mana -= ECHO.bindMana;
+  const boss = KINDS[r.kind].boss;
+  if (boss && w.rng() >= ECHO.bossChance) {
+    r.tries -= 1;
+    sfx(w, "fail");
+    floatText(w, r.x, r.y, r.tries > 0 ? `IT RESISTS  (${r.tries} left)` : "IT IS GONE", "#ff5a60", true);
+    if (r.tries <= 0) w.remnants.splice(best, 1);
+    return;
+  }
+  const echo = { kind: r.kind, rank: r.rank, active: canActivate(w, r.kind) };
+  pr.echoes.push(echo);
+  w.remnants.splice(best, 1);
+  w.dirty = true;
+  sfx(w, "summon");
+  burst(w, r.x, r.y, "#8a6cff", 24, 260);
+  floatText(w, r.x, r.y, echo.active ? "BOUND" : "BOUND  (in reserve)", "#b9a4ff", true);
+  // An echo with room in the squad rises where it fell and fights at once.
+  if (echo.active) w.allies.push(makeAlly(echo, r.x, r.y));
+}
+
 function stepPlayer(w: World, input: Controls, dt: number): void {
   const p = w.player;
   const eff = effective(p);
@@ -491,6 +605,7 @@ function stepPlayer(w: World, input: Controls, dt: number): void {
 
   for (const id of SKILL_IDS) if (input.consume(SKILLS[id].code)) useSkill(w, id);
   if (input.consume("KeyF")) usePotion(w);
+  if (input.consume("KeyG")) tryBind(w);
   if (input.consume("KeyT")) {
     tryLeave(w);
     if (w.mode !== "gate") return;
@@ -515,7 +630,7 @@ function stepPlayer(w: World, input: Controls, dt: number): void {
       if (e.lastSwing === p.swingId) continue;
       if (!circlesOverlap(e, { x: p.x, y: p.y, radius: p.radius + PIERCE.width })) continue;
       e.lastSwing = p.swingId;
-      strike(w, e, PIERCE.mult * p.d.skillPower, 200);
+      strike(w, e, PIERCE.mult * p.d.skillPower * p.lungePower, 200);
     }
     w.particles.push({ x: p.x, y: p.y, vx: 0, vy: 0, life: 0.22, color: "#ffffff" });
   } else if (p.dashT > 0) {
@@ -613,11 +728,12 @@ function stepStatus(w: World, input: Controls): void {
  * Otherwise: click a button, press 1-3 on the gates tab, or Q/E to change tab.
  */
 function stepSelect(w: World, input: Controls): void {
-  if (syncDay(w)) w.pendingDialogue.push("penalty");
+  syncDay(w);
   nextDialogue(w);
   const clicked = input.consume("Mouse0");
-  // A missed daily quest is paid for before anything else.
+  // A missed daily quest is paid for before anything else, then a gate break.
   if (!w.dialogue && w.profile.penaltyPending) return enterPenalty(w);
+  if (!w.dialogue && w.profile.breakPending) return enterBreak(w);
   if (w.dialogue) {
     if (input.consume("Escape")) advanceDialogue(w, true);
     else if (clicked || input.consume("Space", "Enter")) advanceDialogue(w, false);
@@ -637,12 +753,13 @@ function stepSelect(w: World, input: Controls): void {
   const turn = (input.consume("KeyE") ? 1 : 0) - (input.consume("KeyQ") ? 1 : 0);
   if (turn !== 0) {
     sfx(w, "click");
-    const n = HUB_TABS.length;
-    w.tab = HUB_TABS[(HUB_TABS.indexOf(w.tab) + turn + n) % n];
+    const tabs = visibleTabs(w);
+    w.tab = tabs[(Math.max(0, tabs.indexOf(w.tab)) + turn + tabs.length) % tabs.length];
   }
   if (!action) return;
   const enter = hubAction(w, action);
   if (enter === "key") enterKeyGate(w);
+  else if (enter === "rite") enterRite(w);
   else if (enter) enterGate(w, enter);
 }
 
@@ -766,6 +883,11 @@ export function step(w: World, input: Controls, dt: number): void {
     }
   }
 
+  for (const a of w.allies) stepAlly(w, a, dt);
+  stepAllyShots(w, dt);
+  for (const r of w.remnants) r.life -= dt;
+  w.remnants = w.remnants.filter((r) => r.life > 0);
+
   stepHazards(w, dt);
 
   let bossDied = false;
@@ -785,7 +907,8 @@ export function step(w: World, input: Controls, dt: number): void {
   w.enemies = alive;
 
   const room = currentRoom(w);
-  if (bossDied) {
+  // Only in a real gate does the boss's death end things; the rite's bosses are just a wave.
+  if (bossDied && w.gateKind === "normal") {
     // The boss's death ends the fight outright.
     for (const e of w.enemies) burst(w, e.x, e.y, "#e5484d", 10, 200);
     clearField(w);
@@ -847,6 +970,37 @@ export function step(w: World, input: Controls, dt: number): void {
     if (w.coldT >= SEALED.coldEvery) {
       w.coldT = 0;
       if (p.hp > 1) p.hp -= 1;
+    }
+  }
+
+  // The rite: the next wave arrives when the last enemy of this one falls.
+  if (w.gateKind === "rite" && w.enemies.length === 0 && w.clearT <= 0 && (w.mode as string) === "gate") {
+    w.riteWave += 1;
+    if (w.riteWave < RITE.waves.length) {
+      spawnPack(w, RITE.waves[w.riteWave]);
+      sfx(w, "alarm");
+      w.notices.push({ title: "RITE OF ECHOES", body: `Wave ${w.riteWave + 1} of ${RITE.waves.length}`, life: 3 });
+    } else {
+      w.clearT = 2.2;
+      floatText(w, p.x, p.y, "RITE COMPLETE", "#b9a4ff", true);
+    }
+  }
+
+  if (w.breakT > 0 && (w.mode as string) === "gate") {
+    w.breakT -= dt;
+    w.breakSpawn -= dt;
+    if (w.breakT <= 0) {
+      clearField(w);
+      w.enemies = [];
+      w.mode = "cleared";
+      settleClear(w);
+      sfx(w, "gateclear");
+      return;
+    }
+    if (w.breakSpawn <= 0 && w.enemies.length <= BREAK.maxAlive - BREAK.pack) {
+      const kinds = RANKS[w.rank].kinds;
+      spawnPack(w, Array.from({ length: BREAK.pack }, () => kinds[Math.min(kinds.length - 1, Math.floor(w.rng() * kinds.length))]));
+      w.breakSpawn = BREAK.every;
     }
   }
 

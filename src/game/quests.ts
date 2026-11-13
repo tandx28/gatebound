@@ -6,7 +6,8 @@ export type QuestEvent =
   | { type: "kill"; kind: EnemyKind }
   | { type: "room"; rank: Rank }
   | { type: "gate"; rank: Rank; noPotion: boolean; noDamage: boolean }
-  | { type: "level"; level: number };
+  | { type: "level"; level: number }
+  | { type: "rite" };
 
 export interface Reward {
   gold: number;
@@ -36,6 +37,7 @@ export const MAIN: QuestDef[] = [
   { id: "m3", title: "No Longer Carrying Bags", desc: "Reach level 6", goal: 6, reward: { gold: 120, potions: 2, keys: 1 }, count: (ev) => (ev.type === "level" ? ev.level : 0), absolute: true },
   { id: "m4", title: "The Choir Below", desc: "Clear a Rank D gate", goal: 1, reward: { gold: 250, points: 3 }, count: gateOf("D") },
   { id: "m5", title: "What the Mirror Shows", desc: "Clear a Rank C gate", goal: 1, reward: { gold: 600, points: 5 }, count: gateOf("C") },
+  { id: "m6", title: "The Ledger's Offer", desc: "Complete the Rite of Echoes, on the gate board", goal: 1, reward: { gold: 0, points: 5 }, count: (ev) => (ev.type === "rite" ? 1 : 0) },
 ];
 
 /** Side quests, all open from the start. */
