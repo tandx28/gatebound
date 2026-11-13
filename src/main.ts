@@ -1,3 +1,5 @@
+import { musicState } from "./audio/director";
+import { Music } from "./audio/music";
 import { Sfx } from "./audio/sfx";
 import { Input } from "./engine/input";
 import { STEP, VIEW_H, VIEW_W } from "./game/config";
@@ -43,6 +45,7 @@ function today(): number {
 world.today = today();
 const SETTINGS_KEY = "gatebound.settings";
 const audio = new Sfx();
+const music = new Music();
 // Audio may only start from a user gesture.
 window.addEventListener("keydown", () => audio.unlock());
 window.addEventListener("mousedown", () => audio.unlock());
@@ -144,6 +147,7 @@ function serviceWorld(): void {
   }
   audio.setVolume(world.settings.sfx);
   for (const id of world.sounds.splice(0)) audio.play(id);
+  music.update(audio.context(), musicState(world), world.settings.music);
 }
 
 /** Fit the fixed 16:9 view inside the window, sharp on high-density screens. */
@@ -202,6 +206,7 @@ if (import.meta.env.DEV) {
     __world: world,
     __input: input,
     __audio: audio,
+    __music: music,
     __advance: (seconds: number) => {
       for (let i = 0; i < Math.round(seconds / STEP); i++) step(world, input, STEP);
       scene.render(world, Math.min(0.1, seconds));
