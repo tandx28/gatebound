@@ -812,6 +812,30 @@ function stepEffects(w: World, dt: number): void {
   w.shake = Math.max(0, w.shake - 40 * dt);
 }
 
+/**
+ * Last line of defence: nothing may leave a step with a position that is not
+ * a number. The player is put back in the room; anything else is dropped.
+ */
+export function healPositions(w: World): void {
+  const ok = (c: { x: number; y: number }) => Number.isFinite(c.x) && Number.isFinite(c.y);
+  const p = w.player;
+  if (!ok(p)) {
+    p.x = ROOM.w / 2;
+    p.y = ROOM.h / 2;
+    p.dashT = 0;
+    p.lungeT = 0;
+    sfx(w, "deny");
+  }
+  // Removed quietly: a broken enemy gives nothing and must not block the room.
+  if (!w.enemies.every(ok)) w.enemies = w.enemies.filter(ok);
+  if (!w.allies.every(ok)) w.allies = w.allies.filter(ok);
+  if (!w.projectiles.every(ok)) w.projectiles = w.projectiles.filter(ok);
+  if (!w.allyShots.every(ok)) w.allyShots = w.allyShots.filter(ok);
+  if (!w.particles.every(ok)) w.particles = w.particles.filter(ok);
+  if (!Number.isFinite(w.shake)) w.shake = 0;
+  if (!Number.isFinite(w.hitstop)) w.hitstop = 0;
+}
+
 /** Advance the simulation by one fixed step. */
 export function step(w: World, input: Controls, dt: number): void {
   for (const n of w.notices) n.life -= dt;
@@ -889,6 +913,7 @@ export function step(w: World, input: Controls, dt: number): void {
   w.remnants = w.remnants.filter((r) => r.life > 0);
 
   stepHazards(w, dt);
+  healPositions(w);
 
   let bossDied = false;
   const alive: Enemy[] = [];

@@ -10,12 +10,12 @@ import { drawHud } from "./render/hud";
 import { Scene3D } from "./render/scene3d";
 
 const stage = document.getElementById("stage") as HTMLDivElement;
-const view = document.getElementById("view") as HTMLCanvasElement;
+let view = document.getElementById("view") as HTMLCanvasElement;
 const hud = document.getElementById("hud") as HTMLCanvasElement;
 const ctx = hud.getContext("2d")!;
 // The HUD canvas sits on top, so it receives the mouse.
 const input = new Input(hud);
-const scene = new Scene3D(view);
+let scene = new Scene3D(view);
 const world = createWorld();
 
 /** Storage can be unavailable (private windows, blocked site data): never throw. */
@@ -169,36 +169,124 @@ resize();
 let last = performance.now();
 let acc = 0;
 
+const ERROR_KEY = "gatebound.lastError";
+let lastReport = 0;
+
+/**
+ * Something threw. Keep a trace on this device (never sent anywhere), tell
+ * the player, and carry on: one bad frame must not freeze the game.
+ */
+function reportError(where: string, err: unknown, quiet = false): void {
+  const message = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+  console.error(`[gatebound] ${where}`, err);
+  try {
+    const trace = {
+      at: new Date().toISOString(),
+      where,
+      message,
+      stack: err instanceof Error ? (err.stack ?? "").slice(0, 1500) : "",
+      mode: world.mode,
+      gate: world.gateKind,
+      rank: world.rank,
+      enemies: world.enemies.map((e) => `${e.kind}:${e.state}`).slice(0, 20),
+    };
+    localStorage.setItem(ERROR_KEY, JSON.stringify(trace));
+  } catch {
+    // The trace is a convenience; losing it changes nothing.
+  }
+  const now = performance.now();
+  if (!quiet && now - lastReport > 5000) {
+    lastReport = now;
+    world.notices.push({ title: "SOMETHING WENT WRONG", body: `${message.slice(0, 60)}  ·  details saved, game continues`, life: 6 });
+  }
+}
+
+/** How long to wait for the browser to hand the graphics context back. */
+const CONTEXT_PATIENCE = 2500;
+
+/**
+ * The browser took the graphics context and did not return it. Start again
+ * on a brand-new canvas: a fresh context usually works where the old one is dead.
+ */
+function rebuildView(): void {
+  if (!scene.isLost) return;
+  try {
+    const fresh = document.createElement("canvas");
+    fresh.id = "view";
+    view.replaceWith(fresh);
+    view = fresh;
+    scene.dispose();
+    scene = new Scene3D(view);
+    watchContext();
+    resize();
+    world.notices.push({ title: "GRAPHICS RESTORED", body: "The 3D view was rebuilt.", life: 4 });
+  } catch (err) {
+    reportError("rebuilding the 3D view", err, true);
+    world.notices.push({ title: "GRAPHICS LOST", body: "Could not restart the 3D view. Your progress is saved: reload the page.", life: 30 });
+  }
+}
+
+function watchContext(): void {
+  scene.onContext = (state) => {
+    reportError(`graphics context ${state}`, new Error(`graphics context ${state}`), true);
+    if (state === "lost") {
+      world.notices.push({ title: "GRAPHICS LOST", body: "The browser dropped the 3D view. Restarting it.", life: 4 });
+      window.setTimeout(rebuildView, CONTEXT_PATIENCE);
+    } else {
+      world.notices.push({ title: "GRAPHICS RESTORED", body: "The 3D view is back.", life: 4 });
+    }
+  };
+}
+watchContext();
+
 function frame(now: number): void {
-  // Cap the frame time so a background tab does not cause a burst of steps.
+  // Each stage is guarded on its own, so a fault in one cannot stop the others,
+  // and the next frame is always scheduled.
   const elapsed = Math.min(0.1, (now - last) / 1000);
   acc += elapsed;
   last = now;
 
-  // Aim at the ground point under the cursor, using last frame's camera.
-  const aim = scene.groundPoint(input.mouseX, input.mouseY);
-  input.aimX = aim.x;
-  input.aimY = aim.y;
+  try {
+    // Aim at the ground point under the cursor, using last frame's camera.
+    const aim = scene.groundPoint(input.mouseX, input.mouseY);
+    if (Number.isFinite(aim.x) && Number.isFinite(aim.y)) {
+      input.aimX = aim.x;
+      input.aimY = aim.y;
+    }
 
-  world.today = today();
-  let stepped = false;
-  while (acc >= STEP) {
-    step(world, input, STEP);
-    acc -= STEP;
-    stepped = true;
+    world.today = today();
+    let stepped = false;
+    while (acc >= STEP) {
+      step(world, input, STEP);
+      acc -= STEP;
+      stepped = true;
+    }
+    // On fast displays a frame can run zero steps. Keep queued presses until
+    // the simulation has had a chance to read them.
+    if (stepped) input.endFrame();
+    serviceWorld();
+  } catch (err) {
+    acc = 0;
+    reportError("simulation", err);
   }
-  // On fast displays a frame can run zero steps. Keep queued presses until
-  // the simulation has had a chance to read them.
-  if (stepped) input.endFrame();
-  serviceWorld();
 
-  scene.render(world, elapsed);
-  drawHud(ctx, world, input.mouseX, input.mouseY, (x, y, h) => scene.project(x, y, h));
+  try {
+    scene.render(world, elapsed);
+  } catch (err) {
+    reportError("3D view", err);
+  }
+  try {
+    drawHud(ctx, world, input.mouseX, input.mouseY, (x, y, h) => scene.project(x, y, h));
+  } catch (err) {
+    reportError("overlay", err);
+  }
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
 
 if (import.meta.env.DEV) {
+  // A getter, since the view can be rebuilt and replaced while the page lives.
+  Object.defineProperty(window, "__scene", { get: () => scene });
   // Dev-only handle for inspecting state from the browser console.
   // `__advance` runs the simulation for a span of game time and redraws,
   // independent of how often the browser delivers frames.

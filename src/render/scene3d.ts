@@ -143,6 +143,19 @@ function buildEnemy(kind: EnemyKind, r: number): EnemyView {
   return { group, core, color, spin };
 }
 
+/** Free the GPU memory held by everything under an object. */
+function disposeTree(root: THREE.Object3D): void {
+  root.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (m.geometry) m.geometry.dispose();
+    const mat = m.material as THREE.Material | THREE.Material[] | undefined;
+    if (Array.isArray(mat)) mat.forEach((x) => x.dispose());
+    else if (mat) mat.dispose();
+  });
+}
+
+const finite = (c: { x: number; y: number }) => Number.isFinite(c.x) && Number.isFinite(c.y);
+
 /** A pool of flat, additive ground markers reused every frame. */
 class DecalPool {
   private items: { holder: THREE.Group; mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial }[] = [];
@@ -226,11 +239,29 @@ export class Scene3D {
   private colorCache = new Map<string, THREE.Color>();
   private clock = 0;
   private tmp = new THREE.Vector3();
+  private lost = false;
+  private size = { w: VIEW_W, h: VIEW_H, dpr: 1 };
+  /** Called when the browser takes the graphics context away, and when it returns. */
+  onContext: (state: "lost" | "restored") => void = () => {};
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    // A browser may drop the graphics context (memory pressure, a driver
+    // reset, a sleeping laptop). Without this the view stays blank for good.
+    canvas.addEventListener("webglcontextlost", (e) => {
+      e.preventDefault();
+      this.lost = true;
+      this.onContext("lost");
+    });
+    canvas.addEventListener("webglcontextrestored", () => {
+      this.lost = false;
+      // Everything on the GPU is gone: rebuild the room and the bloom targets.
+      this.builtFor = undefined;
+      this.resize(this.size.w, this.size.h, this.size.dpr);
+      this.onContext("restored");
+    });
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.scene.background = new THREE.Color(0x04060b);
     this.scene.fog = new THREE.Fog(0x04060b, 1100, 2400);
 
@@ -310,7 +341,25 @@ export class Scene3D {
     this.composer.addPass(new OutputPass());
   }
 
+  /** True while the browser has taken the graphics context away. */
+  get isLost(): boolean {
+    return this.lost;
+  }
+
+  /** GPU objects currently held, to check nothing leaks as enemies come and go. */
+  get memory(): { geometries: number; textures: number } {
+    return { ...this.renderer.info.memory };
+  }
+
+  /** Let go of everything, before this view is replaced by a new one. */
+  dispose(): void {
+    disposeTree(this.scene);
+    this.composer.dispose();
+    this.renderer.dispose();
+  }
+
   resize(cssW: number, cssH: number, dpr: number): void {
+    this.size = { w: cssW, h: cssH, dpr };
     this.renderer.setPixelRatio(Math.min(2, dpr));
     this.renderer.setSize(cssW, cssH, false);
     this.composer.setPixelRatio(Math.min(2, dpr));
@@ -345,10 +394,7 @@ export class Scene3D {
   private buildRoom(w: World): void {
     for (const child of [...this.roomGroup.children]) {
       this.roomGroup.remove(child);
-      child.traverse((o) => {
-        const m = o as THREE.Mesh;
-        if (m.geometry) m.geometry.dispose();
-      });
+      disposeTree(child);
     }
     this.barriers = [];
     // A sealed gate is lit red throughout.
@@ -435,10 +481,12 @@ export class Scene3D {
     for (const [e, v] of this.enemies) {
       if (!w.enemies.includes(e)) {
         this.scene.remove(v.group);
+        disposeTree(v.group);
         this.enemies.delete(e);
       }
     }
     for (const e of w.enemies) {
+      if (!finite(e)) continue;
       let v = this.enemies.get(e);
       if (!v) {
         v = buildEnemy(e.kind, e.radius);
@@ -454,7 +502,7 @@ export class Scene3D {
       const winding = e.state === "windup" || e.state === "fuse" || e.state === "cast" || e.state === "attack";
       if (e.flash > 0) {
         v.core.emissive.setHex(0xffffff);
-        v.core.emissiveIntensity = 5;
+        v.core.emissiveIntensity = 3;
       } else if (winding) {
         v.core.emissive.copy(v.color).lerp(this.color("#ffffff"), 0.5 + 0.5 * Math.sin(this.clock * 30));
         v.core.emissiveIntensity = 3.2;
@@ -478,10 +526,12 @@ export class Scene3D {
     for (const [a, v] of this.allies) {
       if (!w.allies.includes(a)) {
         this.scene.remove(v.group);
+        disposeTree(v.group);
         this.allies.delete(a);
       }
     }
     for (const a of w.allies) {
+      if (!finite(a)) continue;
       let v = this.allies.get(a);
       if (!v) {
         v = buildEnemy(a.kind, a.radius);
@@ -601,7 +651,8 @@ export class Scene3D {
     for (let i = 0; i < n; i++) {
       const pt = w.particles[i];
       const c = this.color(pt.color);
-      const a = Math.min(1, pt.life * 4);
+      // Never negative: a negative colour would poison the bloom.
+      const a = finite(pt) ? Math.max(0, Math.min(1, pt.life * 4)) : 0;
       this.pPos[i * 3] = pt.x;
       this.pPos[i * 3 + 1] = 16 + (pt.vx !== 0 || pt.vy !== 0 ? pt.life * 40 : 6);
       this.pPos[i * 3 + 2] = pt.y;
@@ -616,6 +667,7 @@ export class Scene3D {
   }
 
   render(w: World, dt: number): void {
+    if (this.lost) return;
     this.clock += dt;
     let snap = false;
     const moved = this.builtFor !== w.dungeon || this.builtRoom !== w.roomId;
@@ -635,6 +687,8 @@ export class Scene3D {
     }
 
     const p = w.player;
+    // A bad position would reach the player's light and blank the whole view.
+    if (!finite(p)) return;
     this.player.position.set(p.x, p.moving && p.dashT <= 0 ? Math.abs(Math.sin(this.clock * 12)) * 3 : 0, p.y);
     this.player.rotation.y = -p.facing;
     const fast = p.dashT > 0 || p.lungeT > 0;
