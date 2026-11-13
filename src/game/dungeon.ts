@@ -77,7 +77,7 @@ export function generateDungeon(rank: Rank, rng: () => number): Dungeon {
 
   for (const r of rooms) {
     if (r.kind !== "normal") continue;
-    const count = Math.min(6, 2 + r.depth);
+    const count = Math.min(7, 3 + r.depth);
     for (let i = 0; i < count; i++) r.spawns.push(def.kinds[pick(rng, def.kinds.length)]);
   }
 

@@ -445,7 +445,7 @@ function stepSummoner(w: World, e: Enemy, dt: number, dx: number, dy: number, di
     return;
   }
   trackDir(e, dx, dy);
-  keepDistance(e, dx, dy, dist, 300, 460, KINDS.summoner.speed, dt);
+  keepDistance(e, dx, dy, dist, 230, 390, KINDS.summoner.speed, dt);
 
   // Blink away when cornered.
   if (dist < 150 && e.cd2 <= 0) {
@@ -454,12 +454,12 @@ function stepSummoner(w: World, e: Enemy, dt: number, dx: number, dy: number, di
     e.x = spot.x;
     e.y = spot.y;
     w.fx.push({ kind: "ring", x: e.x, y: e.y, radius: 70, t: 0.35, total: 0.35, color: "#b070ff" });
-    e.cd2 = two ? 2.5 : 4;
+    e.cd2 = two ? 4 : 6;
   }
   if (e.cd > 0) return;
 
   const minions = w.enemies.length + w.spawnQueue.length - 1;
-  if (e.n % 2 === 0 && minions < (two ? 5 : 4)) {
+  if (e.n % 2 === 0 && minions < (two ? 4 : 3)) {
     sfx(w, "summon");
     const kinds: EnemyKind[] = two ? ["swarmer", "charger"] : ["swarmer", "swarmer"];
     kinds.forEach((kind, i) => {
@@ -467,6 +467,9 @@ function stepSummoner(w: World, e: Enemy, dt: number, dx: number, dy: number, di
       const m = spawnEnemy(w, kind, e.x + Math.cos(a) * 70, e.y + Math.sin(a) * 70);
       m.t = 0.6 + i * 0.2;
       m.xp = 0;
+      // Summoned minions are fodder: half as tough as the real thing.
+      m.maxHp = Math.round(m.maxHp / 2);
+      m.hp = m.maxHp;
       clampToRoom(m, ROOM.w, ROOM.h);
       w.spawnQueue.push(m);
       burst(w, m.x, m.y, "#b070ff", 10, 180);

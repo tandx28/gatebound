@@ -56,8 +56,8 @@ describe("generateDungeon", () => {
         expect(start.spawns).toEqual([]);
 
         for (const r of d.rooms.filter((x) => x.kind === "normal")) {
-          expect(r.spawns.length).toBeGreaterThanOrEqual(3);
-          expect(r.spawns.length).toBeLessThanOrEqual(6);
+          expect(r.spawns.length).toBeGreaterThanOrEqual(4);
+          expect(r.spawns.length).toBeLessThanOrEqual(7);
           for (const k of r.spawns) expect(def.kinds).toContain(k);
         }
       }

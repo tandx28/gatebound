@@ -6,6 +6,7 @@ import {
   EXPLODER,
   KINDS,
   PLAYER,
+  RANKS,
   ROOM,
   SHOOTER,
   SKILLS,
@@ -621,8 +622,8 @@ describe("rooms and doors", () => {
 
 describe("rank scaling", () => {
   it("regular enemies grow with rank; bosses do not", () => {
-    expect(makeEnemy("swarmer", 0, 0, "D").maxHp).toBe(Math.round(SWARMER.maxHp * 2.2));
-    expect(makeEnemy("swarmer", 0, 0, "D").dmg).toBeCloseTo(SWARMER.damage * 1.5);
+    expect(makeEnemy("swarmer", 0, 0, "D").maxHp).toBe(Math.round(SWARMER.maxHp * RANKS.D.hpMult));
+    expect(makeEnemy("swarmer", 0, 0, "D").dmg).toBeCloseTo(SWARMER.damage * RANKS.D.dmgMult);
     expect(makeEnemy("summoner", 0, 0, "D").maxHp).toBe(KINDS.summoner.hp);
   });
 });

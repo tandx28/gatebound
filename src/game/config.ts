@@ -104,9 +104,9 @@ export const KINDS: Record<EnemyKind, KindDef> = {
   brute: { name: "Brute", radius: 24, hp: 90, speed: 70, damage: 32, xp: 28, boss: false },
   exploder: { name: "Exploder", radius: 12, hp: 14, speed: 185, damage: 34, xp: 12, boss: false },
   healer: { name: "Mender", radius: 13, hp: 30, speed: 120, damage: 10, xp: 22, boss: false },
-  warden: { name: "Stone Warden", radius: 38, hp: 420, speed: 80, damage: 30, xp: 200, boss: true },
-  summoner: { name: "The Choirmaster", radius: 24, hp: 900, speed: 120, damage: 24, xp: 600, boss: true },
-  duellist: { name: "Mirror Blade", radius: 16, hp: 1800, speed: 210, damage: 45, xp: 1500, boss: true },
+  warden: { name: "Stone Warden", radius: 38, hp: 1050, speed: 80, damage: 30, xp: 200, boss: true },
+  summoner: { name: "The Choirmaster", radius: 24, hp: 1150, speed: 120, damage: 27, xp: 600, boss: true },
+  duellist: { name: "Mirror Blade", radius: 16, hp: 3600, speed: 210, damage: 42, xp: 1500, boss: true },
 };
 
 export type Rank = "E" | "D" | "C";
@@ -125,9 +125,9 @@ export interface RankDef {
 }
 
 export const RANKS: Record<Rank, RankDef> = {
-  E: { minLevel: 1, hpMult: 1, dmgMult: 1, xpMult: 1, rooms: 5, kinds: ["swarmer", "charger", "shooter"], boss: "warden" },
-  D: { minLevel: 6, hpMult: 2.2, dmgMult: 1.5, xpMult: 2.5, rooms: 6, kinds: ["shooter", "exploder", "brute"], boss: "summoner" },
-  C: { minLevel: 13, hpMult: 4, dmgMult: 2.2, xpMult: 5, rooms: 7, kinds: ["charger", "healer", "brute"], boss: "duellist" },
+  E: { minLevel: 1, hpMult: 1, dmgMult: 1, xpMult: 1, rooms: 6, kinds: ["swarmer", "charger", "shooter"], boss: "warden" },
+  D: { minLevel: 6, hpMult: 2.8, dmgMult: 1.9, xpMult: 2.5, rooms: 7, kinds: ["shooter", "exploder", "brute"], boss: "summoner" },
+  C: { minLevel: 13, hpMult: 5.5, dmgMult: 3.0, xpMult: 5, rooms: 8, kinds: ["charger", "healer", "brute"], boss: "duellist" },
 };
 
 /** A sealed gate: found out only once inside. No retreat, tougher, colder, richer. */
