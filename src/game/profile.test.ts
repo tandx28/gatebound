@@ -1,3 +1,4 @@
+import { CUTSCENES } from "./cutscenes";
 import { describe, expect, it } from "vitest";
 import type { Controls } from "../engine/input";
 import { seeded } from "../engine/rng";
@@ -315,37 +316,45 @@ describe("quests in play", () => {
 });
 
 describe("dialogue", () => {
-  it("a new game opens with the intro, which blocks the board", () => {
+  it("a new game opens with the intro scene, which blocks the board", () => {
     const w = hub();
     const c = new FakeControls();
     beginStory(w);
-    expect(w.dialogue?.lines).toBe(DIALOGUES.intro);
+    expect(w.cutscene?.id).toBe("intro");
     c.press("Digit1");
     run(w, c, 0.02);
     expect(w.mode).toBe("select");
   });
 
-  it("Space steps through and the last line closes it", () => {
+  it("Space steps through the scene, then the line that follows it closes", () => {
     const w = hub();
     const c = new FakeControls();
     beginStory(w);
-    for (let i = 0; i < DIALOGUES.intro.length; i++) {
-      expect(w.dialogue).not.toBe(null);
+    for (let i = 0; i < CUTSCENES.intro.beats.length; i++) {
+      expect(w.cutscene).not.toBe(null);
+      // A beat must have been on screen a moment before it can be passed.
+      run(w, c, 0.4);
       c.press("Space");
       run(w, c, 0.02);
     }
-    expect(w.dialogue).toBe(null);
+    expect(w.cutscene).toBe(null);
     expect(w.profile.introSeen).toBe(true);
+    run(w, c, 0.02);
+    expect(w.dialogue?.lines).toBe(DIALOGUES.intro_after);
+    c.press("Space");
+    run(w, c, 0.02);
+    expect(w.dialogue).toBe(null);
   });
 
-  it("Escape skips the rest", () => {
+  it("Escape skips a line of dialogue at once", () => {
     const w = hub();
     const c = new FakeControls();
-    beginStory(w);
+    w.pendingDialogue.push("m1");
+    run(w, c, 0.02);
+    expect(w.dialogue).not.toBe(null);
     c.press("Escape");
     run(w, c, 0.02);
     expect(w.dialogue).toBe(null);
-    expect(w.profile.introSeen).toBe(true);
   });
 
   it("is not replayed once seen", () => {
@@ -470,7 +479,8 @@ describe("save", () => {
     expect(data.profile.inventory).toEqual(["iron_fang", "iron_fang", "padded_coat"]);
     expect(data.profile.titles).toEqual(["first_gate"]);
     expect(data.profile.title).toBe(null);
-    expect(data.profile.quests.main).toBe(MAIN.length);
+    // An old save that had finished the chain stands at the step added since: the last page.
+    expect(MAIN[data.profile.quests.main].id).toBe("m10");
     expect(data.profile.quests.done).toEqual(["s1"]);
     expect(data.profile.quests.progress).toEqual({ s1: 12 });
     expect(data.profile.introSeen).toBe(false);

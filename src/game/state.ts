@@ -1,3 +1,4 @@
+import type { CutsceneState } from "./cutscenes";
 import { applyDamage, type Circle } from "./combat";
 import { PLAYER, STATUS, TOTEM, type EnemyKind, type Rank, type SkillId, type StatusId } from "./config";
 import type { Dungeon } from "./dungeon";
@@ -259,7 +260,11 @@ export interface Profile {
   breakPending: boolean;
   /** Which skill sits in each of the four slots. */
   loadout: (SkillId | null)[];
+  /** How the story ended, once the last page is signed or burnt. */
+  ending: Ending | null;
 }
+
+export type Ending = "keeper" | "unwritten";
 
 /** A bound enemy. Active ones fight beside the player in every gate. */
 export interface Echo {
@@ -276,6 +281,10 @@ export interface Ally extends Circle {
   cd: number;
   facing: number;
   flash: number;
+  /** Seconds left of rising from the ground, or of sinking back into it. */
+  anim: number;
+  /** Sinking: gone when `anim` runs out. */
+  out: boolean;
 }
 
 /** What an enemy leaves behind for a moment, for an Echo Caller to bind. */
@@ -324,8 +333,8 @@ export interface Settings {
 export type Quality = "high" | "medium" | "low";
 export const QUALITIES: Quality[] = ["high", "medium", "low"];
 
-export type HubTab = "gates" | "shop" | "supplies" | "gear" | "skills" | "quests" | "echoes" | "system";
-export const HUB_TABS: HubTab[] = ["gates", "shop", "supplies", "gear", "skills", "quests", "echoes", "system"];
+export type HubTab = "gates" | "shop" | "supplies" | "gear" | "skills" | "quests" | "story" | "echoes" | "system";
+export const HUB_TABS: HubTab[] = ["gates", "shop", "supplies", "gear", "skills", "quests", "story", "echoes", "system"];
 
 /** Tabs on show: the Echoes tab appears once the class is earned. */
 export function visibleTabs(w: World): HubTab[] {
@@ -355,7 +364,9 @@ export interface World {
   tab: HubTab;
   /** Dialogue on screen, if any. It blocks the gate board. */
   dialogue: { lines: Line[]; i: number } | null;
-  /** Dialogue ids waiting for the next visit to the gate board. */
+  /** A cutscene on screen, if any. It stops everything else. */
+  cutscene: CutsceneState | null;
+  /** Dialogue and cutscene ids waiting for the next visit to the gate board. */
   pendingDialogue: string[];
   /** True when the profile changed and should be saved. */
   dirty: boolean;
@@ -385,6 +396,10 @@ export interface World {
   turnedT: number;
   /** Echoes fighting in the current room. */
   allies: Ally[];
+  /** The army has been sent away for now; H calls it back. */
+  armyAway: boolean;
+  /** Seconds until the army can be called or sent away again. */
+  armyCd: number;
   allyShots: Projectile[];
   remnants: Remnant[];
   /** Current wave of the rite, from 0. */

@@ -4,6 +4,7 @@ import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 import {
+  ARMY,
   ASSASSIN,
   CHARGER,
   EXPLODER,
@@ -22,11 +23,17 @@ import {
 import type { Dungeon, Side } from "../game/dungeon";
 import { WEAPONS, type WeaponType } from "../game/items";
 import type { Ally, Enemy, Quality, World } from "../game/state";
+import { KINDS, type EnemyKind } from "../game/config";
+import { CUT, CUTSCENES, type ActorKind, type CutActor } from "../game/cutscenes";
 import { modelRig } from "./models";
 import { buildRig, ghostify, poseFor, type Pose, type Rig } from "./rigs";
 
+/** Which built figure stands in for a person until the models arrive. */
+const STAND_IN = { mara: "pyro", dov: "brute", rival: "knight" } as const;
+
 /** A modelled figure where there is one, a built one otherwise. */
-const figure = (kind: Parameters<typeof buildRig>[0], radius?: number): Rig => modelRig(kind, radius) ?? buildRig(kind, radius);
+const figure = (kind: ActorKind, radius?: number): Rig =>
+  modelRig(kind, radius) ?? buildRig(kind === "mara" || kind === "dov" || kind === "rival" ? STAND_IN[kind] : kind, radius);
 
 /**
  * 3D view of the simulation. The game itself is flat: a sim point (x, y)
@@ -209,6 +216,8 @@ export class Scene3D {
   private sun = new THREE.DirectionalLight(0xffe9d0, 2.4);
   private enemies = new Map<Enemy, Rig>();
   private allies = new Map<Ally, Rig>();
+  /** Figures on stage in the cutscene being played. */
+  private actors = new Map<CutActor, Rig>();
   private floorTex: THREE.CanvasTexture;
   private wallTex: THREE.CanvasTexture;
   private quality: Quality | null = null;
@@ -357,7 +366,7 @@ export class Scene3D {
     disposeTree(this.hunter.root);
     this.hunter = figure("player");
     this.player.add(this.hunter.root);
-    for (const map of [this.enemies, this.allies]) {
+    for (const map of [this.enemies, this.allies, this.actors]) {
       for (const rig of map.values()) {
         this.scene.remove(rig.root);
         disposeTree(rig.root);
@@ -543,6 +552,35 @@ export class Scene3D {
     }
   }
 
+  /** The cast of a cutscene. Returns where the camera should look, and how closely. */
+  private syncActors(w: World, alpha: number): { x: number; y: number; zoom: number } | null {
+    const cs = w.cutscene;
+    for (const [a, rig] of this.actors) {
+      if (!cs || !cs.actors.includes(a)) {
+        this.scene.remove(rig.root);
+        disposeTree(rig.root);
+        this.actors.delete(a);
+      }
+    }
+    if (!cs) return null;
+    for (const a of cs.actors) {
+      let rig = this.actors.get(a);
+      if (!rig) {
+        rig = figure(a.kind, a.kind === "player" ? 14 : a.kind in KINDS ? KINDS[a.kind as EnemyKind].radius : 14);
+        if (a.ghost) ghostify(rig, ECHO_TINT);
+        this.actors.set(a, rig);
+        this.scene.add(rig.root);
+      }
+      const at = between(a, alpha);
+      const up = a.anim <= 0 ? 1 : a.out ? a.anim / CUT.sink : 1 - a.anim / CUT.rise;
+      rig.root.position.set(at.x, -(rig.height + 12) * (1 - up) * (1 - up), at.y);
+      rig.root.rotation.y = -a.facing;
+      rig.animate({ time: this.clock + at.x, moving: a.moving, pose: a.pose, swing: 0.7, flash: false, glow: a.ghost || a.pose === "cast" ? 1 : 0.3, phase: 1, weapon: a.kind === "player" ? "dagger" : undefined });
+    }
+    const beat = CUTSCENES[cs.id].beats[cs.beat];
+    return { x: beat.focus[0], y: beat.focus[1], zoom: beat.zoom };
+  }
+
   /** Echoes wear the shape they had in life, as violet shades. */
   private syncAllies(w: World, alpha: number): void {
     for (const [a, rig] of this.allies) {
@@ -562,8 +600,10 @@ export class Scene3D {
         this.scene.add(rig.root);
       }
       const at = between(a, alpha);
-      rig.root.position.set(at.x, 0, at.y);
-      rig.root.rotation.y = -a.facing;
+      // Called up, it climbs out of the floor; sent away, it sinks back in.
+      const up = a.anim <= 0 ? 1 : a.out ? a.anim / ARMY.leave : 1 - a.anim / ARMY.rise;
+      rig.root.position.set(at.x, -(rig.height + 12) * (1 - up) * (1 - up), at.y);
+      rig.root.rotation.y = -a.facing + (1 - up) * 2.5;
       const striking = a.flash > 0;
       rig.animate({ time: this.clock + a.radius, moving: walking(a), pose: striking ? "attack" : "idle", swing: 0.7, flash: false, glow: striking ? 1 : 0.4, phase: 1 });
       // Under Dominion they burn red: a warning to keep clear.
@@ -661,7 +701,7 @@ export class Scene3D {
       this.rings.place(r.x, r.y, 0, pulse, pulse, ECHO_TINT, 0.9 * k);
       this.circles.place(r.x, r.y, 0, 12, 12, ECHO_TINT, 0.5 * k);
     }
-    for (const a of w.allies) this.rings.place(a.x, a.y, 0, a.radius + 6, a.radius + 6, ECHO_TINT, 0.35);
+    for (const a of w.allies) this.rings.place(a.x, a.y, 0, a.radius + 6, a.radius + 6, ECHO_TINT, a.anim > 0 ? 0.9 : 0.35);
 
     for (const patch of w.patches) {
       const k = Math.min(1, patch.life);
@@ -776,6 +816,11 @@ export class Scene3D {
     // Blink while invulnerable after a hit (not during a dash).
     this.player.visible = !(p.iframes > 0 && !fast && Math.floor(p.iframes * 20) % 2 === 0) && w.mode !== "dead" && w.mode !== "title";
 
+    // During a cutscene the hunter is one of the cast, not the player's figure.
+    const stage = this.syncActors(w, alpha);
+    this.hunter.root.visible = !stage;
+    if (stage) this.player.position.set(stage.x, 0, stage.y);
+
     this.syncEnemies(w, alpha);
     this.syncAllies(w, alpha);
     this.syncShots(w, alpha);
@@ -783,8 +828,14 @@ export class Scene3D {
     this.syncParticles(w);
 
     // Follow the player, but stop before showing much beyond the walls.
-    const tx = THREE.MathUtils.clamp(at.x, 520, ROOM.w - 520);
-    const tz = THREE.MathUtils.clamp(at.y, 330, ROOM.h - 260);
+    const tx = stage ? stage.x : THREE.MathUtils.clamp(at.x, 520, ROOM.w - 520);
+    const tz = stage ? stage.y : THREE.MathUtils.clamp(at.y, 330, ROOM.h - 260);
+    // A cutscene moves the camera in and out; play always stands at 1.
+    const zoom = stage ? stage.zoom : 1;
+    if (Math.abs(this.camera.zoom - zoom) > 0.001) {
+      this.camera.zoom += (zoom - this.camera.zoom) * (stage ? 1 - Math.exp(-2.5 * dt) : 1);
+      this.camera.updateProjectionMatrix();
+    }
     // A new room cuts straight to its framing instead of sliding across.
     const ease = snap ? 1 : 1 - Math.exp(-6 * dt);
     this.target.x += (tx - this.target.x) * ease;

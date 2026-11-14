@@ -251,6 +251,9 @@ export const RESET = { price: 400 };
  * Echoes: the fallen, bound to fight beside you. A remnant lingers where an
  * enemy dies; binding it costs mana. Bosses resist, and allow a few tries.
  */
+/** Calling the army out of the ground, and sending it back. */
+export const ARMY = { rise: 0.8, leave: 0.5, cooldown: 1.2 };
+
 export const ECHO = {
   roster: 20,
   bindRange: 90,

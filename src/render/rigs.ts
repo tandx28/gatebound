@@ -12,7 +12,7 @@ import type { WeaponType } from "../game/items";
  */
 
 /** What a figure is doing this frame. */
-export type Pose = "idle" | "windup" | "attack" | "thrust" | "bow" | "cast" | "slump" | "guard" | "leap";
+export type Pose = "idle" | "windup" | "attack" | "thrust" | "bow" | "cast" | "slump" | "guard" | "leap" | "down";
 
 export interface Anim {
   /** Seconds, ever increasing; drives every cycle. */
@@ -375,6 +375,13 @@ function humanoid(pal: Palette, shape: Partial<Body>): Rig {
           sl = 1.2;
           el = 1.3;
           lean = b.stoop + 0.1;
+          break;
+        case "down":
+          // Fallen: folded right over. (The modelled figures lie flat.)
+          lean = b.stoop + 1.35;
+          sr = 0.6;
+          sl = 0.6;
+          nod = 0.6;
           break;
         case "slump":
           lean = b.stoop + 0.55;

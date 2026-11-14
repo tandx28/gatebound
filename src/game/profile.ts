@@ -1,4 +1,5 @@
 import { seeded } from "../engine/rng";
+import { seenScenes, startCutscene } from "./cutscenes";
 import { clamp } from "../engine/vec";
 import {
   bossEchoCap,
@@ -70,6 +71,7 @@ import {
   type HubTab,
   type Profile,
   type Run,
+  type Ending,
   type World,
 } from "./state";
 import { BASE_STAT, CRIT_CAP, derive, STAT_KEYS, xpToNext } from "./stats";
@@ -111,6 +113,7 @@ export function newProfile(): Profile {
     echoes: [],
     lastClear: 0,
     breakPending: false,
+    ending: null,
   };
 }
 
@@ -255,7 +258,8 @@ export function syncDay(w: World): boolean {
   const pr = w.profile;
   let penalty = false;
   if (pr.daily.day !== w.today) {
-    if (pr.daily.day > 0 && !pr.daily.done && !pr.penaltyPending) {
+    // With the Ledger burnt, nothing is left to punish a missed day.
+    if (pr.daily.day > 0 && !pr.daily.done && !pr.penaltyPending && pr.ending !== "unwritten") {
       pr.penaltyPending = true;
       penalty = true;
       w.pendingDialogue.push("penalty");
@@ -299,11 +303,14 @@ export function startDialogue(w: World, id: string): void {
   if (lines && lines.length > 0) w.dialogue = { lines, i: 0 };
 }
 
-/** Show the next waiting dialogue, if the board is free. */
+/** Show the next waiting cutscene or dialogue, if the board is free. */
 export function nextDialogue(w: World): void {
-  if (w.dialogue || w.mode !== "select") return;
+  if (w.dialogue || w.cutscene || w.mode !== "select") return;
   const id = w.pendingDialogue.shift();
-  if (id) startDialogue(w, id);
+  if (!id) return;
+  // A beat with a cutscene plays that; whatever follows it is queued behind.
+  if (startCutscene(w, id)) w.pendingDialogue.unshift(`${id}_after`);
+  else startDialogue(w, id);
 }
 
 /** Move to the next line, or close the dialogue when `skip` is set or it ends. */
@@ -323,7 +330,23 @@ export function advanceDialogue(w: World, skip: boolean): void {
 
 /** New game: play the opening. */
 export function beginStory(w: World): void {
-  if (!w.profile.introSeen) startDialogue(w, "intro");
+  if (w.profile.introSeen) return;
+  startCutscene(w, "intro");
+  w.pendingDialogue.unshift("intro_after");
+}
+
+/** Sign the last page or burn it. Once chosen, it stays chosen. */
+export function chooseEnding(w: World, ending: Ending): boolean {
+  const pr = w.profile;
+  if (pr.ending || MAIN[pr.quests.main]?.id !== "m10") return false;
+  pr.ending = ending;
+  // A penalty already owed dies with the Ledger.
+  if (ending === "unwritten") pr.penaltyPending = false;
+  w.pendingDialogue.push(`end_${ending}`);
+  earnTitle(w, ending);
+  fireQuest(w, { type: "ending" });
+  w.dirty = true;
+  return true;
 }
 
 function rewardText(r: Reward): string {
@@ -376,6 +399,7 @@ export function fireQuest(w: World, ev: QuestEvent): void {
   w.dirty = true;
   // A newly opened step may already be satisfied (a level goal, say).
   fireQuest(w, { type: "level", level: w.player.prog.level });
+  if (pr.echoes.length > 0) fireQuest(w, { type: "bind", echoes: pr.echoes.length, boss: pr.echoes.some((e) => KINDS[e.kind].boss) });
   nextDialogue(w);
 }
 
@@ -723,6 +747,13 @@ function hubActionInner(w: World, verb: string, arg: string, extra: string | und
   switch (verb) {
     case "set":
       applySetting(w, arg);
+      return null;
+    case "ending":
+      if (arg === "keeper" || arg === "unwritten") chooseEnding(w, arg);
+      return null;
+    case "scene":
+      // Replay a scene already reached, from the Story tab.
+      if (seenScenes(pr).includes(arg) && startCutscene(w, arg)) w.dirty = true;
       return null;
     case "tab":
       if (visibleTabs(w).includes(arg as HubTab)) w.tab = arg as HubTab;

@@ -19,7 +19,9 @@ import type { World } from "../game/state";
 import { NOTICES_SHOWN } from "../game/world";
 import { FURY, itemDef, itemName, MYTHICS, POTION, POWERS, STONE, TITLES, WEAPONS, type Rarity } from "../game/items";
 import { BELT, beltCount } from "../game/profile";
+import { CUT, CUTSCENES, SKIP_HOLD } from "../game/cutscenes";
 import { activeQuests, MAIN, questProgress } from "../game/quests";
+import { CHAPTERS } from "../game/story";
 import { STAT_KEYS, STAT_NAMES, xpToNext, type StatKey } from "../game/stats";
 import {
   hubButtons,
@@ -30,6 +32,7 @@ import {
   STATUS_PANEL,
   statButton,
   statRowY,
+  STORY,
   titleButton,
   type Button,
 } from "../game/ui";
@@ -558,6 +561,78 @@ function drawQuests(ctx: Ctx, w: World): void {
   });
 }
 
+/** The Story tab: six chapters, where the player stands in them, and how it ended. */
+function drawStory(ctx: Ctx, w: World): void {
+  const pr = w.profile;
+  const at = pr.quests.main;
+  const x = STORY.chapterX;
+  ctx.textAlign = "left";
+  CHAPTERS.forEach((ch, i) => {
+    const y = STORY.top + i * STORY.rowH;
+    const index = ch.quests.map((id) => MAIN.findIndex((q) => q.id === id));
+    const done = index.every((n) => n < at);
+    const current = !done && index.some((n) => n === at);
+    ctx.font = `bold 11px ${FONT}`;
+    ctx.fillStyle = "#6f8fbf";
+    ctx.fillText(`CHAPTER ${i + 1}`, x, y + 6);
+    ctx.font = `bold 15px ${FONT}`;
+    ctx.fillStyle = current ? GOLD : done ? "#cfe4ff" : "#4a5f85";
+    ctx.fillText(done || current ? ch.title : "· · ·", x + 96, y + 7);
+    ctx.font = `12px ${FONT}`;
+    ctx.fillStyle = done ? "#6dff9c" : current ? "#9fc8ff" : "#4a5f85";
+    const step = MAIN[at];
+    const line = done ? "Complete" : current ? `${step.title}:  ${step.desc}` : "Not yet reached";
+    // Kept clear of the scene list beside it.
+    ctx.fillText(wrap(ctx, line, STORY.sceneX - x - 120)[0], x + 96, y + 27);
+  });
+  const y = STORY.top + CHAPTERS.length * STORY.rowH + 12;
+  ctx.font = `13px ${FONT}`;
+  if (pr.ending) {
+    ctx.fillStyle = GOLD;
+    ctx.fillText(pr.ending === "keeper" ? "You signed the last page. You are the Keeper." : "You burnt the last page. You are Unwritten.", x, y + 20);
+  } else if (MAIN[at]?.id === "m10") {
+    ctx.fillStyle = "#ff9a9a";
+    ctx.fillText("One page remains. The choice cannot be undone.", x + 500, y + 25);
+  }
+}
+
+/** A cutscene: the stage between two black bars, with the line being spoken below. */
+function drawCutscene(ctx: Ctx, w: World): void {
+  const cs = w.cutscene!;
+  const scene = CUTSCENES[cs.id];
+  const beat = scene.beats[cs.beat];
+  const top = 64;
+  const bottom = 150;
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, VIEW_W, top);
+  ctx.fillRect(0, VIEW_H - bottom, VIEW_W, bottom);
+  if (cs.flash > 0) {
+    ctx.fillStyle = `rgba(220,240,255,${(cs.flash / CUT.flash) * 0.85})`;
+    ctx.fillRect(0, top, VIEW_W, VIEW_H - top - bottom);
+  }
+
+  ctx.textAlign = "left";
+  ctx.font = `bold 12px ${FONT}`;
+  ctx.fillStyle = "#6f8fbf";
+  ctx.fillText(`CHAPTER ${scene.chapter}   ·   ${scene.title.toUpperCase()}`, 40, 38);
+  ctx.textAlign = "right";
+  ctx.font = `11px ${FONT}`;
+  ctx.fillText("SPACE  next   ·   hold ESC  skip", VIEW_W - 40, 38);
+  if (cs.hold > 0) bar(ctx, VIEW_W - 250, 46, 210, 4, cs.hold / SKIP_HOLD, GOLD);
+
+  const system = beat.speaker === "THE LEDGER";
+  const y = VIEW_H - bottom + 40;
+  ctx.textAlign = "center";
+  if (beat.speaker) {
+    ctx.font = `bold 13px ${FONT}`;
+    ctx.fillStyle = system ? CYAN : GOLD;
+    ctx.fillText(beat.speaker.toUpperCase(), VIEW_W / 2, y);
+  }
+  ctx.font = `${system ? "bold " : ""}17px ${FONT}`;
+  ctx.fillStyle = system ? CYAN : "#e6efff";
+  wrap(ctx, beat.text, 980).forEach((t, i) => ctx.fillText(t, VIEW_W / 2, y + (beat.speaker ? 30 : 12) + i * 25));
+}
+
 function drawDialogue(ctx: Ctx, w: World): void {
   const d = w.dialogue;
   if (!d) return;
@@ -614,6 +689,7 @@ function drawHub(ctx: Ctx, w: World): void {
 
   ctx.textAlign = "center";
   if (w.tab === "quests") drawQuests(ctx, w);
+  if (w.tab === "story") drawStory(ctx, w);
   if (w.tab === "system") {
     ctx.font = `13px ${FONT}`;
     ctx.fillStyle = "#9fc8ff";
@@ -829,6 +905,7 @@ export function drawHud(ctx: Ctx, w: World, mouseX: number, mouseY: number, proj
   ctx.clearRect(0, 0, VIEW_W, VIEW_H);
 
   if (w.mode === "title") return drawTitle(ctx, w);
+  if (w.cutscene) return drawCutscene(ctx, w);
 
   if (w.mode === "select") {
     drawHub(ctx, w);
@@ -846,7 +923,7 @@ export function drawHud(ctx: Ctx, w: World, mouseX: number, mouseY: number, proj
     ctx.font = `12px ${FONT}`;
     ctx.fillStyle = "rgba(159,200,255,0.55)";
     ctx.fillText(
-      `WASD move · CLICK attack · SPACE dash · Q E R RMB skills · F potion · V mana · B belt · X swap · T stone${w.profile.classUnlocked ? " · G bind" : ""} · C status · ESC pause`,
+      `WASD move · CLICK attack · SPACE dash · Q E R RMB skills · F potion · V mana · B belt · X swap · T stone${w.profile.classUnlocked ? " · G bind · H army" : ""} · C status · ESC pause`,
       VIEW_W / 2,
       VIEW_H - 14,
     );

@@ -20,7 +20,7 @@ import {
   type PowerId,
 } from "./items";
 import { newProfile, newRun, refreshDerived } from "./profile";
-import { MAIN, SIDE } from "./quests";
+import { MAIN, OLD_MAIN, SIDE } from "./quests";
 import type { GateSnapshot, Profile, World } from "./state";
 import { BASE_STAT, LEVEL_CAP, newProgress, STAT_KEYS, type Progress } from "./stats";
 import { resumeGate, snapshotGate } from "./world";
@@ -29,7 +29,8 @@ import { resumeGate, snapshotGate } from "./world";
 
 /** 2 adds hunter rank, skill ranks, the class, echoes and gate breaks. */
 /** 4 adds perked items, a second weapon slot, more consumables, the flask and mythics. */
-export const SAVE_VERSION = 4;
+/** 5 lengthens the main quest chain and adds the story's ending. */
+export const SAVE_VERSION = 5;
 export const SAVE_KEY = "gatebound.save";
 
 export interface SaveData {
@@ -242,6 +243,14 @@ export function parseSave(raw: unknown): SaveData | null {
 
   const rq = isObj(rf.quests) ? rf.quests : {};
   profile.quests.main = int(rq.main, 0, MAIN.length, 0);
+  if (raw.v < 5) {
+    // The chain grew in version 5. An old save keeps its place by quest id:
+    // whatever it was on, it is on still; a finished chain moves to the new last step.
+    const old = int(rq.main, 0, OLD_MAIN.length, 0);
+    profile.quests.main = old >= OLD_MAIN.length ? MAIN.findIndex((q) => q.id === "m9") + 1 : MAIN.findIndex((q) => q.id === OLD_MAIN[old]);
+  }
+  // The ending needs the whole chain behind it.
+  if ((rf.ending === "keeper" || rf.ending === "unwritten") && profile.quests.main >= MAIN.length) profile.ending = rf.ending;
   const sides = new Set(SIDE.map((s) => s.id));
   profile.quests.done = [...new Set(strings(rq.done))].filter((id) => sides.has(id));
   const rprog = isObj(rq.progress) ? rq.progress : {};

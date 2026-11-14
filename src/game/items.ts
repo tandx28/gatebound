@@ -293,6 +293,8 @@ export const TITLES: TitleDef[] = [
   { id: "untouched", name: "Untouched", how: "Clear a gate without being hit", bonus: { speedPct: 0.05 } },
   { id: "giant_feller", name: "Giant Feller", how: "Defeat the Stone Warden", bonus: { hp: 10 } },
   { id: "overreacher", name: "Overreacher", how: "Clear a gate above your level", bonus: { crit: 0.03 } },
+  { id: "keeper", name: "Keeper of the Ledger", how: "Sign the last page", bonus: { hp: 40 } },
+  { id: "unwritten", name: "The Unwritten", how: "Burn the last page", bonus: { damagePct: 0.1 } },
 ];
 
 /** The base id of an owned item, without its perks. */

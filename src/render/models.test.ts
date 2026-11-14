@@ -2,7 +2,7 @@
 import * as fs from "node:fs";
 import { describe, expect, it } from "vitest";
 import { KINDS } from "../game/config";
-import { CARRIER, HUNTER_MODEL, MODEL_FILES, MODELS, type ModelSpec } from "./models";
+import { CARRIER, HUNTER_MODEL, MODEL_FILES, MODELS, NPC_MODELS, type ModelSpec } from "./models";
 
 const DIR = new URL("../../public/models/", import.meta.url);
 const files: string[] = fs.readdirSync(DIR);
@@ -14,7 +14,7 @@ function read(file: string): { nodes: { name: string }[]; animations?: { name: s
   return JSON.parse(raw.toString("utf8", 20, 20 + raw.readUInt32LE(12)));
 }
 
-const specs: [string, ModelSpec][] = [["player", HUNTER_MODEL], ...(Object.entries(MODELS) as [string, ModelSpec][])];
+const specs: [string, ModelSpec][] = [["player", HUNTER_MODEL], ...(Object.entries(MODELS) as [string, ModelSpec][]), ...Object.entries(NPC_MODELS)];
 
 describe("models", () => {
   it("every model the game asks for is shipped, and nothing else", () => {
@@ -28,7 +28,7 @@ describe("models", () => {
   });
 
   it("every clip a figure plays exists in its pack", () => {
-    const always = ["Idle", "Running_A", "2H_Ranged_Shoot", "Spellcast_Shoot", "Blocking", "Hit_A", "Jump_Idle"];
+    const always = ["Idle", "Running_A", "2H_Ranged_Shoot", "Spellcast_Shoot", "Blocking", "Hit_A", "Jump_Idle", "Lie_Idle"];
     const hunter = ["1H_Melee_Attack_Slice_Horizontal", "1H_Melee_Attack_Chop", "2H_Melee_Attack_Stab", "Unarmed_Melee_Attack_Punch_A"];
     for (const [name, spec] of specs) {
       const clips = new Set((read(CARRIER[spec.pack]).animations ?? []).map((a) => a.name));

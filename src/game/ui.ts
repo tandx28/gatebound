@@ -16,7 +16,10 @@ import {
   type Rarity,
   type SupplyId,
 } from "./items";
+import { CUTSCENES, seenScenes } from "./cutscenes";
 import { activeEchoes, canActivate, owns, riteOpen } from "./profile";
+import { MAIN } from "./quests";
+import { CHAPTERS } from "./story";
 import { visibleTabs, type World } from "./state";
 import { BASE_STAT, STAT_KEYS } from "./stats";
 
@@ -219,6 +222,12 @@ export function hubHeadings(w: World): { x: number; y: number; text: string }[] 
     const level = w.player.prog.level;
     return [{ x: LEFT, y, text: `YOUR ECHOES   ·   fighting ${activeEchoes(w.profile)} of ${echoCap(level)}   ·   boss echoes at once: ${bossEchoCap(level)}` }];
   }
+  if (w.tab === "story") {
+    return [
+      { x: STORY.chapterX, y, text: "THE STORY" },
+      { x: STORY.sceneX, y, text: "SCENES   ·   replay any you have reached" },
+    ];
+  }
   if (w.tab === "skills") {
     return [{ x: LEFT, y, text: "SKILLS   ·   click a slot to put a skill in it; click it again to clear it" }];
   }
@@ -232,13 +241,40 @@ export function hubHeadings(w: World): { x: number; y: number; text: string }[] 
   return [];
 }
 
+/** Where the Story tab draws: chapters on the left, scenes on the right. */
+export const STORY = { chapterX: 150, sceneX: 700, top: TOP + 10, rowH: 58 };
+
+/** Buttons on the Story tab: replay each scene reached, and the last choice. */
+function storyButtons(w: World): Button[] {
+  const pr = w.profile;
+  const out: Button[] = [];
+  seenScenes(pr).forEach((id, i) => {
+    out.push({
+      rect: { x: STORY.sceneX + 330, y: STORY.top + i * 40, w: 90, h: 28 },
+      id: `scene:${id}`,
+      label: "REPLAY",
+      enabled: true,
+      kind: "setting",
+      text: CUTSCENES[id].title,
+      textX: STORY.sceneX,
+    });
+  });
+  if (!pr.ending && MAIN[pr.quests.main]?.id === "m10") {
+    const y = STORY.top + CHAPTERS.length * STORY.rowH + 12;
+    out.push({ rect: { x: STORY.chapterX, y, w: 230, h: 40 }, id: "ending:keeper", label: "SIGN THE LEDGER", enabled: true, kind: "plain" });
+    out.push({ rect: { x: STORY.chapterX + 250, y, w: 230, h: 40 }, id: "ending:unwritten", label: "BURN THE LEDGER", enabled: true, kind: "plain" });
+  }
+  return out;
+}
+
 /** Every button on the gate board for the current tab. */
 export function hubButtons(w: World): Button[] {
   const pr = w.profile;
   const out: Button[] = [];
 
   const tabs = visibleTabs(w);
-  const tw = 140;
+  // Nine tabs only fit if each is a little narrower.
+  const tw = tabs.length > 8 ? 124 : 140;
   const gap = 10;
   const x0 = VIEW_W / 2 - (tw * tabs.length + gap * (tabs.length - 1)) / 2;
   tabs.forEach((tab, i) => {
@@ -356,6 +392,8 @@ export function hubButtons(w: World): Button[] {
       out.push(b);
       out.push({ rect: { x: col + 430, y: TOP + r * ROW_H, w: 90, h: 28 }, id: `echo:release:${i}`, label: "RELEASE", enabled: true, kind: "plain" });
     });
+  } else if (w.tab === "story") {
+    out.push(...storyButtons(w));
   } else if (w.tab === "system") {
     const labels: [string, string][] = [
       ["export", "EXPORT SAVE"],

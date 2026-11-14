@@ -124,9 +124,9 @@ describe("ranks and levels", () => {
     expect(w.rank).toBe("A");
   });
 
-  it("the main quest continues past the rite, one gate per new rank", () => {
+  it("the main quest continues past the rite, with a gate of each new rank in order", () => {
     const ids = MAIN.map((q) => q.id);
-    expect(ids).toEqual(["m1", "m2", "m3", "m4", "m5", "m6", "m7", "m8", "m9"]);
+    expect(ids.filter((id) => /^m\d+$/.test(id))).toEqual(["m1", "m2", "m3", "m4", "m5", "m6", "m7", "m8", "m9", "m10"]);
   });
 });
 

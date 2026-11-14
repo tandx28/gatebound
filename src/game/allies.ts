@@ -62,6 +62,8 @@ export function makeAlly(echo: Echo, x: number, y: number, base: number): Ally {
     cd: 0.6,
     facing: 0,
     flash: 0,
+    anim: 0,
+    out: false,
   };
 }
 
@@ -91,6 +93,11 @@ export function stepAlly(w: World, a: Ally, dt: number): void {
   const style = STYLE[a.kind];
   // Fast enough to keep pace with the player.
   const speed = Math.max(190, KINDS[a.kind].speed * 1.4);
+  // Rising or sinking: it does nothing else until that is over.
+  if (a.anim > 0) {
+    a.anim = Math.max(0, a.anim - dt);
+    return;
+  }
   a.cd = Math.max(0, a.cd - dt);
   a.flash = Math.max(0, a.flash - dt);
 

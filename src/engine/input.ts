@@ -11,6 +11,8 @@ export interface Controls {
   attackHeld: boolean;
   axis(): { x: number; y: number };
   consume(...codes: string[]): boolean;
+  /** Whether a key is down right now. Only a real keyboard needs to answer. */
+  held?(code: string): boolean;
 }
 
 /**
@@ -78,6 +80,10 @@ export class Input implements Controls {
     let hit = false;
     for (const c of codes) if (this.queued.delete(c)) hit = true;
     return hit;
+  }
+
+  held(code: string): boolean {
+    return this.keys.has(code);
   }
 
   /** Drop presses that nothing consumed this frame. */

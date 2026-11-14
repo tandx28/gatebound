@@ -2,7 +2,9 @@ import type { Controls } from "../engine/input";
 import { clamp, norm } from "../engine/vec";
 import { makeAlly, stepAlly, stepAllyShots } from "./allies";
 import { circlesOverlap, inArc, rollDamage, separate } from "./combat";
+import { stepCutscene } from "./cutscenes";
 import {
+  ARMY,
   BLINK,
   BREAK,
   COLOSSUS,
@@ -89,6 +91,7 @@ export function createWorld(rng: () => number = Math.random): World {
     run: newRun(),
     tab: "gates",
     dialogue: null,
+    cutscene: null,
     pendingDialogue: [],
     dirty: false,
     requests: [],
@@ -107,6 +110,8 @@ export function createWorld(rng: () => number = Math.random): World {
     domainT: 0,
     turnedT: 0,
     allies: [],
+    armyAway: false,
+    armyCd: 0,
     allyShots: [],
     remnants: [],
     riteWave: 0,
@@ -209,6 +214,11 @@ function noCooldowns(): Record<SkillId, number> {
 /** Bring the active echoes onto the field, in a ring round the player. */
 function deployAllies(w: World): void {
   const p = w.player;
+  // Sent away: they stay away until called.
+  if (w.armyAway) {
+    w.allies = [];
+    return;
+  }
   const squad = w.profile.echoes.filter((e) => e.active).slice(0, echoCap(p.prog.level));
   w.allies = squad.map((echo, i) => {
     const a = (i / Math.max(1, squad.length)) * Math.PI * 2;
@@ -252,6 +262,8 @@ function beginGate(w: World, rank: Rank, dungeon: Dungeon, kind: GateKind, seale
   w.breakT = 0;
   w.breakSpawn = 0;
   w.allies = [];
+  w.armyAway = false;
+  w.armyCd = 0;
   w.bossDead = false;
   w.remnantHold = false;
   w.mode = "gate";
@@ -712,8 +724,48 @@ function tryBind(w: World): void {
   sfx(w, "summon");
   burst(w, r.x, r.y, "#8a6cff", 24, 260);
   floatText(w, r.x, r.y, echo.active ? "BOUND" : "BOUND  (in reserve)", "#b9a4ff", true);
+  fireQuest(w, { type: "bind", echoes: pr.echoes.length, boss });
   // An echo with room in the squad rises where it fell and fights at once.
-  if (echo.active) w.allies.push(makeAlly(echo, r.x, r.y, p.d.damage));
+  if (echo.active && !w.armyAway) w.allies.push(makeAlly(echo, r.x, r.y, p.d.damage));
+}
+
+/**
+ * H: send the army back into the ground, or call it up again. Echoes that
+ * are away cannot be hurt, cannot be turned by Dominion, and do not fight.
+ */
+export function toggleArmy(w: World): void {
+  const p = w.player;
+  if (!w.profile.classUnlocked || w.armyCd > 0) return;
+  if (!w.profile.echoes.some((e) => e.active)) {
+    sfx(w, "deny");
+    floatText(w, p.x, p.y, "NO ECHOES", "#b9a4ff");
+    return;
+  }
+  w.armyCd = ARMY.cooldown;
+  const mark = (a: { x: number; y: number; radius: number }) => {
+    w.fx.push({ kind: "ring", x: a.x, y: a.y, radius: a.radius + 26, t: 0.5, total: 0.5, color: "#8a6cff" });
+    burst(w, a.x, a.y, "#8a6cff", 10, 180);
+  };
+  if (!w.armyAway) {
+    w.armyAway = true;
+    for (const a of w.allies) {
+      a.out = true;
+      a.anim = ARMY.leave;
+      mark(a);
+    }
+    sfx(w, "door");
+    floatText(w, p.x, p.y, "DISMISSED", "#b9a4ff", true);
+    return;
+  }
+  w.armyAway = false;
+  deployAllies(w);
+  for (const a of w.allies) {
+    a.anim = ARMY.rise;
+    a.facing = p.facing;
+    mark(a);
+  }
+  sfx(w, "summon");
+  floatText(w, p.x, p.y, "ARISE", "#b9a4ff", true);
 }
 
 function stepPlayer(w: World, input: Controls, dt: number): void {
@@ -755,6 +807,8 @@ function stepPlayer(w: World, input: Controls, dt: number): void {
     p.drinkCd = 1;
   }
   if (input.consume("KeyG")) tryBind(w);
+  if (input.consume("KeyH")) toggleArmy(w);
+  w.armyCd = Math.max(0, w.armyCd - dt);
   if (input.consume("KeyT")) {
     tryLeave(w);
     if (w.mode !== "gate") return;
@@ -1100,6 +1154,8 @@ export function step(w: World, input: Controls, dt: number): void {
   w.notices = w.notices.filter((n) => n.life > 0);
 
   if (w.mode === "title") return stepTitle(w, input);
+  // A cutscene holds the stage until it ends or is skipped.
+  if (w.cutscene) return stepCutscene(w, input, dt);
 
   // The status window and the pause menu stop everything behind them.
   const canMenu = (w.mode === "gate" || w.mode === "select") && w.menu !== "pause";
@@ -1177,6 +1233,8 @@ export function step(w: World, input: Controls, dt: number): void {
   }
 
   for (const a of w.allies) stepAlly(w, a, dt);
+  // An echo that has finished sinking is gone.
+  if (w.allies.some((a) => a.out && a.anim <= 0)) w.allies = w.allies.filter((a) => !(a.out && a.anim <= 0));
   stepAllyShots(w, dt);
   for (const r of w.remnants) r.life -= dt;
   w.remnants = w.remnants.filter((r) => r.life > 0);

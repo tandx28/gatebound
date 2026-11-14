@@ -54,7 +54,7 @@ describe("quests", () => {
   it("the chain ends after the last main quest", () => {
     const q = newQuests();
     q.main = MAIN.length - 1;
-    questEvent(q, { type: "gate", rank: "S", noPotion: false, noDamage: false });
+    questEvent(q, { type: "ending" });
     expect(q.main).toBe(MAIN.length);
     expect(activeQuests(q).every((d) => d.id.startsWith("s"))).toBe(true);
   });

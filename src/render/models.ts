@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
 import type { EnemyKind } from "../game/config";
+import type { ActorKind } from "../game/cutscenes";
 import type { WeaponType } from "../game/items";
 import { weaponProp, type Anim, type Held, type Pose, type Rig } from "./rigs";
 
@@ -65,8 +66,17 @@ export const MODELS: Partial<Record<EnemyKind, ModelSpec>> = {
   warper: { file: "mage", pack: "adventurer", size: 0.9, tint: 0x7fe8ff, show: ["Spellbook_open"], hover: 7, strike: "Spellcast_Shoot", cast: "Spellcast_Shoot" },
 };
 
+/** People who appear only in cutscenes. */
+export const NPC_MODELS: Record<"mara" | "dov" | "rival", ModelSpec> = {
+  mara: { file: "mage", pack: "adventurer", size: 0.98, show: ["Spellbook"], strike: "Spellcast_Shoot" },
+  dov: { file: "barbarian", pack: "adventurer", size: 1.05, show: ["Mug"], strike: "1H_Melee_Attack_Chop" },
+  rival: { file: "knight", pack: "adventurer", size: 1.08, tint: 0x8a86b0, show: ["2H_Sword"], strike: "2H_Melee_Attack_Slice" },
+};
+
 /** Every file the game loads. */
-export const MODEL_FILES = [...new Set([HUNTER_MODEL, ...Object.values(MODELS)].map((s) => s.file).concat(Object.values(CARRIER)))];
+export const MODEL_FILES = [
+  ...new Set([HUNTER_MODEL, ...Object.values(MODELS), ...Object.values(NPC_MODELS)].map((s) => s.file).concat(Object.values(CARRIER))),
+];
 
 /** How tall the models stand in their own units. */
 const NATIVE_HEIGHT = 2.2;
@@ -217,9 +227,10 @@ function build(spec: ModelSpec, radius: number, hunter: boolean): Rig | null {
         guard: "Blocking",
         slump: "Hit_A",
         leap: "Jump_Idle",
+        down: "Lie_Idle",
       };
       const name = clipFor[a.pose];
-      const looping = a.pose === "idle" || a.pose === "guard" || a.pose === "leap" || name === "Blocking";
+      const looping = a.pose === "idle" || a.pose === "guard" || a.pose === "leap" || a.pose === "down" || name === "Blocking";
       const next = action(name);
 
       if (next && name !== currentKey) {
@@ -270,8 +281,9 @@ function build(spec: ModelSpec, radius: number, hunter: boolean): Rig | null {
 }
 
 /** A modelled figure for an enemy kind, or null if it has none or they have not loaded. */
-export function modelRig(kind: EnemyKind | "player", radius = 14): Rig | null {
+export function modelRig(kind: ActorKind, radius = 14): Rig | null {
   if (kind === "player") return build(HUNTER_MODEL, radius, true);
+  if (kind === "mara" || kind === "dov" || kind === "rival") return build(NPC_MODELS[kind], radius, false);
   const spec = MODELS[kind];
   return spec ? build(spec, radius, false) : null;
 }
