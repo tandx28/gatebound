@@ -865,9 +865,13 @@ export function healPositions(w: World): void {
   if (!Number.isFinite(w.hitstop)) w.hitstop = 0;
 }
 
+/** How many System notices show at once. More than this hides the fight. */
+export const NOTICES_SHOWN = 3;
+
 /** Advance the simulation by one fixed step. */
 export function step(w: World, input: Controls, dt: number): void {
-  for (const n of w.notices) n.life -= dt;
+  // Only the notices on screen age; the rest wait their turn behind them.
+  for (const n of w.notices.slice(0, NOTICES_SHOWN)) n.life -= dt;
   w.notices = w.notices.filter((n) => n.life > 0);
 
   if (w.mode === "title") return stepTitle(w, input);

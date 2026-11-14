@@ -13,6 +13,7 @@ import {
   VIEW_W,
 } from "../game/config";
 import type { World } from "../game/state";
+import { NOTICES_SHOWN } from "../game/world";
 import { POTION, STONE, TITLES, type Rarity } from "../game/items";
 import { activeQuests, MAIN, questProgress } from "../game/quests";
 import { STAT_KEYS, STAT_NAMES, xpToNext, type StatKey } from "../game/stats";
@@ -230,7 +231,7 @@ function drawBossBar(ctx: Ctx, w: World): void {
 }
 
 function drawNotices(ctx: Ctx, w: World): void {
-  w.notices.forEach((n, i) => {
+  w.notices.slice(0, NOTICES_SHOWN).forEach((n, i) => {
     const y = 130 + i * 84;
     ctx.globalAlpha = Math.min(1, n.life * 2);
     panel(ctx, VIEW_W / 2 - 250, y, 500, 70);

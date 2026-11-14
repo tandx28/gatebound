@@ -270,3 +270,15 @@ describe("binding a boss in a real gate", () => {
     expect(w.profile.echoes.length).toBe(1);
   });
 });
+
+describe("notices", () => {
+  it("only the first three age; the rest wait their turn", () => {
+    const { w, c } = arena();
+    for (let i = 0; i < 5; i++) w.notices.push({ title: `N${i}`, body: "", life: 1 });
+    run(w, c, 1.1);
+    expect(w.notices.map((n) => n.title)).toEqual(["N3", "N4"]);
+    expect(w.notices[0].life).toBeGreaterThan(0.8);
+    run(w, c, 1.1);
+    expect(w.notices).toEqual([]);
+  });
+});
