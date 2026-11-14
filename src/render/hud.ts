@@ -17,7 +17,8 @@ import {
 import type { Rank } from "../game/config";
 import type { World } from "../game/state";
 import { NOTICES_SHOWN } from "../game/world";
-import { POTION, STONE, TITLES, type Rarity } from "../game/items";
+import { FURY, itemDef, itemName, MYTHICS, POTION, POWERS, STONE, TITLES, WEAPONS, type Rarity } from "../game/items";
+import { BELT, beltCount } from "../game/profile";
 import { activeQuests, MAIN, questProgress } from "../game/quests";
 import { STAT_KEYS, STAT_NAMES, xpToNext, type StatKey } from "../game/stats";
 import {
@@ -41,7 +42,14 @@ const GOLD = "#ffd84a";
 const FONT = '"SF Mono", Menlo, Consolas, monospace';
 const RANK_CSS: Record<Rank, string> = { E: "#3aa0ff", D: "#35e0a0", C: "#b070ff", B: "#ff9a3c", A: "#ff4f6a", S: "#ffe9a0" };
 const RANK_KEY: Record<Rank, number> = { E: 1, D: 2, C: 3, B: 4, A: 5, S: 6 };
-const RARITY_CSS: Record<Rarity, string> = { common: "#cfd8e6", uncommon: "#6dff9c", rare: "#5aa8ff", epic: "#c58bff" };
+const RARITY_CSS: Record<Rarity, string> = {
+  common: "#cfd8e6",
+  uncommon: "#6dff9c",
+  rare: "#5aa8ff",
+  epic: "#c58bff",
+  legendary: "#ffb347",
+  mythic: "#ff5a8a",
+};
 
 type Ctx = CanvasRenderingContext2D;
 /** Sim position and height to view coordinates. */
@@ -137,6 +145,9 @@ function drawAilments(ctx: Ctx, w: World): void {
   if (a.burnT > 0) chips.push(["BURN", "#ff8a3c"]);
   if (a.slowT > 0) chips.push([`SLOW -${Math.round((1 - STATUS.slow.speed) * 100)}%`, "#40e0ff"]);
   if (w.turnedT > 0) chips.push(["ECHOES TURNED", "#ff5a60"]);
+  if (a.immune > 0) chips.push([`WARDED ${Math.ceil(a.immune)}s`, "#c8e060"]);
+  if (w.player.furyT > 0) chips.push([`FURY +${Math.round((FURY.damage - 1) * 100)}%  ${Math.ceil(w.player.furyT)}s`, "#ff8a3c"]);
+  if (w.wardReady) chips.push(["MANTLE READY", GOLD]);
   // Under the purse, clear of the boss bar.
   let x = 20;
   ctx.textAlign = "left";
@@ -144,12 +155,12 @@ function drawAilments(ctx: Ctx, w: World): void {
   for (const [label, color] of chips) {
     const cw = ctx.measureText(label).width + 16;
     ctx.fillStyle = "rgba(4,6,11,0.8)";
-    ctx.fillRect(x, 196, cw, 22);
+    ctx.fillRect(x, 234, cw, 22);
     ctx.strokeStyle = color;
     ctx.lineWidth = 1.5;
-    ctx.strokeRect(x + 0.5, 196.5, cw, 22);
+    ctx.strokeRect(x + 0.5, 234.5, cw, 22);
     ctx.fillStyle = color;
-    ctx.fillText(label, x + 8, 211);
+    ctx.fillText(label, x + 8, 249);
     x += cw + 8;
   }
 }
@@ -584,7 +595,7 @@ function drawHub(ctx: Ctx, w: World): void {
   ctx.fillStyle = GOLD;
   const title = TITLES.find((t) => t.id === pr.title);
   ctx.fillText(
-    `${pr.gold} GOLD   ·   POTIONS ${pr.potions}/${POTION.max}   ·   STONES ${pr.stones}/${STONE.max}   ·   KEYS ${pr.keys}${title ? `   ·   ${title.name.toUpperCase()}` : ""}`,
+    `${pr.gold} GOLD   ·   POTIONS ${pr.potions}/${POTION.max}   ·   FLASK ${pr.flask.charges}/${pr.flask.size}   ·   STONES ${pr.stones}/${STONE.max}   ·   KEYS ${pr.keys}${title ? `   ·   ${title.name.toUpperCase()}` : ""}`,
     VIEW_W / 2,
     146,
   );
@@ -616,6 +627,19 @@ function drawHub(ctx: Ctx, w: World): void {
     ctx.fillStyle = "#4a5f85";
     ctx.fillText("No echoes yet. In a gate, stand by a fallen enemy's remnant and press G.", 150, 268);
   }
+  if (w.tab === "gear") {
+    // The eight mythics: what each does once earned, how to earn it until then.
+    ctx.textAlign = "left";
+    ctx.font = `bold 12px ${FONT}`;
+    ctx.fillStyle = "#6f8fbf";
+    ctx.fillText(`MYTHICS   ·   ${pr.mythics.length} of ${MYTHICS.length} earned`, 680, 536);
+    ctx.font = `11px ${FONT}`;
+    MYTHICS.forEach((m, i) => {
+      const have = pr.mythics.includes(m.id);
+      ctx.fillStyle = have ? RARITY_CSS.mythic : "#4a5f85";
+      ctx.fillText(have ? `${itemName(m.id)}:  ${POWERS[m.id]}` : `???   ${m.how}`, 680, 554 + i * 15);
+    });
+  }
   if ((w.tab === "shop" || w.tab === "gear") && pr.inventory.length === 0) {
     ctx.textAlign = "left";
     ctx.font = `13px ${FONT}`;
@@ -630,7 +654,8 @@ function drawHub(ctx: Ctx, w: World): void {
 
 function drawPurse(ctx: Ctx, w: World): void {
   const pr = w.profile;
-  panel(ctx, 20, 140, 280, 48);
+  const p = w.player;
+  panel(ctx, 20, 140, 280, 86);
   ctx.textAlign = "left";
   ctx.font = `bold 12px ${FONT}`;
   ctx.fillStyle = GOLD;
@@ -640,9 +665,31 @@ function drawPurse(ctx: Ctx, w: World): void {
   ctx.fillStyle = pr.potions > 0 ? "#6dff9c" : "#4a5f85";
   ctx.fillText(`[F] POTION x${pr.potions}`, 286, 159);
   // The stone is greyed out where it cannot work.
-  const dead = w.sealed || w.gateKind === "penalty";
-  ctx.fillStyle = w.bossDead ? GOLD : pr.stones > 0 && !dead ? "#9fc8ff" : "#4a5f85";
-  ctx.fillText(w.bossDead ? "[T] LEAVE GATE" : `[T] STONE x${pr.stones}`, 286, 178);
+  const dead = w.sealed || (w.gateKind !== "normal" && w.gateKind !== "key");
+  ctx.fillStyle = w.bossDead || w.remnantHold ? GOLD : pr.stones > 0 && !dead ? "#9fc8ff" : "#4a5f85";
+  ctx.fillText(w.bossDead || w.remnantHold ? "[T] LEAVE GATE" : `[T] STONE x${pr.stones}`, 286, 178);
+
+  // The belt: mana on V, and whichever other item B is set to.
+  ctx.textAlign = "left";
+  ctx.fillStyle = pr.bag.mana > 0 ? "#4f7bff" : "#4a5f85";
+  ctx.fillText(`[V] MANA x${pr.bag.mana}`, 34, 197);
+  const id = BELT[w.belt % BELT.length];
+  const n = beltCount(pr, id);
+  const name = { flask: "FLASK", greater: "GREATER", fury: "FURY", antidote: "ANTIDOTE" }[id];
+  ctx.textAlign = "right";
+  ctx.fillStyle = n > 0 ? "#6dff9c" : "#4a5f85";
+  ctx.fillText(`[B] ${name} x${n}  [Z]`, 286, 197);
+
+  // The weapon in hand, and the one X would swap to.
+  const other = pr.equipped[pr.activeWeapon === 1 ? "weapon" : "weapon2"];
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#cfe4ff";
+  ctx.fillText((p.weapon ? WEAPONS[p.weapon].name : "Bare hands").toUpperCase(), 34, 216);
+  if (other) {
+    ctx.textAlign = "right";
+    ctx.fillStyle = "#6f8fbf";
+    ctx.fillText(`[X] ${WEAPONS[itemDef(other)!.weapon ?? "dagger"].name.toUpperCase()}`, 286, 216);
+  }
 }
 
 /** Timers and warnings for the gate in progress, under the boss bar. */
@@ -793,7 +840,7 @@ export function drawHud(ctx: Ctx, w: World, mouseX: number, mouseY: number, proj
     ctx.font = `12px ${FONT}`;
     ctx.fillStyle = "rgba(159,200,255,0.55)";
     ctx.fillText(
-      `WASD move · MOUSE aim · CLICK attack · SPACE dash · Q E R RMB skills · F potion · T stone${w.profile.classUnlocked ? " · G bind" : ""} · C status · ESC pause`,
+      `WASD move · CLICK attack · SPACE dash · Q E R RMB skills · F potion · V mana · B belt · X swap · T stone${w.profile.classUnlocked ? " · G bind" : ""} · C status · ESC pause`,
       VIEW_W / 2,
       VIEW_H - 14,
     );

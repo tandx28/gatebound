@@ -20,22 +20,58 @@ import {
   type SkillId,
 } from "./config";
 import {
+  ANTIDOTE,
+  BAG,
+  BAG_IDS,
+  baseOf,
   BOSS_DROP,
+  BOSS_MYTHIC,
+  DROP_WEIGHT,
+  DROPS,
+  EQUIP_SLOTS,
+  FLASK,
+  FURY,
   gearBonus,
+  gearPerks,
+  gearPowers,
+  itemDef,
+  itemName,
   ITEMS,
+  makeItem,
+  MYTHIC_ODDS,
   POTION,
+  POWERS,
   RANK_WEIGHT,
+  rollDrop,
+  rollPerks,
   rollStock,
   sellValue,
-  SLOTS,
+  SHOP_POOL,
   STONE,
+  SUPPLY_IDS,
   TITLES,
   TRIAL_DROP,
-  type Slot,
+  WEAPONS,
+  type BagId,
+  type EquipSlot,
+  type PowerId,
+  type SupplyId,
 } from "./items";
 import { MAIN, newQuests, questEvent, type QuestEvent, type Reward } from "./quests";
-import { burst, floatText, sfx, visibleTabs, type Enemy, type HubTab, type Profile, type Run, type World } from "./state";
-import { BASE_STAT, derive, STAT_KEYS, xpToNext } from "./stats";
+import {
+  burst,
+  floatText,
+  healPlayer,
+  noAilments,
+  sfx,
+  visibleTabs,
+  type Enemy,
+  type HubTab,
+  type Profile,
+  type Run,
+  type World,
+} from "./state";
+import { BASE_STAT, CRIT_CAP, derive, STAT_KEYS, xpToNext } from "./stats";
 import { DIALOGUES } from "./story";
 
 /** Everything that outlives a gate: gold, gear, titles, quests, dialogue. */
@@ -48,6 +84,15 @@ export function newProfile(): Profile {
     potions: 1,
     inventory: [],
     equipped: {},
+    activeWeapon: 0,
+    bag: { greater: 0, mana: 0, fury: 0, antidote: 0 },
+    flask: { size: FLASK.start, charges: FLASK.start },
+    autoBuy: { potion: false, stone: false, greater: false, mana: false, fury: false, antidote: false },
+    goldFloor: 0,
+    autoDrink: { on: false, at: 0.3 },
+    bossKills: {},
+    dailiesDone: 0,
+    mythics: [],
     titles: [],
     title: null,
     quests: newQuests(),
@@ -86,21 +131,76 @@ export function newRun(): Run {
 /** Recompute derived values after stats or gear change, keeping gains in max HP and mana. */
 export function refreshDerived(w: World): void {
   const p = w.player;
-  const next = derive(p.prog.stats, gearBonus(w.profile.equipped, w.profile.title));
+  const pr = w.profile;
+  const next = derive(p.prog.stats, gearBonus(pr.equipped, pr.title, pr.activeWeapon));
+  // The weapon in hand sets the pace of attacks and, for a dagger, adds crit.
+  const held = pr.equipped[pr.activeWeapon === 1 ? "weapon2" : "weapon"];
+  p.weapon = held ? (itemDef(held)?.weapon ?? null) : null;
+  if (p.weapon) {
+    const wd = WEAPONS[p.weapon];
+    next.attackCooldown *= wd.cooldown / WEAPONS.dagger.cooldown;
+    next.critChance = Math.min(CRIT_CAP, next.critChance + wd.crit);
+  }
+  p.perks = gearPerks(pr.equipped, pr.activeWeapon);
+  p.powers = gearPowers(pr.equipped, pr.activeWeapon);
   p.hp = clamp(p.hp + (next.maxHp - p.d.maxHp), 1, next.maxHp);
   p.mana = clamp(p.mana + (next.maxMana - p.d.maxMana), 0, next.maxMana);
   p.d = next;
 }
 
+/** Whether the hunter has an item of this base, worn or in the bag, whatever its perks. */
 export function owns(profile: Profile, id: string): boolean {
-  return profile.inventory.includes(id) || SLOTS.some((s) => profile.equipped[s] === id);
+  const base = baseOf(id);
+  return profile.inventory.some((x) => baseOf(x) === base) || EQUIP_SLOTS.some((s) => profile.equipped[s] && baseOf(profile.equipped[s]!) === base);
+}
+
+/** Find an owned item in a list by position ("3"), exact text, or base id. */
+function pick(list: string[], arg: string): number {
+  if (/^\d+$/.test(arg)) return Number(arg) < list.length ? Number(arg) : -1;
+  const exact = list.indexOf(arg);
+  return exact >= 0 ? exact : list.findIndex((x) => baseOf(x) === arg);
 }
 
 /** The shop's stock for the current day and reset count, skipping owned items. */
 function stockFor(w: World): string[] {
   const pr = w.profile;
-  const owned = [...pr.inventory, ...SLOTS.map((s) => pr.equipped[s]).filter((id): id is string => !!id)];
-  return rollStock(seeded(w.today * 7919 + pr.shop.rerolls * 104729 + 17), owned, RANK_WEIGHT[pr.hunterRank]);
+  const owned = [...pr.inventory, ...EQUIP_SLOTS.map((s) => pr.equipped[s]).filter((id): id is string => !!id)].map(baseOf);
+  const rng = seeded(w.today * 7919 + pr.shop.rerolls * 104729 + 17);
+  const bases = rollStock(rng, owned, RANK_WEIGHT[pr.hunterRank]);
+  // Now and then a Rank A hunter or better finds a legendary on the shelf.
+  const high = RANK_IDS.indexOf(pr.hunterRank) >= RANK_IDS.indexOf("A");
+  if (high && bases.length > 0 && w.today % DROPS.legendaryDayEvery === 0) {
+    const legends = SHOP_POOL.filter((id) => ITEMS[id].rarity === "legendary" && !owned.includes(id));
+    if (legends.length > 0) bases[bases.length - 1] = legends[Math.min(legends.length - 1, Math.floor(rng() * legends.length))];
+  }
+  return bases.map((id) => makeItem(id, rollPerks(id, rng)));
+}
+
+/** An item found in a gate: it joins the run's loot, kept only if the hunter gets out. */
+function found(w: World, owned: string): void {
+  w.run.items.push(owned);
+  sfx(w, "chime");
+  const def = itemDef(owned)!;
+  w.notices.push({ title: def.rarity === "mythic" ? "MYTHIC FOUND" : "ITEM FOUND", body: `${itemName(owned)}  ·  ${def.unique ? "unique" : def.rarity}`, life: 4 });
+}
+
+/**
+ * Award a mythic, once. Into the bag at once when earned by finishing
+ * something; into the run's loot when dropped mid-gate, to be kept on leaving.
+ */
+export function grantMythic(w: World, id: PowerId, intoRun: boolean): boolean {
+  const pr = w.profile;
+  if (pr.mythics.includes(id) || w.run.items.some((x) => baseOf(x) === id)) return false;
+  const owned = makeItem(id, rollPerks(id, w.rng));
+  if (intoRun) found(w, owned);
+  else {
+    pr.mythics.push(id);
+    pr.inventory.push(owned);
+    sfx(w, "quest");
+    w.notices.push({ title: "MYTHIC EARNED", body: `${itemName(owned)}  ·  ${POWERS[id]}`, life: 7 });
+  }
+  w.dirty = true;
+  return true;
 }
 
 /** Chance that one try binds a boss: better with Intelligence, never certain. */
@@ -249,6 +349,8 @@ function dailyEvent(w: World, ev: QuestEvent): void {
   const goal = dailyGoals(w.profile.hunterRank);
   if (d.kills < goal.kills || d.rooms < goal.rooms || d.gates < goal.gates) return;
   d.done = true;
+  w.profile.dailiesDone += 1;
+  if (w.profile.dailiesDone >= 30) grantMythic(w, "ledgers_favour", false);
   w.player.prog.points += goal.points;
   w.profile.potions = POTION.max;
   w.notices.push({ title: "DAILY QUEST COMPLETE", body: `+${goal.points} stat points  ·  potions refilled`, life: 5 });
@@ -279,7 +381,8 @@ export function fireQuest(w: World, ev: QuestEvent): void {
 /** Loot and quest credit for a kill. */
 export function onKill(w: World, e: Enemy): void {
   // Summoned minions carry no experience and so no gold either.
-  if (e.xp > 0) w.run.gold += Math.round(e.xp * (e.boss ? 0.5 : 0.6));
+  const gilded = 1 + 0.25 * w.player.perks.gilded;
+  if (e.xp > 0) w.run.gold += Math.round(e.xp * (e.boss ? 0.5 : 0.6) * gilded);
   fireQuest(w, { type: "kill", kind: e.kind });
   // An Echo Caller can bind what falls. Summoned minions leave nothing.
   const field = w.gateKind === "normal" || w.gateKind === "key" || w.gateKind === "break";
@@ -294,6 +397,7 @@ export function onKill(w: World, e: Enemy): void {
     });
   }
   if (!e.boss) {
+    if (e.xp > 0 && field && w.rng() < DROPS.chance) found(w, rollDrop(w.rank, w.rng));
     if (e.xp > 0 && w.gateKind === "normal" && w.rng() < KEYS.dropChance) {
       w.run.keys += 1;
       sfx(w, "chime");
@@ -305,10 +409,16 @@ export function onKill(w: World, e: Enemy): void {
   if (e.kind === "warden") earnTitle(w, "giant_feller");
   if (w.rng() < SKILL_RANK.bossDrop) findBook(w);
   const drop = BOSS_DROP[e.kind];
-  if (drop && !owns(w.profile, drop) && !w.run.items.includes(drop)) {
-    w.run.items.push(drop);
-    sfx(w, "chime");
-    w.notices.push({ title: "ITEM FOUND", body: ITEMS[drop].name, life: 4 });
+  if (drop && !owns(w.profile, drop) && !w.run.items.includes(drop)) found(w, drop);
+  // A boss always leaves one piece of gear, a tier better than its gate's commoners drop.
+  const up = RANK_IDS[Math.min(RANK_IDS.length - 1, RANK_IDS.indexOf(w.rank) + 1)];
+  found(w, rollDrop(w.rank, w.rng, DROP_WEIGHT[up]));
+  // The three late bosses each guard a mythic: a chance per kill, certain by the fifth.
+  const myth = BOSS_MYTHIC[e.kind];
+  if (myth) {
+    const kills = (w.profile.bossKills[e.kind] ?? 0) + 1;
+    w.profile.bossKills[e.kind] = kills;
+    if (kills >= MYTHIC_ODDS.pity || w.rng() < MYTHIC_ODDS.chance) grantMythic(w, myth, true);
   }
 }
 
@@ -323,13 +433,116 @@ export function trialReward(w: World): void {
     w.notices.push({ title: "TRIAL COMPLETE", body: `+${gold} gold`, life: 5 });
   }
   findBook(w);
+  found(w, rollDrop(w.rank, w.rng));
+  if (w.rank === "S") grantMythic(w, "trials_end", true);
+}
+
+/** What the B key can use, in the order Z cycles through. */
+export type BeltId = "flask" | "greater" | "fury" | "antidote";
+export const BELT: BeltId[] = ["flask", "greater", "fury", "antidote"];
+
+export function beltCount(profile: Profile, id: BeltId): number {
+  return id === "flask" ? profile.flask.charges : profile.bag[id];
+}
+
+/** Use a consumable from the bag. Nothing is spent if it would do nothing. */
+export function useBag(w: World, id: BagId): boolean {
+  const p = w.player;
+  const pr = w.profile;
+  if (pr.bag[id] <= 0) return false;
+  if (id === "greater") {
+    if (p.hp >= p.d.maxHp || healPlayer(w, p.d.maxHp) <= 0) return false;
+    w.run.usedPotion = true;
+    floatText(w, p.x, p.y, "FULL HEALTH", "#6dff9c", true);
+  } else if (id === "mana") {
+    if (p.mana >= p.d.maxMana) return false;
+    p.mana = p.d.maxMana;
+    floatText(w, p.x, p.y, "FULL MANA", "#4f7bff", true);
+  } else if (id === "fury") {
+    p.furyT = FURY.time;
+    floatText(w, p.x, p.y, "FURY", "#ff8a3c", true);
+  } else {
+    p.ail = noAilments();
+    p.ail.immune = ANTIDOTE.immune;
+    floatText(w, p.x, p.y, "CLEANSED", "#c8e060", true);
+  }
+  pr.bag[id] -= 1;
+  sfx(w, "potion");
+  burst(w, p.x, p.y, "#6dff9c", 12, 200);
+  w.dirty = true;
+  return true;
+}
+
+/** A sip from the flask: free, a few to a gate, refilled at the board. */
+export function useFlask(w: World): boolean {
+  const p = w.player;
+  const f = w.profile.flask;
+  if (f.charges <= 0 || p.hp >= p.d.maxHp) return false;
+  const healed = healPlayer(w, p.d.maxHp * FLASK.heal);
+  if (healed <= 0) return false;
+  f.charges -= 1;
+  sfx(w, "potion");
+  floatText(w, p.x, p.y, `+${healed}`, "#6dff9c", true);
+  w.dirty = true;
+  return true;
+}
+
+export function useBelt(w: World): boolean {
+  const id = BELT[w.belt % BELT.length];
+  return id === "flask" ? useFlask(w) : useBag(w, id);
+}
+
+/** Move the belt to the next thing there is any of. */
+export function cycleBelt(w: World): void {
+  for (let i = 1; i <= BELT.length; i++) {
+    const next = (w.belt + i) % BELT.length;
+    if (beltCount(w.profile, BELT[next]) > 0 || i === BELT.length) {
+      w.belt = next;
+      return;
+    }
+  }
+}
+
+function supplyInfo(profile: Profile, id: SupplyId): { have: number; max: number; price: number; allowed: boolean } {
+  if (id === "potion") return { have: profile.potions, max: POTION.max, price: POTION.price, allowed: true };
+  if (id === "stone") return { have: profile.stones, max: STONE.max, price: STONE.price, allowed: true };
+  const def = BAG[id];
+  const allowed = !def.rank || RANK_IDS.indexOf(profile.hunterRank) >= RANK_IDS.indexOf(def.rank);
+  return { have: profile.bag[id], max: def.max, price: def.price, allowed };
+}
+
+/** Buy one of a supply, if there is room, gold above `floor`, and the rank for it. */
+function buySupply(profile: Profile, id: SupplyId, floor = 0): boolean {
+  const info = supplyInfo(profile, id);
+  if (!info.allowed || info.have >= info.max || profile.gold - info.price < floor) return false;
+  profile.gold -= info.price;
+  if (id === "potion") profile.potions += 1;
+  else if (id === "stone") profile.stones += 1;
+  else profile.bag[id] += 1;
+  return true;
+}
+
+/**
+ * Back at the board: refill the flask, then top up everything set to
+ * auto-buy, cheapest first, never dipping below the gold floor.
+ */
+export function restock(w: World): void {
+  const pr = w.profile;
+  pr.flask.charges = pr.flask.size;
+  const before = pr.gold;
+  const wanted = SUPPLY_IDS.filter((id) => pr.autoBuy[id]).sort((a, b) => supplyInfo(pr, a).price - supplyInfo(pr, b).price);
+  for (const id of wanted) while (buySupply(pr, id, pr.goldFloor)) {}
+  if (pr.gold < before) {
+    w.notices.push({ title: "AUTO-BUY", body: `Restocked for ${before - pr.gold} gold`, life: 3 });
+    w.dirty = true;
+  }
 }
 
 export function usePotion(w: World): void {
   const p = w.player;
   if (w.profile.potions <= 0 || p.hp >= p.d.maxHp) return;
-  const heal = Math.min(p.d.maxHp - p.hp, Math.round(p.d.maxHp * POTION.heal));
-  p.hp += heal;
+  const heal = healPlayer(w, p.d.maxHp * POTION.heal);
+  if (heal <= 0) return;
   w.profile.potions -= 1;
   sfx(w, "potion");
   w.run.usedPotion = true;
@@ -343,7 +556,16 @@ function bank(w: World): string[] {
   const pr = w.profile;
   const run = w.run;
   pr.gold += run.gold;
-  pr.inventory.push(...run.items);
+  const sold: string[] = [];
+  for (const owned of run.items) {
+    const def = itemDef(owned);
+    if (def?.power && !pr.mythics.includes(def.power)) pr.mythics.push(def.power);
+    // A full bag turns the overflow straight into gold. Mythics always fit.
+    if (pr.inventory.length >= DROPS.bagSize && def?.rarity !== "mythic") {
+      pr.gold += sellValue(owned);
+      sold.push(`Bag full: sold ${itemName(owned)} for ${sellValue(owned)} gold`);
+    } else pr.inventory.push(owned);
+  }
   pr.keys += run.keys;
   const learned: string[] = [];
   for (const id of run.books) {
@@ -353,7 +575,9 @@ function bank(w: World): string[] {
   }
   return [
     `+${run.gold} gold`,
-    ...run.items.map((id) => `Found: ${ITEMS[id].name}`),
+    ...run.items.slice(0, 5).map((id) => `Found: ${itemName(id)}`),
+    ...(run.items.length > 5 ? [`and ${run.items.length - 5} more items`] : []),
+    ...sold.slice(0, 2),
     ...(run.keys > 0 ? [`+${run.keys} key${run.keys > 1 ? "s" : ""}`] : []),
     ...learned,
   ];
@@ -383,12 +607,14 @@ export function settleClear(w: World): void {
     pr.lastClear = w.today;
     run.gold += Math.round(BREAK.gold * RANKS[w.rank].xpMult);
     run.summary = ["The break is contained.", ...bank(w)];
+    if (w.rank === "S") grantMythic(w, "breakwater", false);
     return;
   }
   if (w.gateKind === "key") {
     // A key dungeon always holds a skill book, if any skill can still improve.
     const book = pickBook(w);
     if (book) run.books.push(book);
+    run.items.push(rollDrop(w.rank, w.rng));
     run.gold += Math.round(KEYS.gold * RANKS[w.rank].xpMult);
     pr.potions = Math.min(POTION.max, pr.potions + 1);
     w.player.prog.points += KEYS.points;
@@ -409,6 +635,9 @@ export function settleClear(w: World): void {
   earnTitle(w, "first_gate");
   if (!run.tookDamage) earnTitle(w, "untouched");
   if (run.overLevel) earnTitle(w, "overreacher");
+  const high = (rank: Rank) => RANK_IDS.indexOf(w.rank) >= RANK_IDS.indexOf(rank);
+  if (w.sealed && high("A")) grantMythic(w, "seal_breaker", false);
+  if (!run.tookDamage && high("B")) grantMythic(w, "untouched_mantle", false);
   fireQuest(w, { type: "gate", rank: w.rank, noPotion: !run.usedPotion, noDamage: !run.tookDamage });
 }
 
@@ -514,13 +743,50 @@ function hubActionInner(w: World, verb: string, arg: string, extra: string | und
         if (pr.gold < STONE.price || pr.stones >= STONE.max) return null;
         pr.gold -= STONE.price;
         pr.stones += 1;
+      } else if (BAG_IDS.includes(arg as BagId)) {
+        if (!buySupply(pr, arg as BagId)) return null;
       } else {
-        const item = ITEMS[arg];
-        if (!item || !pr.shop.stock.includes(arg) || owns(pr, arg) || pr.gold < item.price) return null;
-        pr.gold -= item.price;
-        pr.inventory.push(arg);
+        const i = pick(pr.shop.stock, arg);
+        const def = i < 0 ? undefined : itemDef(pr.shop.stock[i]);
+        if (!def || owns(pr, def.id) || pr.gold < def.price || pr.inventory.length >= DROPS.bagSize) return null;
+        pr.gold -= def.price;
+        pr.inventory.push(pr.shop.stock[i]);
       }
       break;
+    case "flask": {
+      // Each upgrade adds a charge, at a rising price.
+      const cost = FLASK.cost[pr.flask.size - FLASK.start];
+      if (arg !== "upgrade" || pr.flask.size >= FLASK.max || cost === undefined || pr.gold < cost) return null;
+      pr.gold -= cost;
+      pr.flask.size += 1;
+      pr.flask.charges = pr.flask.size;
+      break;
+    }
+    case "auto":
+      if (!SUPPLY_IDS.includes(arg as SupplyId)) return null;
+      pr.autoBuy[arg as SupplyId] = !pr.autoBuy[arg as SupplyId];
+      break;
+    case "floor":
+      if (arg !== "+" && arg !== "-") return null;
+      pr.goldFloor = Math.max(0, pr.goldFloor + (arg === "+" ? 100 : -100));
+      break;
+    case "drink":
+      if (arg === "toggle") pr.autoDrink.on = !pr.autoDrink.on;
+      else if (arg === "+" || arg === "-") pr.autoDrink.at = Math.round(Math.min(0.6, Math.max(0.1, pr.autoDrink.at + (arg === "+" ? 0.1 : -0.1))) * 10) / 10;
+      else return null;
+      break;
+    case "weapon": {
+      // Take the other weapon in hand, if there is one.
+      const other = pr.activeWeapon === 1 ? "weapon" : "weapon2";
+      if (arg !== "swap" || !pr.equipped[other]) return null;
+      pr.activeWeapon = pr.activeWeapon === 1 ? 0 : 1;
+      refreshDerived(w);
+      break;
+    }
+    case "page":
+      if (arg !== "+" && arg !== "-") return null;
+      w.invPage = Math.max(0, w.invPage + (arg === "+" ? 1 : -1));
+      return null;
     case "slot": {
       // Put a skill in a slot. If it sat in another slot, the two trade places.
       const i = Number(arg);
@@ -553,29 +819,39 @@ function hubActionInner(w: World, verb: string, arg: string, extra: string | und
       pr.shop.stock = stockFor(w);
       break;
     case "sell": {
-      const i = pr.inventory.indexOf(arg);
-      if (i < 0) return null;
-      pr.inventory.splice(i, 1);
-      pr.gold += sellValue(arg);
+      const i = pick(pr.inventory, arg);
+      // A mythic has no price: it cannot be sold.
+      if (i < 0 || sellValue(pr.inventory[i]) <= 0) return null;
+      const [gone] = pr.inventory.splice(i, 1);
+      pr.gold += sellValue(gone);
       break;
     }
     case "equip": {
-      const i = pr.inventory.indexOf(arg);
-      if (i < 0) return null;
-      const slot = ITEMS[arg].slot;
-      pr.inventory.splice(i, 1);
+      const i = pick(pr.inventory, arg);
+      const def = i < 0 ? undefined : itemDef(pr.inventory[i]);
+      if (!def) return null;
+      // A weapon fills the first empty weapon slot; with both full it replaces the one in hand.
+      let slot: EquipSlot = def.slot;
+      if (def.slot === "weapon") {
+        slot = !pr.equipped.weapon ? "weapon" : !pr.equipped.weapon2 ? "weapon2" : pr.activeWeapon === 1 ? "weapon2" : "weapon";
+      }
+      const [worn] = pr.inventory.splice(i, 1);
       const old = pr.equipped[slot];
       if (old) pr.inventory.push(old);
-      pr.equipped[slot] = arg;
+      pr.equipped[slot] = worn;
       refreshDerived(w);
       break;
     }
     case "unequip": {
-      const slot = arg as Slot;
-      const old = pr.equipped[slot];
+      const slot = arg as EquipSlot;
+      const old = EQUIP_SLOTS.includes(slot) ? pr.equipped[slot] : undefined;
       if (!old) return null;
       delete pr.equipped[slot];
       pr.inventory.push(old);
+      // Never left holding an empty hand while the other slot has a weapon.
+      const held = pr.activeWeapon === 1 ? "weapon2" : "weapon";
+      const other = pr.activeWeapon === 1 ? "weapon" : "weapon2";
+      if (!pr.equipped[held] && pr.equipped[other]) pr.activeWeapon = pr.activeWeapon === 1 ? 0 : 1;
       refreshDerived(w);
       break;
     }

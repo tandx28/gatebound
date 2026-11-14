@@ -2,6 +2,7 @@ import { norm } from "../engine/vec";
 import { circlesOverlap, clampToRoom } from "./combat";
 import { DOMINION, ECHO, KINDS, RALLY, ROOM, type EnemyKind } from "./config";
 import { damageEnemy } from "./enemies";
+import { playerHit } from "./perks";
 import { floatText, hurtPlayer, sfx, type Ally, type Echo, type Enemy, type World } from "./state";
 
 /**
@@ -184,7 +185,9 @@ export function stepAllyShots(w: World, dt: number): void {
     if (s.life <= 0) continue;
     for (const e of w.enemies) {
       if (e.hp > 0 && circlesOverlap(s, e)) {
-        damageEnemy(w, e, s.damage, false, s.x - s.vx * 0.01, s.y - s.vy * 0.01, 80);
+        // The player's own arrows carry their perks; an echo's shot does not.
+        if (s.mine) playerHit(w, e, s.damage, s.crit === true, s.x - s.vx * 0.01, s.y - s.vy * 0.01, 120);
+        else damageEnemy(w, e, s.damage, false, s.x - s.vx * 0.01, s.y - s.vy * 0.01, 80);
         s.life = 0;
         break;
       }

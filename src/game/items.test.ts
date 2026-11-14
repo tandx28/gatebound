@@ -6,7 +6,8 @@ import { derive, newProgress } from "./stats";
 
 describe("items", () => {
   it("the shop pool holds every rarity and never a unique drop", () => {
-    expect(SHOP_POOL.length).toBe(18);
+    expect(SHOP_POOL.length).toBe(36);
+    for (const id of SHOP_POOL) expect(ITEMS[id].rarity).not.toBe("mythic");
     for (const id of SHOP_POOL) expect(ITEMS[id].unique).toBeFalsy();
     for (const r of RARITIES) expect(SHOP_POOL.some((id) => ITEMS[id].rarity === r)).toBe(true);
   });
@@ -99,11 +100,13 @@ describe("rollStock", () => {
   });
 
   it("offers common items far more often than epic ones", () => {
-    const seen = { common: 0, uncommon: 0, rare: 0, epic: 0 };
+    const seen = { common: 0, uncommon: 0, rare: 0, epic: 0, legendary: 0, mythic: 0 };
     for (let seed = 1; seed <= 400; seed++) for (const id of rollStock(seeded(seed))) seen[ITEMS[id].rarity] += 1;
     expect(seen.common).toBeGreaterThan(seen.rare);
     expect(seen.uncommon).toBeGreaterThan(seen.epic);
     expect(seen.common).toBeGreaterThan(seen.epic * 2);
     expect(seen.epic).toBeGreaterThan(0);
+    // Legendaries and mythics never come from an ordinary roll.
+    expect(seen.legendary + seen.mythic).toBe(0);
   });
 });

@@ -1,6 +1,24 @@
 import { ECHO, KINDS, RANK_IDS, SKILL_IDS, SKILL_RANK, type EnemyKind, type Rank, type SkillId } from "./config";
 import { SIDES, type Dungeon, type RoomNode } from "./dungeon";
-import { ITEMS, SHOP_POOL, SLOTS, STONE, TITLES } from "./items";
+import {
+  BAG,
+  BAG_IDS,
+  baseOf,
+  DROPS,
+  EQUIP_SLOTS,
+  FLASK,
+  itemDef,
+  makeItem,
+  MYTHICS,
+  PERK_COUNT,
+  PERKS,
+  perksOf,
+  SHOP_POOL,
+  STONE,
+  SUPPLY_IDS,
+  TITLES,
+  type PowerId,
+} from "./items";
 import { newProfile, newRun, refreshDerived } from "./profile";
 import { MAIN, SIDE } from "./quests";
 import type { GateSnapshot, Profile, World } from "./state";
@@ -10,8 +28,8 @@ import { resumeGate, snapshotGate } from "./world";
 /** Save format, validation and migration. Storage itself lives in the shell. */
 
 /** 2 adds hunter rank, skill ranks, the class, echoes and gate breaks. */
-/** 3 adds ranks B to S, three more skills and the skill loadout. */
-export const SAVE_VERSION = 3;
+/** 4 adds perked items, a second weapon slot, more consumables, the flask and mythics. */
+export const SAVE_VERSION = 4;
 export const SAVE_KEY = "gatebound.save";
 
 export interface SaveData {
@@ -35,6 +53,20 @@ function int(v: unknown, lo: number, hi: number, fallback: number): number {
 }
 
 const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
+
+/**
+ * An owned item as it should be: a known base, and only perks that exist,
+ * fit its slot, and number no more than its rarity allows. Null if the base is unknown.
+ */
+function cleanItem(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const def = itemDef(raw);
+  if (!def) return null;
+  const perks = [...new Set(perksOf(raw))].filter((p) => PERKS[p].slots.includes(def.slot));
+  return makeItem(def.id, def.unique ? [] : perks.slice(0, PERK_COUNT[def.rarity]));
+}
+
+const cleanItems = (v: unknown): string[] => (Array.isArray(v) ? v.map(cleanItem).filter((x): x is string => x !== null) : []);
 
 /** A gate in progress, or null if any part of it does not hold together. */
 function parseGate(raw: unknown): GateSnapshot | null {
@@ -79,7 +111,7 @@ function parseGate(raw: unknown): GateSnapshot | null {
   const run = newRun();
   run.gold = int(rr.gold, 0, 1e9, 0);
   run.keys = int(rr.keys, 0, 99, 0);
-  run.items = [...new Set(strings(rr.items))].filter((id) => ITEMS[id]);
+  run.items = cleanItems(rr.items).slice(0, DROPS.bagSize);
   run.usedPotion = rr.usedPotion === true;
   run.tookDamage = rr.tookDamage === true;
   run.overLevel = rr.overLevel === true;
@@ -155,7 +187,7 @@ export function parseSave(raw: unknown): SaveData | null {
   if (isObj(rf.shop)) {
     profile.shop.day = int(rf.shop.day, 0, 1e7, 0);
     profile.shop.rerolls = int(rf.shop.rerolls, 0, 99, 0);
-    profile.shop.stock = [...new Set(strings(rf.shop.stock))].filter((id) => SHOP_POOL.includes(id));
+    profile.shop.stock = cleanItems(rf.shop.stock).filter((x) => SHOP_POOL.includes(baseOf(x)));
   }
   if (isObj(rf.daily)) {
     profile.daily = {
@@ -168,13 +200,41 @@ export function parseSave(raw: unknown): SaveData | null {
   }
 
   const re = isObj(rf.equipped) ? rf.equipped : {};
-  for (const slot of SLOTS) {
-    const id = re[slot];
-    if (typeof id === "string" && ITEMS[id]?.slot === slot) profile.equipped[slot] = id;
+  for (const slot of EQUIP_SLOTS) {
+    const owned = cleanItem(re[slot]);
+    // Both weapon slots take weapons; the others take their own kind.
+    if (owned && itemDef(owned)!.slot === (slot === "weapon2" ? "weapon" : slot)) profile.equipped[slot] = owned;
   }
-  // One of each item at most, and never both worn and in the bag.
-  const worn = new Set(Object.values(profile.equipped));
-  profile.inventory = [...new Set(strings(rf.inventory))].filter((id) => ITEMS[id] && !worn.has(id));
+  profile.activeWeapon = rf.activeWeapon === 1 && profile.equipped.weapon2 ? 1 : 0;
+  if (!profile.equipped.weapon && profile.equipped.weapon2) profile.activeWeapon = 1;
+  // Drops can repeat, so the bag may hold several of one thing; it only has a size.
+  profile.inventory = cleanItems(rf.inventory).slice(0, DROPS.bagSize);
+
+  const rb = isObj(rf.bag) ? rf.bag : {};
+  for (const id of BAG_IDS) profile.bag[id] = int(rb[id], 0, BAG[id].max, 0);
+  if (isObj(rf.flask)) {
+    profile.flask.size = int(rf.flask.size, FLASK.start, FLASK.max, FLASK.start);
+    profile.flask.charges = int(rf.flask.charges, 0, profile.flask.size, profile.flask.size);
+  }
+  const ra = isObj(rf.autoBuy) ? rf.autoBuy : {};
+  for (const id of SUPPLY_IDS) profile.autoBuy[id] = ra[id] === true;
+  profile.goldFloor = int(rf.goldFloor, 0, 1e9, 0);
+  if (isObj(rf.autoDrink)) {
+    const at = typeof rf.autoDrink.at === "number" && Number.isFinite(rf.autoDrink.at) ? rf.autoDrink.at : 0.3;
+    profile.autoDrink = { on: rf.autoDrink.on === true, at: Math.round(Math.min(0.6, Math.max(0.1, at)) * 10) / 10 };
+  }
+  const rk = isObj(rf.bossKills) ? rf.bossKills : {};
+  for (const kind of Object.keys(rk)) {
+    if (KINDS[kind as EnemyKind]?.boss) profile.bossKills[kind as EnemyKind] = int(rk[kind], 0, 1e6, 0);
+  }
+  profile.dailiesDone = int(rf.dailiesDone, 0, 1e6, 0);
+  const powers = new Set<string>(MYTHICS.map((m) => m.id));
+  profile.mythics = [...new Set(strings(rf.mythics))].filter((id): id is PowerId => powers.has(id));
+  // Any mythic actually held counts as earned, whatever the list says.
+  for (const owned of [...profile.inventory, ...Object.values(profile.equipped)]) {
+    const power = itemDef(owned)?.power;
+    if (power && !profile.mythics.includes(power)) profile.mythics.push(power);
+  }
 
   const known = new Set(TITLES.map((t) => t.id));
   profile.titles = [...new Set(strings(rf.titles))].filter((id) => known.has(id));

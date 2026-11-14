@@ -1,7 +1,7 @@
 import { applyDamage, type Circle } from "./combat";
 import { PLAYER, STATUS, TOTEM, type EnemyKind, type Rank, type SkillId, type StatusId } from "./config";
 import type { Dungeon } from "./dungeon";
-import type { Slot } from "./items";
+import { PERK, PERK_IDS, type BagId, type EquipSlot, type PerkId, type PowerId, type SupplyId, type WeaponType } from "./items";
 import type { QuestState } from "./quests";
 import type { Line } from "./story";
 import type { Derived, Progress } from "./stats";
@@ -39,6 +39,21 @@ export interface Player extends Circle {
   kx: number;
   ky: number;
   ail: Ailments;
+  /** Type of the weapon in hand; null fights bare-handed, like a dagger. */
+  weapon: WeaponType | null;
+  /** How many of each perk the worn gear carries. */
+  perks: Record<PerkId, number>;
+  /** Mythic powers the worn gear grants. */
+  powers: PowerId[];
+  /** Seconds left of an Elixir of Fury. */
+  furyT: number;
+  swapCd: number;
+  /** Basic hits landed, for powers that count them. */
+  hits: number;
+  /** Healing too small to be a whole point yet. */
+  healOwed: number;
+  /** Seconds until the next automatic drink is allowed. */
+  drinkCd: number;
   /** Where the cursor points on the ground, for skills aimed at a spot. */
   aimX: number;
   aimY: number;
@@ -99,6 +114,11 @@ export interface Enemy extends Circle {
   guard: number;
   /** Seconds left slowed by the player's Domain. */
   slowT: number;
+  /** Damage per second from poison or bleed, and how long it lasts. */
+  dot: number;
+  dotT: number;
+  /** Seconds left chilled by a frost perk. */
+  chillT: number;
 }
 
 export interface Projectile extends Circle {
@@ -107,6 +127,9 @@ export interface Projectile extends Circle {
   damage: number;
   life: number;
   status?: StatusId;
+  /** An arrow of the player's own: it carries their perks, and may be a crit. */
+  mine?: boolean;
+  crit?: boolean;
 }
 
 /** Ground that keeps hurting whoever stands on it. */
@@ -188,7 +211,24 @@ export interface Profile {
   potions: number;
   /** Owned items not currently equipped. */
   inventory: string[];
-  equipped: Partial<Record<Slot, string>>;
+  equipped: Partial<Record<EquipSlot, string>>;
+  /** Which weapon slot is in hand: 0 or 1. */
+  activeWeapon: number;
+  /** Consumables other than the health potion and the stone. */
+  bag: Record<BagId, number>;
+  /** The flask: how many charges it holds, and how many are left. */
+  flask: { size: number; charges: number };
+  /** Which supplies are topped up on every return to the board. */
+  autoBuy: Record<SupplyId, boolean>;
+  /** Auto-buy never takes gold below this. */
+  goldFloor: number;
+  /** Drink a health potion without being asked, below this share of health. */
+  autoDrink: { on: boolean; at: number };
+  /** Kills of each late boss, for the mythic it must eventually give. */
+  bossKills: Partial<Record<EnemyKind, number>>;
+  dailiesDone: number;
+  /** Mythics already earned; each comes only once. */
+  mythics: PowerId[];
   /** Earned title ids. */
   titles: string[];
   /** The one title in use. */
@@ -277,8 +317,8 @@ export interface Settings {
   shake: boolean;
 }
 
-export type HubTab = "gates" | "shop" | "gear" | "skills" | "quests" | "echoes" | "system";
-export const HUB_TABS: HubTab[] = ["gates", "shop", "gear", "skills", "quests", "echoes", "system"];
+export type HubTab = "gates" | "shop" | "supplies" | "gear" | "skills" | "quests" | "echoes" | "system";
+export const HUB_TABS: HubTab[] = ["gates", "shop", "supplies", "gear", "skills", "quests", "echoes", "system"];
 
 /** Tabs on show: the Echoes tab appears once the class is earned. */
 export function visibleTabs(w: World): HubTab[] {
@@ -351,6 +391,12 @@ export interface World {
   remnantHold: boolean;
   /** Bumped when the current room's doors change, so the view rebuilds. */
   layoutRev: number;
+  /** Which page of the bag the board is showing. */
+  invPage: number;
+  /** Which belt item the B key uses. */
+  belt: number;
+  /** The Untouched Mantle's ward: ready to swallow one hit in this room. */
+  wardReady: boolean;
   /** Chance of a hidden door after a boss kill. Tests override it. */
   hiddenChance: number;
   /** Where the title screen's Play button leads. */
@@ -399,9 +445,28 @@ export function floatText(w: World, x: number, y: number, text: string, color: s
 }
 
 /** Give the player an ailment, unless they are immune for the moment. */
+export function noPerks(): Record<PerkId, number> {
+  return Object.fromEntries(PERK_IDS.map((p) => [p, 0])) as Record<PerkId, number>;
+}
+
+/**
+ * Heal the player by a possibly fractional amount; whole points are applied
+ * and the remainder carried. Returns the points healed.
+ */
+export function healPlayer(w: World, amount: number): number {
+  const p = w.player;
+  // Breakwater: its strength at low health comes at this price.
+  if (p.powers.includes("breakwater") && p.hp / p.d.maxHp < 0.3) return 0;
+  p.healOwed += amount;
+  const points = Math.min(p.d.maxHp - p.hp, Math.floor(p.healOwed));
+  p.healOwed -= Math.floor(p.healOwed);
+  if (points > 0) p.hp += points;
+  return Math.max(0, points);
+}
+
 export function afflict(w: World, id: StatusId): void {
   const a = w.player.ail;
-  if (a.immune > 0) return;
+  if (a.immune > 0 || w.player.powers.includes("seal_breaker")) return;
   if (id === "poison") {
     a.poison = Math.min(STATUS.poison.max, a.poison + 1);
     a.poisonT = STATUS.poison.time;
@@ -413,6 +478,19 @@ export function afflict(w: World, id: StatusId): void {
 export function hurtPlayer(w: World, amount: number, status?: StatusId): boolean {
   const p = w.player;
   if (p.iframes > 0 || w.mode !== "gate") return false;
+  // The Untouched Mantle swallows the first hit in each room.
+  if (w.wardReady) {
+    w.wardReady = false;
+    p.iframes = PLAYER.hurtIframes;
+    floatText(w, p.x, p.y, "WARDED", "#ffd84a", true);
+    sfx(w, "block");
+    return false;
+  }
+  if (p.perks.dodge > 0 && w.rng() < PERK.dodge * p.perks.dodge) {
+    p.iframes = 0.25;
+    floatText(w, p.x, p.y, "DODGE", "#9fc8ff");
+    return false;
+  }
   // A standing totem makes everything in the room hit harder.
   const boost = w.enemies.some((e) => e.kind === "totem" && e.hp > 0) ? TOTEM.damage : 1;
   const dmg = Math.round(amount * boost);
@@ -426,6 +504,16 @@ export function hurtPlayer(w: World, amount: number, status?: StatusId): boolean
   floatText(w, p.x, p.y, `-${dmg}`, "#ff5a60", true);
   burst(w, p.x, p.y, "#5ee6ff", 10, 220);
   sfx(w, p.hp <= 0 ? "death" : "hurt");
+  if (p.perks.thorns > 0) {
+    // Thorns: whatever stands close when the player is hit pays for it.
+    for (const e of w.enemies) {
+      if (e.immortal || e.inv > 0 || Math.hypot(e.x - p.x, e.y - p.y) > PERK.thorns.radius + e.radius) continue;
+      const back = Math.round(p.d.damage * p.perks.thorns);
+      e.hp = Math.max(0, e.hp - back);
+      e.flash = 0.1;
+      floatText(w, e.x, e.y, String(back), "#c8e060");
+    }
+  }
   if (p.hp <= 0) w.mode = "dead";
   return true;
 }

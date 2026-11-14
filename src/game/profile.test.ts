@@ -98,7 +98,7 @@ describe("shop", () => {
     const c = new FakeControls();
     w.profile.gold = 100;
     w.tab = "shop";
-    const b = hubButtons(w).find((x) => x.id === "buy:padded_coat")!;
+    const b = hubButtons(w).find((x) => x.text === "Padded Coat")!;
     c.mouseX = b.rect.x + 5;
     c.mouseY = b.rect.y + 5;
     c.press("Mouse0");
@@ -110,7 +110,7 @@ describe("shop", () => {
     const w = hub();
     const c = new FakeControls();
     w.tab = "shop";
-    const b = hubButtons(w).find((x) => x.id === "buy:padded_coat")!;
+    const b = hubButtons(w).find((x) => x.text === "Padded Coat")!;
     expect(b.enabled).toBe(false);
     c.mouseX = b.rect.x + 5;
     c.mouseY = b.rect.y + 5;
@@ -134,11 +134,11 @@ describe("equipment and titles", () => {
 
   it("equipping over a worn item swaps them", () => {
     const w = hub();
-    w.profile.inventory = ["iron_fang", "hunters_kris"];
-    hubAction(w, "equip:iron_fang");
-    hubAction(w, "equip:hunters_kris");
-    expect(w.profile.equipped.weapon).toBe("hunters_kris");
-    expect(w.profile.inventory).toEqual(["iron_fang"]);
+    w.profile.inventory = ["padded_coat", "scale_vest"];
+    hubAction(w, "equip:padded_coat");
+    hubAction(w, "equip:scale_vest");
+    expect(w.profile.equipped.armour).toBe("scale_vest");
+    expect(w.profile.inventory).toEqual(["padded_coat"]);
   });
 
   it("removing an item drops the bonus but never kills", () => {
@@ -466,7 +466,8 @@ describe("save", () => {
     expect(data.profile.gold).toBe(0);
     expect(data.profile.potions).toBe(99);
     expect(data.profile.equipped).toEqual({ armour: "padded_coat" });
-    expect(data.profile.inventory).toEqual(["iron_fang"]);
+    // Drops can repeat, so the bag keeps both Iron Fangs, and a spare of what is worn.
+    expect(data.profile.inventory).toEqual(["iron_fang", "iron_fang", "padded_coat"]);
     expect(data.profile.titles).toEqual(["first_gate"]);
     expect(data.profile.title).toBe(null);
     expect(data.profile.quests.main).toBe(MAIN.length);

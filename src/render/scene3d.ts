@@ -21,6 +21,7 @@ import {
   type Rank,
 } from "../game/config";
 import type { Dungeon, Side } from "../game/dungeon";
+import { WEAPONS, type WeaponType } from "../game/items";
 import type { Ally, Enemy, World } from "../game/state";
 
 /**
@@ -346,12 +347,14 @@ export class Scene3D {
   private shots: THREE.Mesh[] = [];
   private shotMat = glow(0xff4fd8, 3);
   private allyShotMat = glow(0x8a6cff, 3);
+  private arrowMat = glow(0x5ee6ff, 3);
   private shotGeo = new THREE.SphereGeometry(1, 10, 8);
 
   private circles: DecalPool;
   private rings: DecalPool;
   private lines: DecalPool;
-  private sectors: DecalPool;
+  /** One swing shape per melee weapon type. */
+  private sectors: Record<Exclude<WeaponType, "bow">, DecalPool>;
 
   private points: THREE.Points;
   private pPos = new Float32Array(MAX_PARTICLES * 3);
@@ -428,11 +431,11 @@ export class Scene3D {
     const lineGeo = new THREE.PlaneGeometry(1, 1);
     lineGeo.translate(0.5, 0, 0);
     this.lines = new DecalPool(fx, lineGeo, 0.7);
-    this.sectors = new DecalPool(
-      fx,
-      new THREE.RingGeometry(0.3, 1, 24, 1, -PLAYER.attackHalfAngle, PLAYER.attackHalfAngle * 2),
-      1.4,
-    );
+    const sector = (type: WeaponType) => {
+      const half = WEAPONS[type].halfAngle;
+      return new DecalPool(fx, new THREE.RingGeometry(0.3, 1, 24, 1, -half, half * 2), 1.4);
+    };
+    this.sectors = { dagger: sector("dagger"), sword: sector("sword"), spear: sector("spear") };
 
     const pGeo = new THREE.BufferGeometry();
     pGeo.setAttribute("position", new THREE.BufferAttribute(this.pPos, 3));
@@ -694,7 +697,8 @@ export class Scene3D {
     this.shots.forEach((m, i) => {
       const s = all[i];
       // Echo shots are violet; enemy shots stay magenta.
-      if (s) m.material = i >= w.projectiles.length ? this.allyShotMat : this.shotMat;
+      // The player's arrows are cyan, an echo's shots violet, an enemy's magenta.
+      if (s) m.material = i < w.projectiles.length ? this.shotMat : s.mine ? this.arrowMat : this.allyShotMat;
       m.visible = !!s;
       if (s) {
         m.position.set(s.x, 22, s.y);
@@ -708,7 +712,7 @@ export class Scene3D {
     this.circles.begin();
     this.rings.begin();
     this.lines.begin();
-    this.sectors.begin();
+    for (const pool of Object.values(this.sectors)) pool.begin();
 
     for (const e of w.enemies) {
       const a = Math.atan2(e.dirY, e.dirX);
@@ -798,7 +802,9 @@ export class Scene3D {
 
     if (p.attackT > 0) {
       const k = p.attackT / PLAYER.attackActive;
-      this.sectors.place(p.x, p.y, p.attackFacing, PLAYER.attackRange, PLAYER.attackRange, 0x5ee6ff, 0.35 + 0.5 * k);
+      const type = p.weapon && p.weapon !== "bow" ? p.weapon : "dagger";
+      const reach = WEAPONS[type].range;
+      this.sectors[type].place(p.x, p.y, p.attackFacing, reach, reach, 0x5ee6ff, 0.35 + 0.5 * k);
     }
     if (p.surgeT > 0) this.rings.place(p.x, p.y, 0, 26, 26, 0xffd84a, 0.7);
     // Aim marker under the player.
@@ -807,7 +813,7 @@ export class Scene3D {
     this.circles.end();
     this.rings.end();
     this.lines.end();
-    this.sectors.end();
+    for (const pool of Object.values(this.sectors)) pool.end();
   }
 
   private syncParticles(w: World): void {

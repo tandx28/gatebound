@@ -34,7 +34,9 @@ import {
   type SkillId,
 } from "./config";
 import { addTrialRoom, generateDungeon, keyDungeon, OPPOSITE, type Dungeon, type RoomNode, type Side } from "./dungeon";
-import { damageEnemy, isCommitted, spawnEnemy, spawnPoint, stepEnemy } from "./enemies";
+import { isCommitted, spawnEnemy, spawnPoint, stepEnemy } from "./enemies";
+import { BOW, FURY, PERK, WEAPONS } from "./items";
+import { playerHit, stepEnemyPerks } from "./perks";
 import {
   afflict,
   blast,
@@ -42,6 +44,7 @@ import {
   floatText,
   hurtPlayer,
   noAilments,
+  noPerks,
   sfx,
   visibleTabs,
   type Enemy,
@@ -54,6 +57,10 @@ import {
   advanceDialogue,
   applySetting,
   bossBindChance,
+  cycleBelt,
+  restock,
+  useBag,
+  useBelt,
   canActivate,
   fireQuest,
   hubAction,
@@ -108,6 +115,9 @@ export function createWorld(rng: () => number = Math.random): World {
     bossDead: false,
     remnantHold: false,
     layoutRev: 0,
+    invPage: 0,
+    belt: 0,
+    wardReady: false,
     hiddenChance: HIDDEN.chance,
     afterTitle: "select",
     mode: "select",
@@ -134,6 +144,14 @@ export function createWorld(rng: () => number = Math.random): World {
       hurtFlash: 0,
       skillCd: noCooldowns(),
       ail: noAilments(),
+      weapon: null,
+      perks: noPerks(),
+      powers: [],
+      furyT: 0,
+      swapCd: 0,
+      hits: 0,
+      healOwed: 0,
+      drinkCd: 0,
       aimX: ROOM.w / 2 + 100,
       aimY: ROOM.h / 2,
       lungeT: 0,
@@ -194,7 +212,9 @@ function deployAllies(w: World): void {
   const squad = w.profile.echoes.filter((e) => e.active).slice(0, echoCap(p.prog.level));
   w.allies = squad.map((echo, i) => {
     const a = (i / Math.max(1, squad.length)) * Math.PI * 2;
-    return makeAlly(echo, p.x + Math.cos(a) * 46, p.y + Math.sin(a) * 46, p.d.damage);
+    // The Crown of the Hollow makes every echo hit harder.
+    const base = p.d.damage * (p.powers.includes("hollow_crown") ? 1.25 : 1);
+    return makeAlly(echo, p.x + Math.cos(a) * 46, p.y + Math.sin(a) * 46, base);
   });
 }
 
@@ -213,6 +233,10 @@ function resetPlayer(p: Player): void {
   p.hurtFlash = 0;
   p.skillCd = noCooldowns();
   p.ail = noAilments();
+  p.furyT = 0;
+  p.swapCd = 0;
+  p.hits = 0;
+  p.drinkCd = 0;
 }
 
 /** Common setup for entering any kind of gate. The player enters rested. */
@@ -388,6 +412,7 @@ export function toSelect(w: World): void {
   w.player.x = ROOM.w / 2;
   w.player.y = ROOM.h / 2;
   w.tab = "gates";
+  restock(w);
   nextDialogue(w);
 }
 
@@ -406,6 +431,7 @@ export function enterRoom(w: World, id: number, from: Side | null): void {
   p.dashT = 0;
   p.lungeT = 0;
   deployAllies(w);
+  w.wardReady = p.powers.includes("untouched_mantle");
   room.visited = true;
   w.emergency = null;
   if (from) sfx(w, "door");
@@ -474,8 +500,10 @@ export function grantXp(w: World, amount: number): void {
 /** Damage, speed and attack rate after temporary effects. */
 export function effective(p: Player): { damage: number; moveSpeed: number; attackCooldown: number } {
   const on = p.surgeT > 0;
+  // Breakwater: desperate strength when nearly dead.
+  const desperate = p.powers.includes("breakwater") && p.hp / p.d.maxHp < 0.3 ? 2 : 1;
   return {
-    damage: p.d.damage * (on ? SURGE.damage : 1),
+    damage: p.d.damage * (on ? SURGE.damage : 1) * (p.furyT > 0 ? FURY.damage : 1) * desperate,
     moveSpeed: p.d.moveSpeed * (on ? SURGE.speed : 1),
     attackCooldown: p.d.attackCooldown / (on ? SURGE.speed : 1),
   };
@@ -486,10 +514,23 @@ export function skillReady(p: Player, id: SkillId): boolean {
   return p.prog.level >= s.level && p.skillCd[id] <= 0 && p.mana >= s.mana;
 }
 
-function strike(w: World, e: Enemy, mult: number, knock: number): void {
+function strike(w: World, e: Enemy, mult: number, knock: number): boolean {
   const p = w.player;
   const roll = rollDamage(effective(p).damage * mult, p.d.critChance, PLAYER.critMult, w.rng);
-  damageEnemy(w, e, roll.amount, roll.crit, p.x, p.y, knock);
+  return playerHit(w, e, roll.amount, roll.crit, p.x, p.y, knock);
+}
+
+/** A basic attack landing: counted, for Twin Fang's every-fifth-hit second strike. */
+function basicHit(w: World, e: Enemy, mult: number): void {
+  const p = w.player;
+  if (!strike(w, e, mult, 300)) return;
+  p.hits += 1;
+  if (p.powers.includes("twin_fang") && p.hits % 5 === 0 && e.hp > 0) strike(w, e, mult, 0);
+}
+
+/** The weapon in hand, or a dagger's reach and pace for bare hands. */
+export function weaponOf(p: Player): (typeof WEAPONS)["dagger"] {
+  return p.weapon ? WEAPONS[p.weapon] : { ...WEAPONS.dagger, crit: 0 };
 }
 
 function useSkill(w: World, id: SkillId): void {
@@ -691,6 +732,28 @@ function stepPlayer(w: World, input: Controls, dt: number): void {
     if (input.consume(SKILL_SLOTS[i].code) && id) useSkill(w, id);
   });
   if (input.consume("KeyF")) usePotion(w);
+  if (input.consume("KeyV")) useBag(w, "mana");
+  if (input.consume("KeyZ")) cycleBelt(w);
+  if (input.consume("KeyB")) useBelt(w);
+  // X: take the other weapon in hand.
+  if (input.consume("KeyX") && p.swapCd <= 0) {
+    const other = w.profile.activeWeapon === 1 ? "weapon" : "weapon2";
+    if (w.profile.equipped[other]) {
+      w.profile.activeWeapon = w.profile.activeWeapon === 1 ? 0 : 1;
+      refreshDerived(w);
+      p.swapCd = 0.8;
+      p.attackT = 0;
+      w.dirty = true;
+      sfx(w, "click");
+      floatText(w, p.x, p.y, (p.weapon ?? "dagger").toUpperCase(), "#cfe4ff");
+    }
+  }
+  // Drink without being asked, if the player set it up.
+  const drink = w.profile.autoDrink;
+  if (drink.on && p.drinkCd <= 0 && p.hp / p.d.maxHp < drink.at && w.profile.potions > 0) {
+    usePotion(w);
+    p.drinkCd = 1;
+  }
   if (input.consume("KeyG")) tryBind(w);
   if (input.consume("KeyT")) {
     tryLeave(w);
@@ -706,6 +769,8 @@ function stepPlayer(w: World, input: Controls, dt: number): void {
     p.dashCd = PLAYER.dashCooldown;
     p.iframes = Math.max(p.iframes, PLAYER.dashIframes);
     p.attackT = 0;
+    // A fresh id, so Ashen Wake cuts each enemy once per dash.
+    p.swingId += 1;
     sfx(w, "dash");
   }
 
@@ -723,8 +788,17 @@ function stepPlayer(w: World, input: Controls, dt: number): void {
     p.x += p.dashX * PLAYER.dashSpeed * dt;
     p.y += p.dashY * PLAYER.dashSpeed * dt;
     if (w.rng() < 0.6) w.particles.push({ x: p.x, y: p.y, vx: 0, vy: 0, life: 0.18, color: "#5ee6ff" });
+    if (p.powers.includes("ashen_wake")) {
+      for (const e of w.enemies) {
+        if (e.lastSwing === p.swingId || !circlesOverlap(e, { x: p.x, y: p.y, radius: p.radius + 18 })) continue;
+        e.lastSwing = p.swingId;
+        strike(w, e, 1.5, 120);
+      }
+    }
   } else {
-    const slowed = p.ail.slowT > 0 ? STATUS.slow.speed : 1;
+    // A drawn bow slows the feet.
+    const drawing = p.weapon === "bow" && input.attackHeld ? BOW.drawSpeed : 1;
+    const slowed = (p.ail.slowT > 0 ? STATUS.slow.speed : 1) * drawing;
     p.x += move.x * eff.moveSpeed * slowed * dt;
     p.y += move.y * eff.moveSpeed * slowed * dt;
   }
@@ -740,20 +814,42 @@ function stepPlayer(w: World, input: Controls, dt: number): void {
 
   if (p.attackCd <= 0 && p.dashT <= 0 && p.lungeT <= 0 && (input.attackHeld || input.consume("Mouse0"))) {
     p.attackCd = eff.attackCooldown;
-    p.attackT = PLAYER.attackActive;
     p.attackFacing = p.facing;
     p.swingId += 1;
-    sfx(w, "swing");
+    const wd = weaponOf(p);
+    if (wd.ranged) {
+      // An arrow: rolled now, landed by whatever it reaches first.
+      const roll = rollDamage(eff.damage * wd.damage, p.d.critChance, PLAYER.critMult, w.rng);
+      w.allyShots.push({
+        x: p.x + Math.cos(p.facing) * p.radius,
+        y: p.y + Math.sin(p.facing) * p.radius,
+        radius: 6,
+        vx: Math.cos(p.facing) * BOW.arrowSpeed,
+        vy: Math.sin(p.facing) * BOW.arrowSpeed,
+        damage: roll.amount,
+        life: wd.range / BOW.arrowSpeed,
+        mine: true,
+        crit: roll.crit,
+      });
+      sfx(w, "shot");
+    } else {
+      p.attackT = PLAYER.attackActive;
+      sfx(w, "swing");
+    }
   }
 
   if (p.attackT > 0) {
+    const wd = weaponOf(p);
     for (const e of w.enemies) {
       if (e.lastSwing === p.swingId) continue;
-      if (!inArc(p.x, p.y, p.attackFacing, PLAYER.attackHalfAngle, PLAYER.attackRange, e)) continue;
+      if (!inArc(p.x, p.y, p.attackFacing, wd.halfAngle, wd.range, e)) continue;
       e.lastSwing = p.swingId;
-      strike(w, e, 1, 300);
+      basicHit(w, e, wd.damage);
     }
   }
+  p.furyT = Math.max(0, p.furyT - dt);
+  p.swapCd = Math.max(0, p.swapCd - dt);
+  p.drinkCd = Math.max(0, p.drinkCd - dt);
 
   p.dashT = Math.max(0, p.dashT - dt);
   p.dashCd = Math.max(0, p.dashCd - dt);
@@ -1027,8 +1123,11 @@ export function step(w: World, input: Controls, dt: number): void {
 
   // An enemy under the player's Domain lives at half speed.
   for (const e of w.enemies) {
-    stepEnemy(w, e, e.slowT > 0 ? dt * DOMAIN.slow : dt);
+    // Domain halves its pace; a frost perk takes a further bite.
+    const pace = (e.slowT > 0 ? DOMAIN.slow : 1) * (e.chillT > 0 ? PERK.frost.speed : 1);
+    stepEnemy(w, e, dt * pace);
     e.slowT = Math.max(0, e.slowT - dt);
+    stepEnemyPerks(e, dt);
   }
   w.rallyT = Math.max(0, w.rallyT - dt);
   w.domainT = Math.max(0, w.domainT - dt);
@@ -1083,6 +1182,9 @@ export function step(w: World, input: Controls, dt: number): void {
     sfx(w, e.boss ? "bosskill" : "kill");
     burst(w, e.x, e.y, "#e5484d", e.boss ? 60 : 16, e.boss ? 420 : 260);
     onKill(w, e);
+    // What the gear gives for a kill.
+    if (p.perks.siphon > 0) p.mana = Math.min(p.d.maxMana, p.mana + PERK.siphon * p.perks.siphon);
+    if (p.powers.includes("trials_end")) p.skillCd.pierce = 0;
     if (e.xp > 0) grantXp(w, e.xp);
     if (e.boss) bossDied = true;
   }
@@ -1134,6 +1236,9 @@ export function step(w: World, input: Controls, dt: number): void {
       floatText(w, p.x, p.y, "ROOM CLEARED", "#6dff9c", true);
       sfx(w, "roomclear");
     }
+    // The Ledger's Favour: a cleared room puts a sip back in the flask.
+    const flask = w.profile.flask;
+    if (p.powers.includes("ledgers_favour") && flask.charges < flask.size) flask.charges += 1;
     if (w.emergency) {
       const bonus = w.emergency.bonus;
       w.emergency = null;

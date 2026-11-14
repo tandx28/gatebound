@@ -1,6 +1,22 @@
 import { bossEchoCap, echoCap, KINDS, RANK_IDS, RESET, SKILL_IDS, SKILL_RANK, SKILL_SLOTS, SKILLS, VIEW_H, VIEW_W, type Rank } from "./config";
-import { describeBonus, ITEMS, POTION, sellValue, SLOTS, STONE, TITLES, type Rarity } from "./items";
-import { activeEchoes, canActivate, riteOpen } from "./profile";
+import {
+  BAG,
+  describeBonus,
+  describeItem,
+  EQUIP_SLOTS,
+  FLASK,
+  itemDef,
+  itemName,
+  POTION,
+  sellValue,
+  STONE,
+  SUPPLY_IDS,
+  TITLES,
+  WEAPONS,
+  type Rarity,
+  type SupplyId,
+} from "./items";
+import { activeEchoes, canActivate, owns, riteOpen } from "./profile";
 import { visibleTabs, type World } from "./state";
 import { BASE_STAT, STAT_KEYS } from "./stats";
 
@@ -68,12 +84,59 @@ function row(col: number, i: number, id: string, label: string, enabled: boolean
   return { rect: { x, y: TOP + i * ROW_H, w: 90, h: 28 }, id, label, enabled, kind: "row", text, sub, textX: col, on };
 }
 
-/** A row for an item, named in its rarity colour. */
-function itemRow(col: number, i: number, id: string, itemId: string, label: string, enabled: boolean): Button {
-  const item = ITEMS[itemId];
-  const b = row(col, i, id, label, enabled, item.name, `${item.rarity}  ·  ${describeBonus(item.bonus)}`);
-  b.rarity = item.rarity;
+/** A row for an owned item, named in its rarity colour, with its perks. */
+function itemRow(col: number, i: number, id: string, owned: string, label: string, enabled: boolean): Button {
+  const b = row(col, i, id, label, enabled, itemName(owned), describeItem(owned));
+  b.rarity = itemDef(owned)?.rarity;
   return b;
+}
+
+/** How many bag items the board shows at once. */
+export const BAG_PAGE = 7;
+
+/** The slice of the bag on show, with each item's true position. */
+export function bagPage(w: World): { items: { owned: string; index: number }[]; page: number; pages: number } {
+  const all = w.profile.inventory;
+  const pages = Math.max(1, Math.ceil(all.length / BAG_PAGE));
+  const page = Math.min(w.invPage, pages - 1);
+  const items = all.slice(page * BAG_PAGE, (page + 1) * BAG_PAGE).map((owned, i) => ({ owned, index: page * BAG_PAGE + i }));
+  return { items, page, pages };
+}
+
+/** Rows for the bag in the right column, each with one action, and page buttons below. */
+function bagRows(w: World, verb: string, label: (owned: string) => string, enabled: (owned: string) => boolean): Button[] {
+  const { items, page, pages } = bagPage(w);
+  const out = items.map(({ owned, index }, i) => itemRow(RIGHT, i, `${verb}:${index}`, owned, label(owned), enabled(owned)));
+  if (pages > 1) {
+    const y = TOP + BAG_PAGE * ROW_H + 6;
+    out.push({ rect: { x: RIGHT, y, w: 90, h: 26 }, id: "page:-", label: "< PREV", enabled: page > 0, kind: "plain" });
+    out.push({ rect: { x: RIGHT + 370, y, w: 90, h: 26 }, id: "page:+", label: "NEXT >", enabled: page < pages - 1, kind: "plain" });
+  }
+  return out;
+}
+
+function supplyRow(w: World, id: SupplyId, i: number): Button[] {
+  const pr = w.profile;
+  const have = id === "potion" ? pr.potions : id === "stone" ? pr.stones : pr.bag[id];
+  const def =
+    id === "potion"
+      ? { name: "Health Potion", about: "restores half health   [F]", price: POTION.price, max: POTION.max, rank: undefined }
+      : id === "stone"
+        ? { name: "Return Stone", about: "leave a gate with your loot; fails in sealed gates   [T]", price: STONE.price, max: STONE.max, rank: undefined }
+        : { ...BAG[id], about: `${BAG[id].about}   [${id === "mana" ? "V" : "B"}]` };
+  const locked = !!def.rank && RANK_IDS.indexOf(pr.hunterRank) < RANK_IDS.indexOf(def.rank);
+  const full = have >= def.max;
+  const label = locked ? `RANK ${def.rank}` : full ? "FULL" : `${def.price} G`;
+  const buy = row(LEFT, i, `buy:${id}`, label, !locked && !full && pr.gold >= def.price, `${def.name}  (${have}/${def.max})`, def.about);
+  const auto: Button = {
+    rect: { x: LEFT + 470, y: TOP + i * ROW_H, w: 96, h: 28 },
+    id: `auto:${id}`,
+    label: pr.autoBuy[id] ? "AUTO ON" : "AUTO OFF",
+    enabled: true,
+    kind: "plain",
+    on: pr.autoBuy[id],
+  };
+  return [buy, auto];
 }
 
 /** The Play button on the title screen. */
@@ -133,7 +196,14 @@ export function pauseButtons(w: World): Button[] {
 /** Section headings on the current tab, positioned to match the rows. */
 export function hubHeadings(w: World): { x: number; y: number; text: string }[] {
   const y = TOP - 14;
-  if (w.tab === "shop") return [{ x: LEFT, y, text: "TODAY'S STOCK" }, { x: RIGHT, y, text: "YOUR ITEMS" }];
+  const bag = `YOUR BAG   ·   ${w.profile.inventory.length} items${bagPage(w).pages > 1 ? `   ·   page ${bagPage(w).page + 1} of ${bagPage(w).pages}` : ""}`;
+  if (w.tab === "shop") return [{ x: LEFT, y, text: "TODAY'S STOCK" }, { x: RIGHT, y, text: bag }];
+  if (w.tab === "supplies") {
+    return [
+      { x: LEFT, y, text: "SUPPLIES   ·   AUTO refills that item each time you return here" },
+      { x: 760, y, text: "AUTOMATION" },
+    ];
+  }
   if (w.tab === "echoes") {
     const level = w.player.prog.level;
     return [{ x: LEFT, y, text: `YOUR ECHOES   ·   fighting ${activeEchoes(w.profile)} of ${echoCap(level)}   ·   boss echoes at once: ${bossEchoCap(level)}` }];
@@ -143,9 +213,9 @@ export function hubHeadings(w: World): { x: number; y: number; text: string }[] 
   }
   if (w.tab === "gear") {
     return [
-      { x: LEFT, y, text: "EQUIPPED" },
-      { x: LEFT, y: y + 4 * ROW_H, text: "TITLES" },
-      { x: RIGHT, y, text: "YOUR ITEMS" },
+      { x: LEFT, y, text: "EQUIPPED   ·   X swaps the weapon in hand" },
+      { x: LEFT, y: y + 5 * ROW_H, text: "TITLES" },
+      { x: RIGHT, y, text: bag },
     ];
   }
   return [];
@@ -157,7 +227,7 @@ export function hubButtons(w: World): Button[] {
   const out: Button[] = [];
 
   const tabs = visibleTabs(w);
-  const tw = 150;
+  const tw = 140;
   const gap = 10;
   const x0 = VIEW_W / 2 - (tw * tabs.length + gap * (tabs.length - 1)) / 2;
   tabs.forEach((tab, i) => {
@@ -186,49 +256,58 @@ export function hubButtons(w: World): Button[] {
       out.push({ rect: { x: VIEW_W / 2 + 10, y: 556, w: 300, h: 36 }, id: "gate:rite", label: "RITE OF ECHOES", enabled: true, kind: "plain", on: true });
     }
   } else if (w.tab === "shop") {
-    pr.shop.stock.forEach((id, i) => {
-      const owned = pr.inventory.includes(id) || SLOTS.some((s) => pr.equipped[s] === id);
-      out.push(itemRow(LEFT, i, `buy:${id}`, id, owned ? "OWNED" : `${ITEMS[id].price} G`, !owned && pr.gold >= ITEMS[id].price));
+    pr.shop.stock.forEach((owned, i) => {
+      const def = itemDef(owned)!;
+      const have = owns(pr, def.id);
+      out.push(itemRow(LEFT, i, `buy:${i}`, owned, have ? "OWNED" : `${def.price} G`, !have && pr.gold >= def.price));
     });
-    const n = pr.shop.stock.length;
-    const full = pr.potions >= POTION.max;
-    out.push(
-      row(LEFT, n, "buy:potion", full ? "FULL" : `${POTION.price} G`, !full && pr.gold >= POTION.price, `Health Potion  (${pr.potions}/${POTION.max})`, "restores half health"),
-    );
-    const stoned = pr.stones >= STONE.max;
-    out.push(
-      row(LEFT, n + 1, "buy:stone", stoned ? "FULL" : `${STONE.price} G`, !stoned && pr.gold >= STONE.price, `Return Stone  (${pr.stones}/${STONE.max})`, "leave a gate with your loot; fails in sealed gates"),
-    );
-    const spent = STAT_KEYS.reduce((sum, k) => sum + w.player.prog.stats[k] - BASE_STAT, 0);
-    out.push(
-      row(LEFT, n + 2, "buy:reset", spent > 0 ? `${RESET.price} G` : "NO NEED", spent > 0 && pr.gold >= RESET.price, "Blank Page", "refunds every spent stat point"),
-    );
     const used = pr.shop.rerolls >= 1;
     out.push({
-      rect: { x: LEFT, y: TOP + (n + 3) * ROW_H + 8, w: 460, h: 32 },
+      rect: { x: LEFT, y: TOP + pr.shop.stock.length * ROW_H + 8, w: 460, h: 32 },
       id: "shop:reroll",
       label: used ? "STOCK RESET USED  ·  new stock tomorrow" : "RESET STOCK  ·  free, once a day",
       enabled: !used,
       kind: "plain",
     });
-    pr.inventory.forEach((id, i) => {
-      out.push(itemRow(RIGHT, i, `sell:${id}`, id, `+${sellValue(id)} G`, true));
-    });
+    out.push(...bagRows(w, "sell", (o) => (sellValue(o) > 0 ? `+${sellValue(o)} G` : "KEEP"), (o) => sellValue(o) > 0));
+  } else if (w.tab === "supplies") {
+    SUPPLY_IDS.forEach((id, i) => out.push(...supplyRow(w, id, i)));
+    const n = SUPPLY_IDS.length;
+    const cost = FLASK.cost[pr.flask.size - FLASK.start];
+    const maxed = pr.flask.size >= FLASK.max;
+    out.push(
+      row(LEFT, n, "flask:upgrade", maxed ? "MAX" : `${cost} G`, !maxed && pr.gold >= cost, `Flask  (${pr.flask.charges}/${pr.flask.size} sips)`, `yours for good; a sip restores ${FLASK.heal * 100}% health; refills free here   [B]`),
+    );
+    const spent = STAT_KEYS.reduce((sum, k) => sum + w.player.prog.stats[k] - BASE_STAT, 0);
+    out.push(
+      row(LEFT, n + 1, "buy:reset", spent > 0 ? `${RESET.price} G` : "NO NEED", spent > 0 && pr.gold >= RESET.price, "Blank Page", "refunds every spent stat point"),
+    );
+    // Right column: how auto-buy and auto-drink behave.
+    const ax = 760;
+    const cx = 1010;
+    out.push({ rect: { x: cx, y: TOP, w: 34, h: 28 }, id: "floor:-", label: "-", enabled: pr.goldFloor > 0, kind: "setting", text: "KEEP AT LEAST (gold)", sub: String(pr.goldFloor), textX: ax });
+    out.push({ rect: { x: cx + 110, y: TOP, w: 34, h: 28 }, id: "floor:+", label: "+", enabled: true, kind: "plain" });
+    out.push({ rect: { x: cx, y: TOP + 44, w: 144, h: 28 }, id: "drink:toggle", label: pr.autoDrink.on ? "ON" : "OFF", enabled: true, kind: "setting", text: "AUTO-DRINK POTION", textX: ax, on: pr.autoDrink.on });
+    out.push({ rect: { x: cx, y: TOP + 88, w: 34, h: 28 }, id: "drink:-", label: "-", enabled: pr.autoDrink.at > 0.1, kind: "setting", text: "WHEN HEALTH BELOW", sub: `${Math.round(pr.autoDrink.at * 100)}%`, textX: ax });
+    out.push({ rect: { x: cx + 110, y: TOP + 88, w: 34, h: 28 }, id: "drink:+", label: "+", enabled: pr.autoDrink.at < 0.6, kind: "plain" });
   } else if (w.tab === "gear") {
-    SLOTS.forEach((slot, i) => {
-      const id = pr.equipped[slot];
-      out.push(
-        row(LEFT, i, `unequip:${slot}`, "REMOVE", !!id, `${slot.toUpperCase()}: ${id ? ITEMS[id].name : "none"}`, id ? describeBonus(ITEMS[id].bonus) : ""),
-      );
+    EQUIP_SLOTS.forEach((slot, i) => {
+      const owned = pr.equipped[slot];
+      const inHand = slot === (pr.activeWeapon === 1 ? "weapon2" : "weapon");
+      const name = slot === "weapon2" ? "WEAPON 2" : slot.toUpperCase();
+      const def = owned ? itemDef(owned) : undefined;
+      const b = row(LEFT, i, `unequip:${slot}`, "REMOVE", !!owned, `${name}${slot.startsWith("weapon") && inHand ? " (in hand)" : ""}: ${owned ? itemName(owned) : "none"}`, owned ? describeItem(owned) : "", slot.startsWith("weapon") && inHand && !!owned);
+      b.rarity = def?.rarity;
+      out.push(b);
     });
+    const other = pr.equipped[pr.activeWeapon === 1 ? "weapon" : "weapon2"];
+    out.push({ rect: { x: LEFT + 470, y: TOP, w: 96, h: 28 }, id: "weapon:swap", label: "SWAP", enabled: !!other, kind: "plain" });
     TITLES.forEach((t, i) => {
       const have = pr.titles.includes(t.id);
       const on = pr.title === t.id;
-      out.push(row(LEFT, 4 + i, `title:${t.id}`, on ? "ACTIVE" : have ? "USE" : "LOCKED", have, have ? t.name : "???", have ? describeBonus(t.bonus) : t.how, on));
+      out.push(row(LEFT, 5 + i, `title:${t.id}`, on ? "ACTIVE" : have ? "USE" : "LOCKED", have, have ? t.name : "???", have ? describeBonus(t.bonus) : t.how, on));
     });
-    pr.inventory.forEach((id, i) => {
-      out.push(itemRow(RIGHT, i, `equip:${id}`, id, "EQUIP", true));
-    });
+    out.push(...bagRows(w, "equip", (o) => (itemDef(o)?.weapon ? WEAPONS[itemDef(o)!.weapon!].name.toUpperCase() : "EQUIP"), () => true));
   } else if (w.tab === "skills") {
     const level = w.player.prog.level;
     SKILL_IDS.forEach((id, i) => {

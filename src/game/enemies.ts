@@ -76,6 +76,9 @@ export function makeEnemy(kind: EnemyKind, x: number, y: number, rank: Rank, boo
     sy: 0,
     guard: kind === "knight" ? Math.round(hp * KNIGHT.guard) : 0,
     slowT: 0,
+    dot: 0,
+    dotT: 0,
+    chillT: 0,
   };
 }
 
@@ -1099,7 +1102,8 @@ function stepMonarch(w: World, e: Enemy, dt: number, dx: number, dy: number, dis
     case "dominion":
       e.t -= dt;
       if (e.t <= 0) {
-        if (w.allies.length > 0) {
+        // The Crown of the Hollow holds the echoes fast.
+        if (w.allies.length > 0 && !w.player.powers.includes("hollow_crown")) {
           w.turnedT = DOMINION.time;
           sfx(w, "fail");
         }
