@@ -6,6 +6,9 @@ export interface Circle {
   x: number;
   y: number;
   radius: number;
+  /** Where it was one step ago, so the view can draw between steps. */
+  px?: number;
+  py?: number;
 }
 
 /**

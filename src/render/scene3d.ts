@@ -17,12 +17,12 @@ import {
   WARPER,
   VIEW_H,
   VIEW_W,
-  type EnemyKind,
   type Rank,
 } from "../game/config";
 import type { Dungeon, Side } from "../game/dungeon";
 import { WEAPONS, type WeaponType } from "../game/items";
-import type { Ally, Enemy, World } from "../game/state";
+import type { Ally, Enemy, Quality, World } from "../game/state";
+import { buildRig, ghostify, poseFor, type Pose, type Rig } from "./rigs";
 
 /**
  * 3D view of the simulation. The game itself is flat: a sim point (x, y)
@@ -33,41 +33,10 @@ import type { Ally, Enemy, World } from "../game/state";
 const RANK_TINT: Record<Rank, number> = { E: 0x3aa0ff, D: 0x35e0a0, C: 0xb070ff, B: 0xff9a3c, A: 0xff4f6a, S: 0xffe9a0 };
 const SEALED_TINT = 0xff3355;
 const ECHO_TINT = 0x8a6cff;
-const KIND_COLOR: Record<EnemyKind, number> = {
-  swarmer: 0xe5484d,
-  charger: 0xff8a3c,
-  shooter: 0xff4fd8,
-  brute: 0x8fb4ff,
-  exploder: 0xffd84a,
-  healer: 0x6dff9c,
-  warden: 0xff5a40,
-  summoner: 0xb070ff,
-  duellist: 0xffffff,
-  leaper: 0xff9a3c,
-  pyro: 0xff6a20,
-  warder: 0x7fd0ff,
-  assassin: 0x9b5cff,
-  knight: 0xd0d8e8,
-  totem: 0xff4f6a,
-  warper: 0x40e0ff,
-  colossus: 0xb08050,
-  egg: 0xc8e060,
-  queen: 0xb8e040,
-  commander: 0xffd070,
-  monarch: 0xffe9a0,
-};
-
 const WALL_H = 80;
 const WALL_T = 30;
 const CAM_OFFSET = new THREE.Vector3(0, 800, 590);
 const MAX_PARTICLES = 800;
-
-interface EnemyView {
-  group: THREE.Group;
-  core: THREE.MeshStandardMaterial;
-  color: THREE.Color;
-  spin?: THREE.Object3D;
-}
 
 function glow(color: number, intensity = 1.6): THREE.MeshStandardMaterial {
   return new THREE.MeshStandardMaterial({
@@ -77,191 +46,6 @@ function glow(color: number, intensity = 1.6): THREE.MeshStandardMaterial {
     roughness: 0.45,
     metalness: 0.35,
   });
-}
-
-function part(geo: THREE.BufferGeometry, mat: THREE.Material, x = 0, y = 0, z = 0): THREE.Mesh {
-  const m = new THREE.Mesh(geo, mat);
-  m.position.set(x, y, z);
-  m.castShadow = true;
-  return m;
-}
-
-function buildEnemy(kind: EnemyKind, r: number): EnemyView {
-  const group = new THREE.Group();
-  const color = new THREE.Color(KIND_COLOR[kind]);
-  const core = glow(KIND_COLOR[kind]);
-  const dark = new THREE.MeshStandardMaterial({ color: 0x1b1f2e, roughness: 0.6, metalness: 0.5 });
-  let spin: THREE.Object3D | undefined;
-
-  switch (kind) {
-    case "swarmer":
-      group.add(part(new THREE.IcosahedronGeometry(r, 0), core, 0, r));
-      break;
-    case "charger": {
-      const horn = part(new THREE.ConeGeometry(r * 0.9, r * 2.8, 5), core, 0, r);
-      horn.rotation.z = -Math.PI / 2;
-      group.add(horn);
-      break;
-    }
-    case "shooter": {
-      group.add(part(new THREE.OctahedronGeometry(r, 0), core, 0, r + 12));
-      const halo = part(new THREE.TorusGeometry(r + 6, 1.5, 6, 24), core, 0, r + 12);
-      halo.rotation.x = Math.PI / 2;
-      group.add(halo);
-      spin = halo;
-      break;
-    }
-    case "brute": {
-      group.add(part(new THREE.CylinderGeometry(r * 0.9, r * 1.1, 50, 8), dark, 0, 25));
-      group.add(part(new THREE.BoxGeometry(14, 10, 14), core, 0, 56));
-      // The shield marks the side that blocks attacks.
-      group.add(part(new THREE.BoxGeometry(5, 44, r * 2.3), core, r + 5, 26));
-      break;
-    }
-    case "exploder":
-      group.add(part(new THREE.SphereGeometry(r, 14, 10), core, 0, r));
-      break;
-    case "healer": {
-      group.add(part(new THREE.TetrahedronGeometry(r * 1.3, 0), core, 0, r + 10));
-      const ring = part(new THREE.TorusGeometry(r + 8, 1.5, 6, 24), core, 0, 3);
-      ring.rotation.x = Math.PI / 2;
-      group.add(ring);
-      break;
-    }
-    case "warden": {
-      group.add(part(new THREE.BoxGeometry(r * 1.4, 72, r * 1.4), dark, 0, 36));
-      group.add(part(new THREE.BoxGeometry(r * 1.2, 20, r * 2.5), dark, 0, 64));
-      group.add(part(new THREE.BoxGeometry(20, 16, 20), core, 0, 84));
-      group.add(part(new THREE.BoxGeometry(24, 24, 24), core, r * 0.5, 26, r * 1.15));
-      group.add(part(new THREE.BoxGeometry(24, 24, 24), core, r * 0.5, 26, -r * 1.15));
-      group.add(part(new THREE.BoxGeometry(r * 1.45, 3, r * 1.45), core, 0, 50));
-      break;
-    }
-    case "summoner": {
-      group.add(part(new THREE.ConeGeometry(r, 74, 6), dark, 0, 37));
-      group.add(part(new THREE.SphereGeometry(10, 12, 10), core, 0, 82));
-      const orbit = new THREE.Group();
-      orbit.position.y = 50;
-      for (let i = 0; i < 3; i++) {
-        const a = (i / 3) * Math.PI * 2;
-        orbit.add(part(new THREE.OctahedronGeometry(7, 0), core, Math.cos(a) * 40, 0, Math.sin(a) * 40));
-      }
-      group.add(orbit);
-      spin = orbit;
-      break;
-    }
-    case "duellist": {
-      group.add(part(new THREE.CapsuleGeometry(r * 0.7, 30, 4, 10), dark, 0, 28));
-      group.add(part(new THREE.SphereGeometry(8, 12, 10), core, 0, 56));
-      group.add(part(new THREE.BoxGeometry(40, 2, 4), core, 22, 30, 13));
-      group.add(part(new THREE.BoxGeometry(40, 2, 4), core, 22, 30, -13));
-      break;
-    }
-    case "leaper": {
-      // A low four-legged beast.
-      group.add(part(new THREE.BoxGeometry(r * 2.4, r * 0.9, r * 1.1), dark, 0, r * 1.1));
-      group.add(part(new THREE.BoxGeometry(r * 0.9, r * 0.8, r * 0.9), core, r * 1.4, r * 1.3));
-      for (const [lx, lz] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
-        group.add(part(new THREE.BoxGeometry(4, r, 4), dark, lx * r * 0.9, r * 0.5, lz * r * 0.5));
-      }
-      break;
-    }
-    case "pyro": {
-      group.add(part(new THREE.ConeGeometry(r, 44, 6), dark, 0, 22));
-      const flame = part(new THREE.IcosahedronGeometry(9, 0), core, 0, 54);
-      group.add(flame);
-      spin = flame;
-      break;
-    }
-    case "warder": {
-      group.add(part(new THREE.BoxGeometry(r * 1.3, 52, r * 1.3), dark, 0, 26));
-      group.add(part(new THREE.BoxGeometry(6, 46, r * 2.2), core, r + 4, 26));
-      group.add(part(new THREE.BoxGeometry(6, 46, r * 2.2), core, -r - 4, 26));
-      break;
-    }
-    case "assassin": {
-      group.add(part(new THREE.CapsuleGeometry(r * 0.55, 30, 4, 8), dark, 0, 26));
-      group.add(part(new THREE.SphereGeometry(6, 10, 8), core, 0, 50));
-      group.add(part(new THREE.BoxGeometry(26, 2, 3), core, 16, 26, 9));
-      group.add(part(new THREE.BoxGeometry(26, 2, 3), core, 16, 26, -9));
-      break;
-    }
-    case "knight": {
-      group.add(part(new THREE.CapsuleGeometry(r * 0.7, 30, 4, 10), dark, 0, 28));
-      group.add(part(new THREE.BoxGeometry(12, 12, 12), core, 0, 56));
-      group.add(part(new THREE.BoxGeometry(4, 34, 24), core, r, 28, 12));
-      group.add(part(new THREE.BoxGeometry(44, 3, 5), core, 26, 34, -12));
-      break;
-    }
-    case "totem": {
-      group.add(part(new THREE.CylinderGeometry(r * 0.8, r, 30, 6), dark, 0, 15));
-      group.add(part(new THREE.CylinderGeometry(r * 0.6, r * 0.8, 26, 6), core, 0, 43));
-      group.add(part(new THREE.CylinderGeometry(r * 0.9, r * 0.5, 14, 6), dark, 0, 63));
-      break;
-    }
-    case "warper": {
-      group.add(part(new THREE.OctahedronGeometry(r, 0), core, 0, r + 14));
-      const halo = new THREE.Group();
-      halo.position.y = r + 14;
-      for (const tilt of [0, Math.PI / 2]) {
-        const ring = part(new THREE.TorusGeometry(r + 8, 1.5, 6, 24), core);
-        ring.rotation.x = tilt;
-        halo.add(ring);
-      }
-      group.add(halo);
-      spin = halo;
-      break;
-    }
-    case "colossus": {
-      group.add(part(new THREE.CylinderGeometry(r * 0.8, r, 78, 8), dark, 0, 39));
-      group.add(part(new THREE.IcosahedronGeometry(r * 0.75, 0), dark, 0, 80, r * 0.9));
-      group.add(part(new THREE.IcosahedronGeometry(r * 0.75, 0), dark, 0, 80, -r * 0.9));
-      group.add(part(new THREE.BoxGeometry(20, 14, 20), core, 0, 96));
-      break;
-    }
-    case "egg": {
-      const shell = part(new THREE.SphereGeometry(r, 12, 10), core, 0, r * 1.2);
-      shell.scale.set(1, 1.35, 1);
-      group.add(shell);
-      break;
-    }
-    case "queen": {
-      const belly = part(new THREE.SphereGeometry(r, 14, 12), dark, -r * 0.5, r);
-      belly.scale.set(1.5, 1, 1.1);
-      group.add(belly);
-      group.add(part(new THREE.SphereGeometry(r * 0.5, 12, 10), core, r * 1.1, r * 1.1));
-      group.add(part(new THREE.ConeGeometry(4, 26, 4), core, r * 1.6, r, 10));
-      group.add(part(new THREE.ConeGeometry(4, 26, 4), core, r * 1.6, r, -10));
-      for (const lz of [1, -1]) for (const lx of [0.6, 0, -0.6]) group.add(part(new THREE.BoxGeometry(4, r, 4), dark, lx * r, r * 0.5, lz * r));
-      break;
-    }
-    case "commander": {
-      // Rider and mount.
-      group.add(part(new THREE.BoxGeometry(r * 3, r * 1.1, r * 1.2), dark, 0, r * 1.2));
-      group.add(part(new THREE.BoxGeometry(r * 0.8, r * 1.2, r * 0.8), dark, r * 1.5, r * 1.9));
-      group.add(part(new THREE.CapsuleGeometry(r * 0.5, 24, 4, 8), dark, -4, r * 2.6));
-      group.add(part(new THREE.BoxGeometry(12, 12, 12), core, -4, r * 2.6 + 24));
-      group.add(part(new THREE.BoxGeometry(70, 3, 3), core, 30, r * 2.4, 14));
-      break;
-    }
-    case "monarch": {
-      group.add(part(new THREE.ConeGeometry(r, 88, 8), dark, 0, 44));
-      group.add(part(new THREE.SphereGeometry(11, 12, 10), core, 0, 96));
-      const crown = part(new THREE.TorusGeometry(14, 2, 6, 20), core, 0, 108);
-      crown.rotation.x = Math.PI / 2;
-      group.add(crown);
-      const orbit = new THREE.Group();
-      orbit.position.y = 60;
-      for (let i = 0; i < 5; i++) {
-        const a = (i / 5) * Math.PI * 2;
-        orbit.add(part(new THREE.TetrahedronGeometry(8, 0), core, Math.cos(a) * 48, 0, Math.sin(a) * 48));
-      }
-      group.add(orbit);
-      spin = orbit;
-      break;
-    }
-  }
-  return { group, core, color, spin };
 }
 
 /** Free the GPU memory held by everything under an object. */
@@ -276,6 +60,81 @@ function disposeTree(root: THREE.Object3D): void {
 }
 
 const finite = (c: { x: number; y: number }) => Number.isFinite(c.x) && Number.isFinite(c.y);
+
+/** A position part-way between where a thing was a step ago and where it is. */
+function between(c: { x: number; y: number; px?: number; py?: number }, alpha: number): { x: number; y: number } {
+  const px = c.px ?? c.x;
+  const py = c.py ?? c.y;
+  // A jump across the room (a blink, a new room) is shown as a jump.
+  if (Math.hypot(c.x - px, c.y - py) > 120) return { x: c.x, y: c.y };
+  return { x: px + (c.x - px) * alpha, y: py + (c.y - py) * alpha };
+}
+
+/** Did it move since the last step, faster than a drift? */
+const walking = (c: { x: number; y: number; px?: number; py?: number }) => Math.hypot(c.x - (c.px ?? c.x), c.y - (c.py ?? c.y)) > 0.12;
+
+/** A square texture painted in code: no image files. */
+function paint(size: number, draw: (ctx: CanvasRenderingContext2D, size: number) => void): THREE.CanvasTexture {
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = size;
+  draw(canvas.getContext("2d")!, size);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  return tex;
+}
+
+/** Worn stone flags: each a slightly different grey, with dark joints and grit. */
+function flagstones(): THREE.CanvasTexture {
+  return paint(512, (ctx, size) => {
+    const n = 8;
+    const cell = size / n;
+    for (let i = 0; i < n; i++) {
+      for (let j = 0; j < n; j++) {
+        const v = 96 + Math.floor(Math.random() * 46);
+        ctx.fillStyle = `rgb(${v},${v + 2},${v + 8})`;
+        ctx.fillRect(i * cell, j * cell, cell, cell);
+      }
+    }
+    for (let k = 0; k < 5000; k++) {
+      ctx.fillStyle = `rgba(${Math.random() < 0.5 ? "0,0,0" : "255,255,255"},${Math.random() * 0.07})`;
+      ctx.fillRect(Math.random() * size, Math.random() * size, 2, 2);
+    }
+    ctx.strokeStyle = "rgba(10,12,18,0.85)";
+    ctx.lineWidth = 3;
+    for (let i = 0; i <= n; i++) {
+      ctx.beginPath();
+      ctx.moveTo(i * cell, 0);
+      ctx.lineTo(i * cell, size);
+      ctx.moveTo(0, i * cell);
+      ctx.lineTo(size, i * cell);
+      ctx.stroke();
+    }
+  });
+}
+
+/** Courses of rough-cut blocks, each course offset from the one below. */
+function masonry(): THREE.CanvasTexture {
+  return paint(256, (ctx, size) => {
+    const rows = 4;
+    const h = size / rows;
+    ctx.fillStyle = "#1a1c22";
+    ctx.fillRect(0, 0, size, size);
+    for (let r = 0; r < rows; r++) {
+      const w = size / 2;
+      for (let c = -1; c < 3; c++) {
+        const v = 110 + Math.floor(Math.random() * 40);
+        ctx.fillStyle = `rgb(${v},${v},${v + 6})`;
+        ctx.fillRect(c * w + (r % 2) * (w / 2) + 2, r * h + 2, w - 4, h - 4);
+      }
+    }
+    for (let k = 0; k < 1800; k++) {
+      ctx.fillStyle = `rgba(0,0,0,${Math.random() * 0.1})`;
+      ctx.fillRect(Math.random() * size, Math.random() * size, 2, 2);
+    }
+  });
+}
 
 /** A pool of flat, additive ground markers reused every frame. */
 class DecalPool {
@@ -339,11 +198,15 @@ export class Scene3D {
   private builtSealed = false;
 
   private player = new THREE.Group();
-  private playerBody: THREE.MeshStandardMaterial;
-  private playerTrim: THREE.MeshStandardMaterial;
-  private playerLight = new THREE.PointLight(0x5ee6ff, 1.2, 420, 1.4);
-  private enemies = new Map<Enemy, EnemyView>();
-  private allies = new Map<Ally, EnemyView>();
+  private hunter: Rig;
+  /** A lantern's worth of warm light, carried high enough that nothing passes through it. */
+  private playerLight = new THREE.PointLight(0xffd9a8, 14000, 620, 2);
+  private sun = new THREE.DirectionalLight(0xffe9d0, 2.4);
+  private enemies = new Map<Enemy, Rig>();
+  private allies = new Map<Ally, Rig>();
+  private floorTex: THREE.CanvasTexture;
+  private wallTex: THREE.CanvasTexture;
+  private quality: Quality | null = null;
   private shots: THREE.Mesh[] = [];
   private shotMat = glow(0xff4fd8, 3);
   private allyShotMat = glow(0x8a6cff, 3);
@@ -385,42 +248,49 @@ export class Scene3D {
     });
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
-    this.scene.background = new THREE.Color(0x04060b);
-    this.scene.fog = new THREE.Fog(0x04060b, 1100, 2400);
+    // Filmic tone mapping: bright things roll off instead of clipping to white.
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.45;
+    this.scene.background = new THREE.Color(0x07080c);
+    this.scene.fog = new THREE.Fog(0x07080c, 1300, 2800);
+    this.floorTex = flagstones();
+    this.wallTex = masonry();
 
-    this.scene.add(new THREE.AmbientLight(0x8fa8ff, 0.55));
-    this.scene.add(new THREE.HemisphereLight(0x9fc8ff, 0x10131f, 0.7));
-    const sun = new THREE.DirectionalLight(0xcfe0ff, 1.5);
-    sun.position.set(ROOM.w / 2 + 260, 900, ROOM.h / 2 + 320);
+    // A dim cool sky, a warm key light from the camera's side so faces are
+    // lit, and a cold rim from behind to pick figures out of the dark.
+    this.scene.add(new THREE.AmbientLight(0xffffff, 0.34));
+    this.scene.add(new THREE.HemisphereLight(0xbcd0ff, 0x2a2018, 1.0));
+    const sun = this.sun;
+    sun.position.set(ROOM.w / 2 + 420, 900, ROOM.h / 2 + 560);
     sun.target.position.set(ROOM.w / 2, 0, ROOM.h / 2);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
+    sun.shadow.radius = 3;
     const sc = sun.shadow.camera;
     sc.left = -900;
     sc.right = 900;
     sc.top = 700;
     sc.bottom = -700;
     sc.near = 100;
-    sc.far = 2200;
-    sun.shadow.bias = -0.0005;
-    this.scene.add(sun, sun.target);
+    sc.far = 2400;
+    sun.shadow.bias = -0.0006;
+    sun.shadow.normalBias = 0.6;
+    const rim = new THREE.DirectionalLight(0x6f9cff, 0.9);
+    rim.position.set(ROOM.w / 2 - 500, 500, ROOM.h / 2 - 700);
+    rim.target.position.set(ROOM.w / 2, 0, ROOM.h / 2);
+    this.scene.add(sun, sun.target, rim, rim.target);
 
     const ground = new THREE.Mesh(
       new THREE.PlaneGeometry(8000, 8000),
-      new THREE.MeshBasicMaterial({ color: 0x030409 }),
+      new THREE.MeshBasicMaterial({ color: 0x040507 }),
     );
     ground.rotation.x = -Math.PI / 2;
     ground.position.set(ROOM.w / 2, -2, ROOM.h / 2);
     this.scene.add(ground, this.roomGroup);
 
-    // Player: a small hooded figure with a bright dagger.
-    this.playerBody = new THREE.MeshStandardMaterial({ color: 0x1a2a44, roughness: 0.5, metalness: 0.4, emissive: 0x5ee6ff, emissiveIntensity: 0.25 });
-    this.playerTrim = glow(0x5ee6ff, 1.3);
-    this.player.add(part(new THREE.CapsuleGeometry(10, 20, 4, 12), this.playerBody, 0, 22));
-    this.player.add(part(new THREE.SphereGeometry(8, 14, 10), this.playerBody, 0, 46));
-    this.player.add(part(new THREE.BoxGeometry(6, 3, 12), this.playerTrim, 6, 47));
-    this.player.add(part(new THREE.BoxGeometry(24, 2, 5), this.playerTrim, 18, 26, 9));
-    this.playerLight.position.y = 60;
+    this.hunter = buildRig("player");
+    this.player.add(this.hunter.root);
+    this.playerLight.position.y = 115;
     this.player.add(this.playerLight);
     this.scene.add(this.player);
 
@@ -459,7 +329,8 @@ export class Scene3D {
 
     this.composer = new EffectComposer(this.renderer);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(VIEW_W, VIEW_H), 0.45, 0.5, 0.55);
+    // A light touch: only what is truly bright (telegraphs, eyes, blades) glows.
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(VIEW_W, VIEW_H), 0.2, 0.4, 0.9);
     this.composer.addPass(this.bloom);
     this.composer.addPass(new OutputPass());
   }
@@ -481,11 +352,30 @@ export class Scene3D {
     this.renderer.dispose();
   }
 
+  /**
+   * High: shadows and bloom at full sharpness. Medium: bloom, no shadows,
+   * a little softer. Low: neither, at the screen's base resolution.
+   */
+  setQuality(q: Quality): void {
+    if (q === this.quality) return;
+    this.quality = q;
+    this.renderer.shadowMap.enabled = q === "high";
+    this.sun.castShadow = q === "high";
+    this.bloom.enabled = q !== "low";
+    // Materials are compiled with or without shadows: have them rebuilt.
+    this.scene.traverse((o) => {
+      const m = (o as THREE.Mesh).material as THREE.Material | undefined;
+      if (m) m.needsUpdate = true;
+    });
+    this.resize(this.size.w, this.size.h, this.size.dpr);
+  }
+
   resize(cssW: number, cssH: number, dpr: number): void {
     this.size = { w: cssW, h: cssH, dpr };
-    this.renderer.setPixelRatio(Math.min(2, dpr));
+    const cap = this.quality === "low" ? 1 : this.quality === "medium" ? 1.5 : 2;
+    this.renderer.setPixelRatio(Math.min(cap, dpr));
     this.renderer.setSize(cssW, cssH, false);
-    this.composer.setPixelRatio(Math.min(2, dpr));
+    this.composer.setPixelRatio(Math.min(cap, dpr));
     this.composer.setSize(cssW, cssH);
   }
 
@@ -525,33 +415,33 @@ export class Scene3D {
     const room = w.dungeon ? w.dungeon.rooms[w.roomId] : null;
     const isBoss = room?.kind === "boss";
 
+    // Stone flags, faintly coloured by the gate's rank; a boss room runs dark and red.
+    const floorMap = this.floorTex.clone();
+    floorMap.needsUpdate = true;
+    floorMap.repeat.set(ROOM.w / 400, ROOM.h / 400);
+    const shade = new THREE.Color(isBoss ? 0x6a4a50 : 0x8b90a0).lerp(new THREE.Color(tint), isBoss ? 0.05 : 0.1);
     const floor = new THREE.Mesh(
       new THREE.PlaneGeometry(ROOM.w, ROOM.h),
-      new THREE.MeshStandardMaterial({ color: isBoss ? 0x24121c : 0x141d36, roughness: 0.8, metalness: 0.2 }),
+      new THREE.MeshStandardMaterial({ map: floorMap, color: shade, roughness: 0.92, metalness: 0.02 }),
     );
     floor.rotation.x = -Math.PI / 2;
     floor.position.set(ROOM.w / 2, 0, ROOM.h / 2);
     floor.receiveShadow = true;
     this.roomGroup.add(floor);
 
-    const gridPts: number[] = [];
-    for (let x = 100; x < ROOM.w; x += 100) gridPts.push(x, 0.3, 0, x, 0.3, ROOM.h);
-    for (let z = 100; z < ROOM.h; z += 100) gridPts.push(0, 0.3, z, ROOM.w, 0.3, z);
-    const gridGeo = new THREE.BufferGeometry();
-    gridGeo.setAttribute("position", new THREE.Float32BufferAttribute(gridPts, 3));
-    this.roomGroup.add(
-      new THREE.LineSegments(gridGeo, new THREE.LineBasicMaterial({ color: isBoss ? 0xff3355 : tint, transparent: true, opacity: 0.13 })),
-    );
-
-    const wallMat = new THREE.MeshStandardMaterial({ color: 0x121a30, roughness: 0.7, metalness: 0.3 });
-    const trimMat = glow(isBoss ? 0xff3355 : tint, 0.9);
-    const nearTrimMat = glow(isBoss ? 0xff3355 : tint, 0.15);
+    const wallMat = new THREE.MeshStandardMaterial({ map: this.wallTex, color: isBoss ? 0x7a6066 : 0x8a8f9c, roughness: 0.95, metalness: 0 });
+    const trimMat = glow(isBoss ? 0xff3355 : tint, 0.55);
+    const nearTrimMat = glow(isBoss ? 0xff3355 : tint, 0.12);
     const cx = ROOM.w / 2;
     const cz = ROOM.h / 2;
     const dh = ROOM.doorHalf;
 
-    // One wall piece running from a to b along its side.
+    // A wall from a to b along its side, laid in blocks so the masonry keeps its scale.
     const wall = (side: Side, a: number, b: number) => {
+      const pieces = Math.max(1, Math.round((b - a) / 110));
+      for (let i = 0; i < pieces; i++) block(side, a + ((b - a) * i) / pieces, a + ((b - a) * (i + 1)) / pieces);
+    };
+    const block = (side: Side, a: number, b: number) => {
       // The near wall is kept low so it never hides the floor.
       const h = side === "s" ? 22 : WALL_H;
       const len = b - a;
@@ -600,94 +490,75 @@ export class Scene3D {
     }
   }
 
-  private syncEnemies(w: World): void {
-    for (const [e, v] of this.enemies) {
+  private syncEnemies(w: World, alpha: number): void {
+    for (const [e, rig] of this.enemies) {
       if (!w.enemies.includes(e)) {
-        this.scene.remove(v.group);
-        disposeTree(v.group);
+        this.scene.remove(rig.root);
+        disposeTree(rig.root);
         this.enemies.delete(e);
       }
     }
     for (const e of w.enemies) {
       if (!finite(e)) continue;
-      let v = this.enemies.get(e);
-      if (!v) {
-        v = buildEnemy(e.kind, e.radius);
-        this.enemies.set(e, v);
-        this.scene.add(v.group);
+      let rig = this.enemies.get(e);
+      if (!rig) {
+        rig = buildRig(e.kind, e.radius);
+        this.enemies.set(e, rig);
+        this.scene.add(rig.root);
       }
-      const hover = e.kind === "shooter" || e.kind === "healer" ? Math.sin(this.clock * 3 + e.x) * 4 : 0;
-      v.group.position.set(e.x, hover, e.y);
-      v.group.rotation.y = -e.facing;
-      const flat = e.kind === "summoner" || e.kind === "monarch" || e.kind === "warper" || e.kind === "pyro";
-      if (v.spin) v.spin.rotation[flat ? "y" : "z"] = this.clock * 2;
+      const at = between(e, alpha);
+      rig.root.position.set(at.x, 0, at.y);
+      rig.root.rotation.y = -e.facing;
 
-      // Colour tells the state: white flash on hit, bright on wind-up, dim when spent.
-      const winding =
-        e.state === "windup" || e.state === "fuse" || e.state === "cast" || e.state === "attack" ||
-        e.state === "dwind" || e.state === "blinkwind" || e.state === "dominion" || e.state === "spit" || e.state === "sweep";
-      if (e.flash > 0) {
-        v.core.emissive.setHex(0xffffff);
-        v.core.emissiveIntensity = 3;
-      } else if (winding) {
-        v.core.emissive.copy(v.color).lerp(this.color("#ffffff"), 0.5 + 0.5 * Math.sin(this.clock * 30));
-        v.core.emissiveIntensity = 3.2;
-      } else {
-        v.core.emissive.copy(v.color);
-        v.core.emissiveIntensity = e.state === "recover" ? 0.45 : e.phase === 2 ? 2.6 : 1.6;
-      }
+      // The eyes and runes tell the state: flaring on a wind-up, dark when spent.
+      const pose = poseFor(e.kind, e.state);
+      const winding = pose === "windup" || pose === "cast";
+      const glow = e.immortal ? 1 : winding ? 0.5 + 0.5 * Math.sin(this.clock * 30) : e.state === "recover" ? 0 : e.phase >= 2 ? 0.55 : 0.25;
+      rig.animate({ time: this.clock + e.maxHp, moving: walking(e), pose, swing: 0.7, flash: e.flash > 0, glow, phase: e.phase });
+
       // A vanished shade is not there at all; anything else untouchable flickers.
-      v.group.visible = e.state !== "vanish" && (e.inv <= 0 || Math.floor(this.clock * 30) % 2 === 0);
+      rig.root.visible = e.state !== "vanish" && (e.inv <= 0 || e.immortal || Math.floor(this.clock * 30) % 2 === 0);
       // A leaper rises and falls through its jump.
-      if (e.state === "leap") v.group.position.y = 70 * Math.sin(Math.PI * Math.min(1, Math.max(0, 1 - e.t / 0.35)));
-      // Penalty-zone enemies cannot be hurt: they burn a steady, colourless white.
-      if (e.immortal && !winding) {
-        v.core.emissive.setHex(0xd8e4ff);
-        v.core.emissiveIntensity = 1.2;
-      }
-      const pulse = e.kind === "exploder" && e.state === "fuse" ? 1 + 0.35 * Math.sin(this.clock * 40) : 1;
-      v.group.scale.setScalar(pulse);
+      if (e.state === "leap") rig.root.position.y = 70 * Math.sin(Math.PI * Math.min(1, Math.max(0, 1 - e.t / 0.35)));
     }
   }
 
-  /** Echoes wear the shape they had in life, in a ghostly violet. */
-  private syncAllies(w: World): void {
-    for (const [a, v] of this.allies) {
+  /** Echoes wear the shape they had in life, as violet shades. */
+  private syncAllies(w: World, alpha: number): void {
+    for (const [a, rig] of this.allies) {
       if (!w.allies.includes(a)) {
-        this.scene.remove(v.group);
-        disposeTree(v.group);
+        this.scene.remove(rig.root);
+        disposeTree(rig.root);
         this.allies.delete(a);
       }
     }
     for (const a of w.allies) {
       if (!finite(a)) continue;
-      let v = this.allies.get(a);
-      if (!v) {
-        v = buildEnemy(a.kind, a.radius);
-        v.group.traverse((o) => {
-          const m = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined;
-          if (!m || !("emissive" in m)) return;
-          m.transparent = true;
-          m.opacity = 0.72;
-          // The dark body parts take a faint glow too, so the whole figure reads as a shade.
-          if (m !== v!.core) {
-            m.emissive.setHex(ECHO_TINT);
-            m.emissiveIntensity = 0.35;
-          }
-        });
-        this.allies.set(a, v);
-        this.scene.add(v.group);
+      let rig = this.allies.get(a);
+      if (!rig) {
+        rig = buildRig(a.kind, a.radius);
+        ghostify(rig, ECHO_TINT);
+        this.allies.set(a, rig);
+        this.scene.add(rig.root);
       }
-      v.group.position.set(a.x, Math.sin(this.clock * 2.5 + a.x) * 2 + 2, a.y);
-      v.group.rotation.y = -a.facing;
-      if (v.spin) v.spin.rotation[a.kind === "summoner" ? "y" : "z"] = this.clock * 2;
+      const at = between(a, alpha);
+      rig.root.position.set(at.x, 0, at.y);
+      rig.root.rotation.y = -a.facing;
+      const striking = a.flash > 0;
+      rig.animate({ time: this.clock + a.radius, moving: walking(a), pose: striking ? "attack" : "idle", swing: 0.7, flash: false, glow: striking ? 1 : 0.4, phase: 1 });
       // Under Dominion they burn red: a warning to keep clear.
-      v.core.emissive.setHex(a.flash > 0 ? 0xffffff : w.turnedT > 0 ? 0xff3040 : ECHO_TINT);
-      v.core.emissiveIntensity = a.flash > 0 ? 2.6 : 1.8;
+      const lit = w.turnedT > 0 ? 0xff2030 : ECHO_TINT;
+      rig.root.traverse((o) => {
+        const m = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined;
+        if (m && "emissive" in m) {
+          m.emissive.setHex(lit);
+          m.emissiveIntensity = w.turnedT > 0 ? 0.9 : 0.35;
+        }
+      });
     }
   }
 
-  private syncShots(w: World): void {
+  private syncShots(w: World, alpha: number): void {
     const all = [...w.projectiles, ...w.allyShots];
     while (this.shots.length < all.length) {
       const m = new THREE.Mesh(this.shotGeo, this.shotMat);
@@ -701,7 +572,8 @@ export class Scene3D {
       if (s) m.material = i < w.projectiles.length ? this.shotMat : s.mine ? this.arrowMat : this.allyShotMat;
       m.visible = !!s;
       if (s) {
-        m.position.set(s.x, 22, s.y);
+        const at = between(s, alpha);
+        m.position.set(at.x, 26, at.y);
         m.scale.setScalar(s.radius);
       }
     });
@@ -836,7 +708,8 @@ export class Scene3D {
     geo.attributes.color.needsUpdate = true;
   }
 
-  render(w: World, dt: number): void {
+  /** Draw the world. `alpha` is how far the clock stands between the last two steps. */
+  render(w: World, dt: number, alpha = 1): void {
     if (this.lost) return;
     this.clock += dt;
     let snap = false;
@@ -859,24 +732,39 @@ export class Scene3D {
     const p = w.player;
     // A bad position would reach the player's light and blank the whole view.
     if (!finite(p)) return;
-    this.player.position.set(p.x, p.moving && p.dashT <= 0 ? Math.abs(Math.sin(this.clock * 12)) * 3 : 0, p.y);
+    const at = between(p, alpha);
+    this.player.position.set(at.x, 0, at.y);
     this.player.rotation.y = -p.facing;
     const fast = p.dashT > 0 || p.lungeT > 0;
-    this.playerBody.emissive.setHex(p.hurtFlash > 0 ? 0xff2030 : fast ? 0xffffff : p.surgeT > 0 ? 0xffd84a : 0x5ee6ff);
-    this.playerBody.emissiveIntensity = p.hurtFlash > 0 ? 3 : fast ? 3 : p.surgeT > 0 ? 1 : 0.25;
-    this.playerLight.color.setHex(p.surgeT > 0 ? 0xffd84a : 0x5ee6ff);
+    // The swing plays over the first fifth of a second after an attack begins.
+    const since = p.d.attackCooldown - p.attackCd;
+    const swinging = p.attackCd > 0 && since < 0.2;
+    const type = p.weapon ?? "dagger";
+    const pose: Pose =
+      p.lungeT > 0 ? "thrust" : p.dashT > 0 ? "leap" : !swinging ? "idle" : type === "bow" ? "bow" : type === "spear" ? "thrust" : "attack";
+    this.hunter.animate({
+      time: this.clock,
+      moving: p.moving && w.mode === "gate",
+      pose,
+      swing: Math.min(1, Math.max(0, since / 0.2)),
+      flash: p.hurtFlash > 0,
+      glow: p.surgeT > 0 || p.furyT > 0 ? 1 : 0.3,
+      phase: 1,
+      weapon: p.weapon,
+    });
+    this.playerLight.color.setHex(p.surgeT > 0 ? 0xffd070 : 0xffd9a8);
     // Blink while invulnerable after a hit (not during a dash).
     this.player.visible = !(p.iframes > 0 && !fast && Math.floor(p.iframes * 20) % 2 === 0) && w.mode !== "dead" && w.mode !== "title";
 
-    this.syncEnemies(w);
-    this.syncAllies(w);
-    this.syncShots(w);
+    this.syncEnemies(w, alpha);
+    this.syncAllies(w, alpha);
+    this.syncShots(w, alpha);
     this.syncDecals(w);
     this.syncParticles(w);
 
     // Follow the player, but stop before showing much beyond the walls.
-    const tx = THREE.MathUtils.clamp(p.x, 520, ROOM.w - 520);
-    const tz = THREE.MathUtils.clamp(p.y, 330, ROOM.h - 260);
+    const tx = THREE.MathUtils.clamp(at.x, 520, ROOM.w - 520);
+    const tz = THREE.MathUtils.clamp(at.y, 330, ROOM.h - 260);
     // A new room cuts straight to its framing instead of sliding across.
     const ease = snap ? 1 : 1 - Math.exp(-6 * dt);
     this.target.x += (tx - this.target.x) * ease;

@@ -315,7 +315,14 @@ export interface Settings {
   /** Music volume, 0 to 1. */
   music: number;
   shake: boolean;
+  /** How much the 3D view spends on looks. */
+  quality: Quality;
+  /** Lower the quality without being asked if the frame rate sags. */
+  autoQuality: boolean;
 }
+
+export type Quality = "high" | "medium" | "low";
+export const QUALITIES: Quality[] = ["high", "medium", "low"];
 
 export type HubTab = "gates" | "shop" | "supplies" | "gear" | "skills" | "quests" | "echoes" | "system";
 export const HUB_TABS: HubTab[] = ["gates", "shop", "supplies", "gear", "skills", "quests", "echoes", "system"];

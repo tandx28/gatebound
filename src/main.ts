@@ -60,6 +60,8 @@ function loadSettings(): void {
     world.settings.sfx = vol(r.sfx, world.settings.sfx);
     world.settings.music = vol(r.music, world.settings.music);
     if (typeof r.shake === "boolean") world.settings.shake = r.shake;
+    if (r.quality === "high" || r.quality === "medium" || r.quality === "low") world.settings.quality = r.quality;
+    if (typeof r.autoQuality === "boolean") world.settings.autoQuality = r.autoQuality;
   } catch {
     // Unreadable settings fall back to the defaults.
   }
@@ -239,6 +241,43 @@ function watchContext(): void {
 }
 watchContext();
 
+/** Frames and seconds counted toward the next frame-rate check. */
+const pace = { frames: 0, seconds: 0, settle: 4, best: 0 };
+
+/**
+ * If the game cannot hold a fair share of this screen's refresh rate for a
+ * few seconds, step the graphics down a level. Never when the player has
+ * switched that off, and never while the tab is hidden or just woke up.
+ */
+function watchFrameRate(elapsed: number): void {
+  if (document.visibilityState !== "visible" || elapsed >= 0.1) {
+    pace.frames = 0;
+    pace.seconds = 0;
+    pace.settle = 2;
+    return;
+  }
+  if (pace.settle > 0) {
+    pace.settle -= elapsed;
+    return;
+  }
+  pace.frames += 1;
+  pace.seconds += elapsed;
+  if (pace.seconds < 3) return;
+  const fps = pace.frames / pace.seconds;
+  pace.frames = 0;
+  pace.seconds = 0;
+  // The best rate seen stands in for the screen's refresh rate.
+  pace.best = Math.max(pace.best, fps);
+  const s = world.settings;
+  if (!s.autoQuality || s.quality === "low") return;
+  if (fps < Math.max(40, pace.best * 0.6)) {
+    s.quality = s.quality === "high" ? "medium" : "low";
+    world.settingsDirty = true;
+    pace.settle = 3;
+    world.notices.push({ title: "GRAPHICS LOWERED", body: `Set to ${s.quality} to keep the game smooth. Change it under System.`, life: 5 });
+  }
+}
+
 function frame(now: number): void {
   // Each stage is guarded on its own, so a fault in one cannot stop the others,
   // and the next frame is always scheduled.
@@ -271,7 +310,10 @@ function frame(now: number): void {
   }
 
   try {
-    scene.render(world, elapsed);
+    scene.setQuality(world.settings.quality);
+    // Draw part-way between the last two steps, so motion is smooth at any refresh rate.
+    scene.render(world, elapsed, acc / STEP);
+    watchFrameRate(elapsed);
   } catch (err) {
     reportError("3D view", err);
   }

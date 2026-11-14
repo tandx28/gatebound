@@ -63,6 +63,7 @@ import {
   floatText,
   healPlayer,
   noAilments,
+  QUALITIES,
   sfx,
   visibleTabs,
   type Enemy,
@@ -688,6 +689,11 @@ export function applySetting(w: World, arg: string): void {
   if (arg === "sfx+" || arg === "sfx-") s.sfx = nudge(s.sfx, arg.endsWith("+"));
   else if (arg === "music+" || arg === "music-") s.music = nudge(s.music, arg.endsWith("+"));
   else if (arg === "shake") s.shake = !s.shake;
+  else if (arg === "quality") {
+    // Choosing a level by hand also stops the game changing it.
+    s.quality = QUALITIES[(QUALITIES.indexOf(s.quality) + 1) % QUALITIES.length];
+    s.autoQuality = false;
+  } else if (arg === "autoq") s.autoQuality = !s.autoQuality;
   else return;
   w.settingsDirty = true;
   // Play something so the new volume can be heard at once.

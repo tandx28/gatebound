@@ -171,10 +171,21 @@ export function settingsButtons(w: World, labelX: number, ctlX: number, top: num
     textX: labelX,
     on: s.shake,
   });
+  out.push({ rect: { x: ctlX, y: top + 120, w: 144, h: 28 }, id: "set:quality", label: s.quality.toUpperCase(), enabled: true, kind: "setting", text: "GRAPHICS", textX: labelX });
+  out.push({
+    rect: { x: ctlX, y: top + 160, w: 144, h: 28 },
+    id: "set:autoq",
+    label: s.autoQuality ? "ON" : "OFF",
+    enabled: true,
+    kind: "setting",
+    text: "LOWER IF SLOW",
+    textX: labelX,
+    on: s.autoQuality,
+  });
   return out;
 }
 
-export const PAUSE_PANEL: Rect = { x: VIEW_W / 2 - 220, y: 130, w: 440, h: 460 };
+export const PAUSE_PANEL: Rect = { x: VIEW_W / 2 - 220, y: 80, w: 440, h: 560 };
 
 /** Buttons of the pause menu: actions on top, settings below. */
 export function pauseButtons(w: World): Button[] {
@@ -184,13 +195,13 @@ export function pauseButtons(w: World): Button[] {
     ["exit", "SAVE AND EXIT"],
   ];
   const actions: Button[] = labels.map(([id, label], i) => ({
-    rect: { x: VIEW_W / 2 - 130, y: 200 + i * 52, w: 260, h: 40 },
+    rect: { x: VIEW_W / 2 - 130, y: 150 + i * 52, w: 260, h: 40 },
     id: `pause:${id}`,
     label,
     enabled: true,
     kind: "plain" as const,
   }));
-  return [...actions, ...settingsButtons(w, PAUSE_PANEL.x + 40, PAUSE_PANEL.x + 256, 384)];
+  return [...actions, ...settingsButtons(w, PAUSE_PANEL.x + 40, PAUSE_PANEL.x + 256, 334)];
 }
 
 /** Section headings on the current tab, positioned to match the rows. */

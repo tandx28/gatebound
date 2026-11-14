@@ -93,7 +93,7 @@ export function createWorld(rng: () => number = Math.random): World {
     dirty: false,
     requests: [],
     sounds: [],
-    settings: { sfx: 0.7, music: 0.5, shake: true },
+    settings: { sfx: 0.7, music: 0.5, shake: true, quality: "high", autoQuality: true },
     settingsDirty: false,
     today: 0,
     gateKind: "normal",
@@ -1079,8 +1079,22 @@ export function healPositions(w: World): void {
 /** How many System notices show at once. More than this hides the fight. */
 export const NOTICES_SHOWN = 3;
 
+/** Note where everything stands before it moves, for drawing between steps. */
+function rememberPositions(w: World): void {
+  const p = w.player;
+  p.px = p.x;
+  p.py = p.y;
+  for (const list of [w.enemies, w.allies, w.projectiles, w.allyShots]) {
+    for (const c of list) {
+      c.px = c.x;
+      c.py = c.y;
+    }
+  }
+}
+
 /** Advance the simulation by one fixed step. */
 export function step(w: World, input: Controls, dt: number): void {
+  rememberPositions(w);
   // Only the notices on screen age; the rest wait their turn behind them.
   for (const n of w.notices.slice(0, NOTICES_SHOWN)) n.life -= dt;
   w.notices = w.notices.filter((n) => n.life > 0);
