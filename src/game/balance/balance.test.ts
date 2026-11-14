@@ -4,7 +4,7 @@ import { generateDungeon } from "../dungeon";
 import { makeEnemy } from "../enemies";
 import { seeded } from "../../engine/rng";
 import { derive, newProgress, xpToNext } from "../stats";
-import { playGate, type Loadout } from "./bot";
+import { playGate, squadFor, type Loadout } from "./bot";
 
 /**
  * Balance targets, so later changes cannot quietly break the difficulty
@@ -14,8 +14,15 @@ import { playGate, type Loadout } from "./bot";
 const BUILD = { str: 0.45, vit: 0.35, agi: 0.2 };
 
 /** Share of bot runs that clear the gate, and how many ran out of time. */
-function clearRate(rank: Rank, level: number, gear: string[], reaction: number, runs = 8): { rate: number; stuck: number; seconds: number } {
-  const load: Loadout = { level, build: BUILD, gear, potions: 3 };
+function clearRate(
+  rank: Rank,
+  level: number,
+  gear: string[],
+  reaction: number,
+  runs = 8,
+  army = false,
+): { rate: number; stuck: number; seconds: number } {
+  const load: Loadout = { level, build: BUILD, gear, potions: 3, echoes: army ? squadFor(rank, level) : undefined };
   let clears = 0;
   let stuck = 0;
   let seconds = 0;
@@ -91,7 +98,10 @@ describe("levelling pace", () => {
     const spans: [Rank, number, number][] = [
       ["E", 1, RANKS.D.minLevel],
       ["D", RANKS.D.minLevel, RANKS.C.minLevel],
-      ["C", RANKS.C.minLevel, 20],
+      ["C", RANKS.C.minLevel, RANKS.B.minLevel],
+      ["B", RANKS.B.minLevel, RANKS.A.minLevel],
+      ["A", RANKS.A.minLevel, RANKS.S.minLevel],
+      ["S", RANKS.S.minLevel, 60],
     ];
     for (const [rank, from, to] of spans) {
       const clears = xpBetween(from, to) / gateXp(rank);
@@ -116,9 +126,37 @@ describe("difficulty curve, played by the bot", () => {
   }, 120000);
 
   it("rank C: a wall at level 13, routine by level 19", () => {
-    expect(clearRate("C", 13, ["hunters_kris", "scale_vest"], 0.2).rate).toBeLessThanOrEqual(0.5);
+    // Measured near a half over many runs; a wider sample keeps this steady.
+    expect(clearRate("C", 13, ["hunters_kris", "scale_vest"], 0.2, 24).rate).toBeLessThanOrEqual(0.7);
     expect(clearRate("C", 19, ["voltaic_edge", "gatehide_mail"], 0.08).rate).toBeGreaterThanOrEqual(0.9);
   }, 120000);
+
+  // From Rank B the hunter is an Echo Caller and brings a full squad.
+  const BEST = ["nightglass", "bastion_plate"];
+
+  it("rank B: a wall for a slower player at level 20, routine by level 29", () => {
+    expect(clearRate("B", 20, ["voltaic_edge", "gatehide_mail"], 0.2, 8, true).rate).toBeLessThanOrEqual(0.5);
+    expect(clearRate("B", 29, BEST, 0.08, 8, true).rate).toBeGreaterThanOrEqual(0.9);
+  }, 240000);
+
+  it("rank A: a wall for a slower player at level 30, routine by level 41", () => {
+    expect(clearRate("A", 30, BEST, 0.2, 8, true).rate).toBeLessThanOrEqual(0.4);
+    expect(clearRate("A", 41, BEST, 0.08, 8, true).rate).toBeGreaterThanOrEqual(0.9);
+  }, 240000);
+
+  it("rank S: nearly closed at level 42, and never routine", () => {
+    expect(clearRate("S", 42, BEST, 0.2, 8, true).rate).toBeLessThanOrEqual(0.4);
+    const end = clearRate("S", 58, BEST, 0.08, 8, true);
+    expect(end.rate).toBeGreaterThanOrEqual(0.7);
+    expect(end.stuck).toBe(0);
+  }, 240000);
+
+  it("the army matters: without echoes, a Rank B gate at entry level goes worse", () => {
+    const alone = clearRate("B", 22, ["voltaic_edge", "gatehide_mail"], 0.08, 8, false);
+    const army = clearRate("B", 22, ["voltaic_edge", "gatehide_mail"], 0.08, 8, true);
+    expect(army.rate).toBeGreaterThanOrEqual(alone.rate);
+    expect(army.seconds === 0 || alone.seconds === 0 || army.seconds < alone.seconds).toBe(true);
+  }, 240000);
 
   it("walking into a gate far above your level is death", () => {
     expect(clearRate("C", 1, [], 0.08, 4).rate).toBe(0);

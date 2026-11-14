@@ -1,10 +1,10 @@
 import type { Controls } from "../../engine/input";
 import { seeded } from "../../engine/rng";
 import { angleDiff, norm } from "../../engine/vec";
-import { BRUTE, EXPLODER, PLAYER, ROOM, SKILLS, STEP, WHIRL, type Rank } from "../config";
+import { BRUTE, ECHO, echoCap, EXPLODER, PLAYER, RANK_IDS, RANKS, ROOM, SKILLS, STEP, WHIRL, type EnemyKind, type Rank } from "../config";
 import { SIDES, type Side } from "../dungeon";
 import { hubAction, refreshDerived } from "../profile";
-import type { Enemy, World } from "../state";
+import type { Echo, Enemy, World } from "../state";
 import { allocate, BASE_STAT, STAT_KEYS, xpToNext, type StatKey } from "../stats";
 import { createWorld, enterGate, skillReady, step } from "../world";
 
@@ -75,14 +75,33 @@ export class Bot implements Controls {
         return { ...away, dash: z.t < 0.35 || d < z.radius * 0.4 };
       }
     }
+    // Burning ground: get off it.
+    for (const patch of w.patches) {
+      const d = Math.hypot(p.x - patch.x, p.y - patch.y);
+      if (d < patch.radius + 10) return { ...(d > 1 ? norm(p.x - patch.x, p.y - patch.y) : toCentre), dash: false };
+    }
+    // Echoes turned by Dominion: keep clear of the nearest.
+    if (w.turnedT > 0) {
+      for (const a of w.allies) {
+        const d = Math.hypot(p.x - a.x, p.y - a.y);
+        if (d < 110) return { ...(d > 1 ? norm(p.x - a.x, p.y - a.y) : toCentre), dash: d < 50 };
+      }
+    }
     for (const e of w.enemies) {
       const d = Math.hypot(p.x - e.x, p.y - e.y);
       if (e.kind === "exploder" && e.state === "fuse" && d < EXPLODER.blastRadius + 30) {
         return { ...norm(p.x - e.x, p.y - e.y), dash: true };
       }
+      // A warper's swap is slipped by dashing as its cast ends.
+      if (e.kind === "warper" && e.state === "cast" && e.t < 0.18) return { ...toCentre, dash: true };
+      const winding = e.state === "windup" || e.state === "dwind" || e.state === "blinkwind";
+      const flying = e.state === "lunge" || e.state === "charge" || e.state === "strike";
       const lunging =
         (e.kind === "swarmer" && ((e.state === "windup" && e.t < 0.2) || e.state === "lunge") && d < 160) ||
         (e.kind === "charger" && ((e.state === "windup" && e.t < 0.3) || e.state === "charge") && d < 520) ||
+        ((e.kind === "assassin" || e.kind === "knight") && ((winding && e.t < 0.2) || flying) && d < 200) ||
+        (e.kind === "commander" && ((e.state === "windup" && e.t < 0.3) || e.state === "charge") && d < 640) ||
+        ((e.kind === "commander" || e.kind === "monarch") && ((winding && e.t < 0.18) || e.state === "strike") && d < 260) ||
         (e.kind === "duellist" && ((e.state === "windup" && e.t < 0.2) || e.state === "strike") && d < 240);
       if (!lunging) continue;
       // Only matters if the attack line passes close.
@@ -105,8 +124,21 @@ export class Bot implements Controls {
     let best: Enemy | null = null;
     let score = Infinity;
     for (const e of w.enemies) {
-      // Menders and shooters first: they make every other fight worse.
-      const bias = e.kind === "healer" ? 260 : e.kind === "shooter" ? 120 : e.kind === "brute" ? -150 : 0;
+      // What makes every other fight worse dies first: totems, warders, menders, eggs.
+      const BIAS: Partial<Record<EnemyKind, number>> = {
+        totem: 600,
+        warder: 320,
+        healer: 260,
+        egg: 220,
+        pyro: 160,
+        warper: 160,
+        shooter: 120,
+        brute: -150,
+        colossus: -100,
+      };
+      // A vanished shade cannot be found; a leaper in the air cannot be hit.
+      if (e.state === "vanish" || e.state === "leap") continue;
+      const bias = BIAS[e.kind] ?? 0;
       const s = Math.hypot(p.x - e.x, p.y - e.y) - bias;
       if (s < score) {
         score = s;
@@ -152,8 +184,9 @@ export class Bot implements Controls {
     const cy = ROOM.h / 2;
     const door = { n: [cx, -60], s: [cx, ROOM.h + 60], w: [-60, cy], e: [ROOM.w + 60, cy] }[side];
     const lateral = side === "n" || side === "s" ? p.x - cx : p.y - cy;
-    // Line up with the doorway before walking through it.
-    if (Math.abs(lateral) > 24) {
+    // Line up with the doorway before walking through it. The margin is wide
+    // enough that a fast hunter cannot overshoot it between two decisions.
+    if (Math.abs(lateral) > 50) {
       const inside = { n: [cx, 90], s: [cx, ROOM.h - 90], w: [90, cy], e: [ROOM.w - 90, cy] }[side];
       this.go(inside[0] - p.x, inside[1] - p.y);
     } else this.go(door[0] - p.x, door[1] - p.y);
@@ -185,6 +218,11 @@ export class Bot implements Controls {
     }
     this.attackHeld = open && dist < reach;
 
+    // Bind anything in reach, and send the echoes at the target when there are any.
+    if (w.profile.classUnlocked && w.profile.echoes.length < ECHO.roster) {
+      if (w.remnants.some((r) => Math.hypot(r.x - p.x, r.y - p.y) < ECHO.bindRange)) this.presses.add("KeyG");
+    }
+    if (skillReady(p, "rally") && w.allies.length > 0 && (t.boss || w.enemies.length >= 3)) this.presses.add(SKILLS.rally.code);
     const near = w.enemies.filter((e) => Math.hypot(e.x - p.x, e.y - p.y) < WHIRL.radius + e.radius).length;
     const boss = w.enemies.some((e) => e.boss);
     if (skillReady(p, "surge") && (boss || w.enemies.length >= 4)) this.presses.add(SKILLS.surge.code);
@@ -214,8 +252,22 @@ export class Bot implements Controls {
   }
 }
 
+/**
+ * A plausible squad for a hunter arriving at a rank: the commoners of the
+ * rank below, and that rank's boss.
+ */
+export function squadFor(rank: Rank, level: number): Echo[] {
+  const below = RANK_IDS[Math.max(0, RANK_IDS.indexOf(rank) - 1)];
+  const kinds = RANKS[below].kinds.filter((k) => k !== "totem");
+  const out: Echo[] = [{ kind: RANKS[below].boss, rank: below, active: true }];
+  for (let i = 0; out.length < echoCap(level); i++) out.push({ kind: kinds[i % kinds.length], rank: below, active: true });
+  return out;
+}
+
 export interface Loadout {
   level: number;
+  /** Echoes to bring. With any, the hunter has the class. */
+  echoes?: Echo[];
   /** Share of stat points per stat; the rest is unspent. */
   build: Partial<Record<StatKey, number>>;
   gear: string[];
@@ -276,6 +328,10 @@ export function applyLoadout(w: World, load: Loadout): void {
   w.profile.inventory = [...load.gear];
   for (const id of load.gear) hubAction(w, `equip:${id}`);
   w.profile.potions = load.potions;
+  if (load.echoes) {
+    w.profile.classUnlocked = true;
+    w.profile.echoes = load.echoes.map((e) => ({ ...e }));
+  }
   refreshDerived(w);
 }
 

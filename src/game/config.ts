@@ -155,9 +155,9 @@ export const KINDS: Record<EnemyKind, KindDef> = {
   warper: { name: "Warper", radius: 13, hp: 28, speed: 110, damage: 16, xp: 26, boss: false },
   colossus: { name: "Colossus", radius: 34, hp: 160, speed: 60, damage: 36, xp: 44, boss: false },
   egg: { name: "Egg", radius: 12, hp: 8, speed: 0, damage: 0, xp: 0, boss: false },
-  queen: { name: "The Brood Queen", radius: 36, hp: 9000, speed: 55, damage: 110, xp: 4000, boss: true },
-  commander: { name: "Knight Commander", radius: 20, hp: 20000, speed: 170, damage: 150, xp: 9000, boss: true },
-  monarch: { name: "The Hollow Monarch", radius: 24, hp: 45000, speed: 140, damage: 190, xp: 20000, boss: true },
+  queen: { name: "The Brood Queen", radius: 36, hp: 14000, speed: 55, damage: 145, xp: 4000, boss: true },
+  commander: { name: "Knight Commander", radius: 20, hp: 20000, speed: 170, damage: 120, xp: 9000, boss: true },
+  monarch: { name: "The Hollow Monarch", radius: 24, hp: 34000, speed: 140, damage: 125, xp: 20000, boss: true },
 };
 
 export const LEAPER = { range: 330, windup: 0.5, air: 0.35, radius: 85, recover: 0.7, cooldown: 1.6 };
@@ -197,9 +197,9 @@ export const RANKS: Record<Rank, RankDef> = {
   E: { minLevel: 1, hpMult: 1, dmgMult: 1, xpMult: 1, rooms: 6, kinds: ["swarmer", "charger", "shooter"], boss: "warden" },
   D: { minLevel: 6, hpMult: 2.8, dmgMult: 1.9, xpMult: 2.5, rooms: 7, kinds: ["shooter", "exploder", "brute"], boss: "summoner" },
   C: { minLevel: 13, hpMult: 5.5, dmgMult: 3.0, xpMult: 5, rooms: 8, kinds: ["charger", "healer", "brute"], boss: "duellist" },
-  B: { minLevel: 20, hpMult: 12, dmgMult: 4.5, xpMult: 10, rooms: 9, kinds: ["leaper", "pyro", "warder"], boss: "queen" },
+  B: { minLevel: 20, hpMult: 15, dmgMult: 5.5, xpMult: 10, rooms: 9, kinds: ["leaper", "pyro", "warder"], boss: "queen" },
   A: { minLevel: 30, hpMult: 18, dmgMult: 6, xpMult: 20, rooms: 10, kinds: ["assassin", "knight", "totem"], boss: "commander" },
-  S: { minLevel: 42, hpMult: 26, dmgMult: 7.8, xpMult: 40, rooms: 11, kinds: ["warper", "colossus", "knight", "assassin", "pyro", "leaper"], boss: "monarch" },
+  S: { minLevel: 42, hpMult: 26, dmgMult: 7.2, xpMult: 40, rooms: 11, kinds: ["warper", "colossus", "knight", "assassin", "pyro", "leaper"], boss: "monarch" },
 };
 
 /** A sealed gate: found out only once inside. No retreat, tougher, colder, richer. */

@@ -1006,7 +1006,9 @@ function stepCommander(w: World, e: Enemy, dt: number, dx: number, dy: number, d
       }
       break;
     case "windup":
-      if (e.t > 0.15) trackDir(e, dx, dy);
+      // The line is fixed early enough to walk out of it: a dash cannot
+      // recharge between three charges, so none of them may need one.
+      if (e.t > 0.3) trackDir(e, dx, dy);
       e.t -= dt;
       if (e.t <= 0) {
         e.state = "charge";
@@ -1024,7 +1026,7 @@ function stepCommander(w: World, e: Enemy, dt: number, dx: number, dy: number, d
         if (e.n > 0) {
           e.n -= 1;
           e.state = "windup";
-          e.t = 0.35;
+          e.t = 0.6;
         } else {
           // After the third charge the horse is blown: the opening.
           e.state = "recover";
@@ -1039,12 +1041,12 @@ function stepCommander(w: World, e: Enemy, dt: number, dx: number, dy: number, d
       if (dist > 70) move(e, dx, dy, KINDS.commander.speed * 1.1, dt);
       else if (e.cd <= 0) {
         e.state = "dwind";
-        e.t = 0.35;
-        e.n = 2;
+        e.t = 0.4;
+        e.n = 1;
       }
       break;
     case "dwind":
-      if (e.t > 0.08) trackDir(e, dx, dy);
+      if (e.t > 0.12) trackDir(e, dx, dy);
       e.t -= dt;
       if (e.t <= 0) {
         e.state = "strike";
@@ -1061,7 +1063,7 @@ function stepCommander(w: World, e: Enemy, dt: number, dx: number, dy: number, d
         if (e.n > 0) {
           e.n -= 1;
           e.state = "dwind";
-          e.t = 0.22;
+          e.t = 0.3;
         } else {
           w.shockwaves.push({ x: e.x, y: e.y, wait: RING_WARNING, r: e.radius + 20, speed: 320, maxR: 600, damage: e.dmg * 0.6, hit: false });
           e.state = "recover";
