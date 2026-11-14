@@ -137,18 +137,19 @@ function drawAilments(ctx: Ctx, w: World): void {
   if (a.burnT > 0) chips.push(["BURN", "#ff8a3c"]);
   if (a.slowT > 0) chips.push([`SLOW -${Math.round((1 - STATUS.slow.speed) * 100)}%`, "#40e0ff"]);
   if (w.turnedT > 0) chips.push(["ECHOES TURNED", "#ff5a60"]);
-  let x = 310;
+  // Under the purse, clear of the boss bar.
+  let x = 20;
   ctx.textAlign = "left";
   ctx.font = `bold 11px ${FONT}`;
   for (const [label, color] of chips) {
     const cw = ctx.measureText(label).width + 16;
     ctx.fillStyle = "rgba(4,6,11,0.8)";
-    ctx.fillRect(x, 20, cw, 22);
+    ctx.fillRect(x, 196, cw, 22);
     ctx.strokeStyle = color;
     ctx.lineWidth = 1.5;
-    ctx.strokeRect(x + 0.5, 20.5, cw, 22);
+    ctx.strokeRect(x + 0.5, 196.5, cw, 22);
     ctx.fillStyle = color;
-    ctx.fillText(label, x + 8, 35);
+    ctx.fillText(label, x + 8, 211);
     x += cw + 8;
   }
 }
@@ -414,13 +415,13 @@ function drawGateCard(ctx: Ctx, w: World, b: Button, hover: boolean): void {
   ctx.fillText(`Level ${def.minLevel}+   ·   ${def.rooms} rooms`, x, r.y + 52);
   ctx.font = `11px ${FONT}`;
   ctx.fillStyle = "#6f8fbf";
+  // Two names to a line, so long ones stay inside the card.
   const names = [...new Set(def.kinds.map((k) => KINDS[k].name))];
-  ctx.fillText(names.slice(0, 3).join(" · "), x, r.y + 72);
-  if (names.length > 3) ctx.fillText(names.slice(3).join(" · "), x, r.y + 88);
+  for (let i = 0; i < names.length; i += 2) ctx.fillText(names.slice(i, i + 2).join(" · "), x, r.y + 72 + (i / 2) * 14);
   if (over) {
     ctx.font = `bold 11px ${FONT}`;
     ctx.fillStyle = "#ff5a60";
-    ctx.fillText("DANGER: ABOVE YOUR LEVEL", x, r.y + 110);
+    ctx.fillText("ABOVE YOUR LEVEL", x, r.y + 118);
   }
   ctx.font = `11px ${FONT}`;
   ctx.fillStyle = "#6f8fbf";
