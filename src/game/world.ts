@@ -24,6 +24,7 @@ import {
   RITE,
   ROOM,
   SEALED,
+  SEALED_GUARD,
   SKILL_RANK,
   SKILL_IDS,
   SKILLS,
@@ -281,12 +282,19 @@ function beginGate(w: World, rank: Rank, dungeon: Dungeon, kind: GateKind, seale
  */
 export function enterGate(w: World, rank: Rank, opts: { sealed?: boolean } = {}): void {
   const dungeon = generateDungeon(rank, w.rng);
-  const sealed = opts.sealed ?? w.rng() < SEALED.chance;
+  const pr = w.profile;
+  // Luck alone could hide sealed gates for ever, so the sixth gate without one always is.
+  const sealed = opts.sealed ?? (w.rng() < SEALED.chance || pr.sealedPity >= SEALED.pity - 1);
+  if (sealed) pr.sealedPity = 0;
+  else if (opts.sealed === undefined) pr.sealedPity += 1;
   beginGate(w, rank, dungeon, "normal", sealed);
   w.run.overLevel = w.player.prog.level < RANKS[rank].minLevel;
   enterRoom(w, dungeon.startId, null);
   if (sealed) {
-    w.notices.push({ title: "SEALED GATE", body: "The way out is gone. Stronger enemies, biting cold, double reward.", life: 5 });
+    w.notices.push({ title: "SEALED GATE", body: "The way out is gone. Stronger enemies, biting cold, a master already awake. Double reward, and a prize.", life: 6 });
+    floatText(w, w.player.x, w.player.y, "SEALED", "#ff3355", true);
+    sfx(w, "alarm");
+    w.shake = Math.max(w.shake, 12);
   } else {
     w.notices.push({ title: `RANK ${rank} GATE`, body: "Find the boss room. Doors lock while enemies live.", life: 3 });
   }
@@ -473,6 +481,22 @@ export function enterRoom(w: World, id: number, from: Side | null): void {
     if (e.boss) {
       const body = room.kind === "trial" ? "An echo of what you just killed. It remembers." : "The gate's master has noticed you.";
       w.notices.push({ title: KINDS[kind].name.toUpperCase(), body, life: 3 });
+    }
+  }
+  // A sealed gate's master is awake before you arrive, and does not wait alone.
+  const boss = w.enemies.find((e) => e.boss);
+  if (boss && w.sealed && w.gateKind === "normal" && room.kind !== "trial") {
+    boss.phase = 2;
+    boss.maxHp = Math.round(boss.maxHp * SEALED.bossHp);
+    boss.hp = boss.maxHp;
+    for (let i = 0; i < SEALED.guards; i++) {
+      const side = i % 2 === 0 ? -1 : 1;
+      const g = spawnEnemy(w, SEALED_GUARD[w.rank], boss.x + side * (boss.radius + 110), boss.y + 40);
+      g.maxHp = Math.round(g.maxHp * SEALED.guardHp);
+      g.hp = g.maxHp;
+      g.t = 1;
+      w.enemies.push(g);
+      burst(w, g.x, g.y, "#ff3355", 10, 160);
     }
   }
   w.emergency = null;
@@ -1054,6 +1078,7 @@ function stepSelect(w: World, input: Controls): void {
   const enter = hubAction(w, action);
   if (enter === "key") enterKeyGate(w);
   else if (enter === "rite") enterRite(w);
+  else if (enter === "sealed") enterGate(w, w.profile.redGate.rank, { sealed: true });
   else if (enter) enterGate(w, enter);
 }
 

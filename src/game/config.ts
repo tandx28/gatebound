@@ -203,7 +203,38 @@ export const RANKS: Record<Rank, RankDef> = {
 };
 
 /** A sealed gate: found out only once inside. No retreat, tougher, colder, richer. */
-export const SEALED = { chance: 1 / 8, hp: 1.8, dmg: 1.4, reward: 2, coldEvery: 3 };
+export const SEALED = {
+  chance: 1 / 8,
+  /** Luck aside, at least one gate in this many is sealed. */
+  pity: 6,
+  hp: 1.8,
+  dmg: 1.4,
+  reward: 2,
+  coldEvery: 3,
+  /** Its boss is flanked by this many guards, each this much tougher than usual. */
+  guards: 2,
+  guardHp: 1,
+  /** The boss starts in its second phase, so it brings only this share of its health. */
+  bossHp: 0.45,
+};
+
+/**
+ * How much tougher and harder-hitting a sealed gate's enemies are. The top
+ * ranks are already brutal, so the seal adds less there: measured with the
+ * bot so that a hunter at the end of a rank clears its sealed gate at least
+ * half the time.
+ */
+export const SEALED_SCALE: Record<Rank, { hp: number; dmg: number; reward: number }> = {
+  E: { hp: SEALED.hp, dmg: SEALED.dmg, reward: SEALED.reward },
+  D: { hp: SEALED.hp, dmg: SEALED.dmg, reward: SEALED.reward },
+  C: { hp: SEALED.hp, dmg: SEALED.dmg, reward: SEALED.reward },
+  B: { hp: SEALED.hp, dmg: SEALED.dmg, reward: SEALED.reward },
+  A: { hp: 1.5, dmg: 1.2, reward: SEALED.reward },
+  S: { hp: 1.3, dmg: 1.1, reward: SEALED.reward },
+};
+
+/** Who stands guard beside the boss of a sealed gate of each rank. */
+export const SEALED_GUARD: Record<Rank, EnemyKind> = { E: "charger", D: "brute", C: "brute", B: "warder", A: "knight", S: "colossus" };
 
 /** A sudden timed order on entering a room. */
 export const EMERGENCY = { chance: 0.15, base: 10, perEnemy: 7, hpLoss: 0.3, bonus: 0.5 };

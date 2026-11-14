@@ -21,13 +21,14 @@ function clearRate(
   reaction: number,
   runs = 8,
   army = false,
+  sealed = false,
 ): { rate: number; stuck: number; seconds: number } {
   const load: Loadout = { level, build: BUILD, gear, potions: 3, echoes: army ? squadFor(rank, level) : undefined };
   let clears = 0;
   let stuck = 0;
   let seconds = 0;
   for (let seed = 1; seed <= runs; seed++) {
-    const r = playGate(rank, load, reaction, seed * 13);
+    const r = playGate(rank, load, reaction, seed * 13, 900, sealed);
     if (r.cleared) {
       clears += 1;
       seconds += r.seconds;
@@ -150,6 +151,27 @@ describe("difficulty curve, played by the bot", () => {
     expect(end.rate).toBeGreaterThanOrEqual(0.7);
     expect(end.stuck).toBe(0);
   }, 240000);
+
+  it("a sealed gate is dangerous but winnable for a hunter at the end of its rank", () => {
+    const rows: [Rank, number, string[], boolean][] = [
+      ["E", 5, ["iron_fang", "padded_coat"], false],
+      ["D", 12, ["hunters_kris", "scale_vest"], false],
+      ["C", 19, ["voltaic_edge", "gatehide_mail"], false],
+      ["B", 29, BEST, true],
+      ["A", 41, BEST, true],
+      ["S", 58, BEST, true],
+    ];
+    for (const [rank, level, gear, army] of rows) {
+      const r = clearRate(rank, level, gear, 0.08, 8, army, true);
+      expect(r.rate, `sealed ${rank}`).toBeGreaterThanOrEqual(0.5);
+      expect(r.stuck, `sealed ${rank}`).toBe(0);
+    }
+  });
+
+  it("a sealed gate is never easier than an open one of the same rank", () => {
+    const gear = ["voltaic_edge", "gatehide_mail"];
+    expect(clearRate("C", 16, gear, 0.08, 8, false, true).rate).toBeLessThanOrEqual(clearRate("C", 16, gear, 0.08, 8).rate);
+  });
 
   it("the army matters: without echoes, a Rank B gate at entry level goes worse", () => {
     const alone = clearRate("B", 22, ["voltaic_edge", "gatehide_mail"], 0.08, 8, false);

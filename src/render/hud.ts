@@ -42,6 +42,8 @@ import {
 const BLUE = "#3aa0ff";
 const CYAN = "#5ee6ff";
 const GOLD = "#ffd84a";
+/** Sealed gates, and nothing else. */
+const RED = "#ff3355";
 const FONT = '"SF Mono", Menlo, Consolas, monospace';
 const RANK_CSS: Record<Rank, string> = { E: "#3aa0ff", D: "#35e0a0", C: "#b070ff", B: "#ff9a3c", A: "#ff4f6a", S: "#ffe9a0" };
 const RANK_KEY: Record<Rank, number> = { E: 1, D: 2, C: 3, B: 4, A: 5, S: 6 };
@@ -477,15 +479,15 @@ function drawButton(ctx: Ctx, w: World, b: Button): void {
     ctx.restore();
   }
 
-  const edge = b.on ? GOLD : !b.enabled ? "#2a3a5c" : hover ? GOLD : BLUE;
-  ctx.fillStyle = b.on ? "rgba(255,216,74,0.14)" : hover ? "rgba(255,216,74,0.2)" : "rgba(8,16,34,0.85)";
+  const edge = b.danger ? RED : b.on ? GOLD : !b.enabled ? "#2a3a5c" : hover ? GOLD : BLUE;
+  ctx.fillStyle = b.danger ? `rgba(255,51,85,${hover ? 0.3 : 0.14})` : b.on ? "rgba(255,216,74,0.14)" : hover ? "rgba(255,216,74,0.2)" : "rgba(8,16,34,0.85)";
   ctx.fillRect(r.x, r.y, r.w, r.h);
   ctx.strokeStyle = edge;
   ctx.lineWidth = 1.5;
   ctx.strokeRect(r.x + 0.5, r.y + 0.5, r.w, r.h);
   ctx.textAlign = "center";
   ctx.font = `bold ${b.kind === "row" ? 11 : 13}px ${FONT}`;
-  ctx.fillStyle = b.on ? GOLD : !b.enabled ? "#4a5f85" : hover ? GOLD : "#cfe4ff";
+  ctx.fillStyle = b.danger ? "#ff8a9c" : b.on ? GOLD : !b.enabled ? "#4a5f85" : hover ? GOLD : "#cfe4ff";
   ctx.fillText(b.label, r.x + r.w / 2, r.y + r.h / 2 + 4.5);
 }
 
@@ -802,10 +804,17 @@ function drawAlerts(ctx: Ctx, w: World): void {
   if (w.penaltyT > 0) banner(`PENALTY ZONE   ·   survive   ${clock(w.penaltyT)}`, w.penaltyT / PENALTY.time, "#ff5a60");
   if (w.emergency) banner(`EMERGENCY QUEST   ·   kill them all   ${clock(w.emergency.t)}`, w.emergency.t / w.emergency.total, GOLD);
   if (w.sealed) {
+    // The whole screen is edged in red for as long as the gate holds you.
+    const pulse = 0.2 + 0.06 * Math.sin(performance.now() / 400);
+    const edge = ctx.createRadialGradient(VIEW_W / 2, VIEW_H / 2, VIEW_H * 0.45, VIEW_W / 2, VIEW_H / 2, VIEW_H * 0.95);
+    edge.addColorStop(0, "rgba(255,51,85,0)");
+    edge.addColorStop(1, `rgba(255,51,85,${pulse})`);
+    ctx.fillStyle = edge;
+    ctx.fillRect(0, 0, VIEW_W, VIEW_H);
     ctx.textAlign = "right";
-    ctx.font = `bold 11px ${FONT}`;
-    ctx.fillStyle = "#ff5a60";
-    ctx.fillText("SEALED  ·  NO RETREAT  ·  COLD", VIEW_W - 20, VIEW_H - 40);
+    ctx.font = `bold 12px ${FONT}`;
+    ctx.fillStyle = RED;
+    ctx.fillText("SEALED GATE  ·  NO RETREAT  ·  COLD", VIEW_W - 20, VIEW_H - 40);
   }
 }
 

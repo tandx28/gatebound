@@ -17,7 +17,7 @@ import {
   type SupplyId,
 } from "./items";
 import { CUTSCENES, seenScenes } from "./cutscenes";
-import { activeEchoes, canActivate, owns, riteOpen } from "./profile";
+import { activeEchoes, canActivate, owns, redGateOpen, riteOpen } from "./profile";
 import { MAIN } from "./quests";
 import { CHAPTERS } from "./story";
 import { visibleTabs, type World } from "./state";
@@ -72,6 +72,8 @@ export interface Button {
   textX?: number;
   /** Highlighted: the current tab, an active title. */
   on?: boolean;
+  /** Drawn in red: a sealed gate. */
+  danger?: boolean;
   /** Item rarity, which colours the row's name. */
   rarity?: Rarity;
   rank?: Rank;
@@ -310,6 +312,16 @@ export function hubButtons(w: World): Button[] {
       enabled: pr.keys > 0,
       kind: "plain",
     });
+    if (redGateOpen(w)) {
+      out.push({
+        rect: { x: VIEW_W / 2 - 310, y: 600, w: 620, h: 36 },
+        id: "gate:sealed",
+        label: `SEALED GATE   ·   RANK ${pr.redGate.rank}   ·   no way out, double reward, a prize   ·   today only`,
+        enabled: true,
+        kind: "plain",
+        danger: true,
+      });
+    }
     if (riteOpen(pr)) {
       out.push({ rect: { x: VIEW_W / 2 + 10, y: 556, w: 300, h: 36 }, id: "gate:rite", label: "RITE OF ECHOES", enabled: true, kind: "plain", on: true });
     }

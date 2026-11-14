@@ -336,11 +336,11 @@ export function applyLoadout(w: World, load: Loadout): void {
 }
 
 /** Play one whole gate with the bot and report how it went. */
-export function playGate(rank: Rank, load: Loadout, reaction: number, seed: number, limit = 900): RunResult {
+export function playGate(rank: Rank, load: Loadout, reaction: number, seed: number, limit = 900, sealed = false): RunResult {
   const w = createWorld(seeded(seed));
   w.hiddenChance = 0;
   applyLoadout(w, load);
-  enterGate(w, rank, { sealed: false });
+  enterGate(w, rank, { sealed });
   const bot = new Bot(reaction);
   const xpBefore = lifetimeXp(w.player.prog.level, w.player.prog.xp);
   let xpPeak = xpBefore;

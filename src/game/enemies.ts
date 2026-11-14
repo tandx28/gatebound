@@ -19,7 +19,7 @@ import {
   RING_WARNING,
   ROAR,
   ROOM,
-  SEALED,
+  SEALED_SCALE,
   SHOOTER,
   SWARMER,
   TOTEM,
@@ -195,7 +195,7 @@ export function damageEnemy(
 
 /** Make an enemy for the gate in progress, with its modifiers applied. */
 export function spawnEnemy(w: World, kind: EnemyKind, x: number, y: number): Enemy {
-  return makeEnemy(kind, x, y, w.rank, w.sealed ? SEALED : undefined);
+  return makeEnemy(kind, x, y, w.rank, w.sealed ? SEALED_SCALE[w.rank] : undefined);
 }
 
 function fire(w: World, e: Enemy, angle: number, speed: number, damage: number, status?: StatusId): void {

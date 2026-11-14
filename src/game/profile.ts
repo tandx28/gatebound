@@ -114,6 +114,8 @@ export function newProfile(): Profile {
     lastClear: 0,
     breakPending: false,
     ending: null,
+    sealedPity: 0,
+    redGate: { day: 0, rank: "E", done: false },
   };
 }
 
@@ -214,6 +216,18 @@ export function bossBindChance(w: World): number {
 }
 
 /** True while the rite of echoes is the open main quest. */
+/** Whether today's sealed gate is still standing on the board. */
+export function redGateOpen(w: World): boolean {
+  const red = w.profile.redGate;
+  return w.today > 0 && red.day === w.today && !red.done;
+}
+
+/** A sealed gate's prize is never less than epic, whatever the rank usually drops. */
+function sealedPrize(w: World): string {
+  const usual = DROP_WEIGHT[w.rank];
+  return rollDrop(w.rank, w.rng, { common: 0, uncommon: 0, rare: 0, epic: Math.max(1, usual.epic), legendary: usual.legendary, mythic: 0 });
+}
+
 export function riteOpen(profile: Profile): boolean {
   return MAIN[profile.quests.main]?.id === "m6" && !profile.classUnlocked;
 }
@@ -270,6 +284,12 @@ export function syncDay(w: World): boolean {
   if (pr.shop.day !== w.today) {
     pr.shop = { day: w.today, rerolls: 0, stock: [] };
     pr.shop.stock = stockFor(w);
+    w.dirty = true;
+  }
+  // Each day one sealed gate stands on the board, never more than a rank above the hunter.
+  if (pr.redGate.day !== w.today) {
+    const ranks = RANK_IDS.slice(0, Math.min(RANK_IDS.length, RANK_IDS.indexOf(pr.hunterRank) + 2));
+    pr.redGate = { day: w.today, rank: ranks[Math.min(ranks.length - 1, Math.floor(w.rng() * ranks.length))], done: false };
     w.dirty = true;
   }
   // The hunter's own gate, left alone too long, breaks open.
@@ -647,6 +667,13 @@ export function settleClear(w: World): void {
     return;
   }
 
+  if (w.sealed) {
+    const prize = sealedPrize(w);
+    run.items.push(prize);
+    w.notices.push({ title: "SEALED GATE PRIZE", body: itemName(prize), life: 5 });
+    // Today's sealed gate on the board is done once one of its rank is cleared.
+    if (pr.redGate.day === w.today && pr.redGate.rank === w.rank) pr.redGate.done = true;
+  }
   run.summary = bank(w);
   pr.gatesCleared += 1;
   // Clearing a gate above your rank is the re-evaluation.
@@ -725,7 +752,7 @@ export function applySetting(w: World, arg: string): void {
 }
 
 /** What a gate-board action asks the caller to start, if anything. */
-export type Enter = Rank | "key" | "rite" | null;
+export type Enter = Rank | "key" | "rite" | "sealed" | null;
 
 /** Perform a gate-board action by id. */
 export function hubAction(w: World, id: string): Enter {
@@ -761,6 +788,7 @@ function hubActionInner(w: World, verb: string, arg: string, extra: string | und
     case "gate":
       if (arg === "key") return pr.keys > 0 ? "key" : null;
       if (arg === "rite") return riteOpen(pr) ? "rite" : null;
+      if (arg === "sealed") return redGateOpen(w) ? "sealed" : null;
       return RANK_IDS.includes(arg as Rank) ? (arg as Rank) : null;
     case "buy":
       if (arg === "potion") {

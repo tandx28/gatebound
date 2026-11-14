@@ -249,6 +249,10 @@ export function parseSave(raw: unknown): SaveData | null {
     const old = int(rq.main, 0, OLD_MAIN.length, 0);
     profile.quests.main = old >= OLD_MAIN.length ? MAIN.findIndex((q) => q.id === "m9") + 1 : MAIN.findIndex((q) => q.id === OLD_MAIN[old]);
   }
+  profile.sealedPity = int(rf.sealedPity, 0, 99, 0);
+  if (isObj(rf.redGate) && RANK_IDS.includes(rf.redGate.rank as Rank)) {
+    profile.redGate = { day: int(rf.redGate.day, 0, 1e7, 0), rank: rf.redGate.rank as Rank, done: rf.redGate.done === true };
+  }
   // The ending needs the whole chain behind it.
   if ((rf.ending === "keeper" || rf.ending === "unwritten") && profile.quests.main >= MAIN.length) profile.ending = rf.ending;
   const sides = new Set(SIDE.map((s) => s.id));

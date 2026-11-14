@@ -260,6 +260,10 @@ export interface Profile {
   breakPending: boolean;
   /** Which skill sits in each of the four slots. */
   loadout: (SkillId | null)[];
+  /** Gates entered since the last sealed one: the sixth in a row is always sealed. */
+  sealedPity: number;
+  /** Today's sealed gate on the board: its rank, and whether it has been cleared. */
+  redGate: { day: number; rank: Rank; done: boolean };
   /** How the story ended, once the last page is signed or burnt. */
   ending: Ending | null;
 }
