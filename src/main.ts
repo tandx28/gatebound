@@ -7,6 +7,7 @@ import { beginStory, refreshDerived } from "./game/profile";
 import { applySave, parseSave, SAVE_KEY, toSave } from "./game/save";
 import { createWorld, step, toSelect } from "./game/world";
 import { drawHud } from "./render/hud";
+import { loadModels } from "./render/models";
 import { Scene3D } from "./render/scene3d";
 
 const stage = document.getElementById("stage") as HTMLDivElement;
@@ -17,6 +18,13 @@ const ctx = hud.getContext("2d")!;
 const input = new Input(hud);
 let scene = new Scene3D(view);
 const world = createWorld();
+
+// The game starts with built figures and swaps to the models when they arrive;
+// if they never do, it carries on as it is.
+loadModels(`${import.meta.env.BASE_URL}models/`).then(
+  () => scene.refreshFigures(),
+  (err) => console.warn("Models did not load; using built figures.", err),
+);
 
 /** Storage can be unavailable (private windows, blocked site data): never throw. */
 function readStored(): unknown {

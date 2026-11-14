@@ -1,0 +1,15 @@
+Character models in this folder are from two KayKit packs by Kay Lousberg
+(www.kaylousberg.com), released under Creative Commons Zero (CC0):
+
+  KayKit Character Pack : Adventurers (1.0)
+    barbarian.glb, knight.glb, mage.glb, rogue.glb, rogue_hooded.glb
+    https://github.com/KayKit-Game-Assets/KayKit-Character-Pack-Adventures-1.0
+
+  KayKit Character Pack : Skeletons (1.0)
+    skeleton_mage.glb, skeleton_minion.glb, skeleton_rogue.glb, skeleton_warrior.glb
+    https://github.com/KayKit-Game-Assets/KayKit-Character-Pack-Skeletons-1.0
+
+  http://creativecommons.org/publicdomain/zero/1.0/
+
+The files here have been cut down with tools/trim_models.py: the meshes and
+textures are unchanged, and only the animation clips the game plays are kept.

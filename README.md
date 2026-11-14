@@ -60,3 +60,7 @@ plane (`src/game`), stepped at a fixed 120 Hz and covered by unit tests; it
 knows nothing about rendering or audio. The 3D view (`src/render/scene3d.ts`),
 the 2D overlay (`src/render/hud.ts`) and the audio (`src/audio`) only read its
 state. Difficulty is tuned against a scripted player (`src/game/balance`).
+
+## Credits
+
+Character models: KayKit Character Packs (Adventurers, Skeletons) by Kay Lousberg, CC0. See `public/models/LICENSE.txt`.

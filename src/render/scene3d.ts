@@ -22,7 +22,11 @@ import {
 import type { Dungeon, Side } from "../game/dungeon";
 import { WEAPONS, type WeaponType } from "../game/items";
 import type { Ally, Enemy, Quality, World } from "../game/state";
+import { modelRig } from "./models";
 import { buildRig, ghostify, poseFor, type Pose, type Rig } from "./rigs";
+
+/** A modelled figure where there is one, a built one otherwise. */
+const figure = (kind: Parameters<typeof buildRig>[0], radius?: number): Rig => modelRig(kind, radius) ?? buildRig(kind, radius);
 
 /**
  * 3D view of the simulation. The game itself is flat: a sim point (x, y)
@@ -52,7 +56,8 @@ function glow(color: number, intensity = 1.6): THREE.MeshStandardMaterial {
 function disposeTree(root: THREE.Object3D): void {
   root.traverse((o) => {
     const m = o as THREE.Mesh;
-    if (m.geometry) m.geometry.dispose();
+    // A model's geometry belongs to every copy of it.
+    if (m.geometry && !o.userData.shared) m.geometry.dispose();
     const mat = m.material as THREE.Material | THREE.Material[] | undefined;
     if (Array.isArray(mat)) mat.forEach((x) => x.dispose());
     else if (mat) mat.dispose();
@@ -288,7 +293,7 @@ export class Scene3D {
     ground.position.set(ROOM.w / 2, -2, ROOM.h / 2);
     this.scene.add(ground, this.roomGroup);
 
-    this.hunter = buildRig("player");
+    this.hunter = figure("player");
     this.player.add(this.hunter.root);
     this.playerLight.position.y = 115;
     this.player.add(this.playerLight);
@@ -346,6 +351,21 @@ export class Scene3D {
   }
 
   /** Let go of everything, before this view is replaced by a new one. */
+  /** Rebuild every figure: called once the models have loaded. */
+  refreshFigures(): void {
+    this.player.remove(this.hunter.root);
+    disposeTree(this.hunter.root);
+    this.hunter = figure("player");
+    this.player.add(this.hunter.root);
+    for (const map of [this.enemies, this.allies]) {
+      for (const rig of map.values()) {
+        this.scene.remove(rig.root);
+        disposeTree(rig.root);
+      }
+      map.clear();
+    }
+  }
+
   dispose(): void {
     disposeTree(this.scene);
     this.composer.dispose();
@@ -502,7 +522,7 @@ export class Scene3D {
       if (!finite(e)) continue;
       let rig = this.enemies.get(e);
       if (!rig) {
-        rig = buildRig(e.kind, e.radius);
+        rig = figure(e.kind, e.radius);
         this.enemies.set(e, rig);
         this.scene.add(rig.root);
       }
@@ -536,7 +556,7 @@ export class Scene3D {
       if (!finite(a)) continue;
       let rig = this.allies.get(a);
       if (!rig) {
-        rig = buildRig(a.kind, a.radius);
+        rig = figure(a.kind, a.radius);
         ghostify(rig, ECHO_TINT);
         this.allies.set(a, rig);
         this.scene.add(rig.root);

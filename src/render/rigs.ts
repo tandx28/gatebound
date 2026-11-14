@@ -122,7 +122,7 @@ function limb(radius: number, upper: number, lower: number, upperMat: THREE.Mate
 /** How far a long weapon is turned in the hand so that it lies level when the arm hangs. */
 const LEVEL = 1.35;
 
-type Held = "none" | "dagger" | "sword" | "spear" | "bow" | "staff" | "shield" | "claws" | "lance" | "flame";
+export type Held = "none" | "dagger" | "sword" | "spear" | "bow" | "staff" | "shield" | "claws" | "lance" | "flame";
 
 /** Something to hold, hanging from the hand: blades point down the arm. */
 function held(kind: Held, skin: Skin, pal: Palette): THREE.Group {
@@ -168,6 +168,14 @@ function held(kind: Held, skin: Skin, pal: Palette): THREE.Group {
     case "none":
       break;
   }
+  return g;
+}
+
+/** One of the game's own weapons on its own, for a modelled figure to hold. */
+export function weaponProp(kind: Held, metal = 0xc9d4e6, accent = 0x7fdcff): THREE.Group {
+  const g = held(kind, new Skin(), { skin: 0, cloth: 0, trim: 0, metal, accent });
+  // How it is carried is up to the figure holding it.
+  g.rotation.set(0, 0, 0);
   return g;
 }
 
