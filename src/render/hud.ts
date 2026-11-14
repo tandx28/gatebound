@@ -462,10 +462,16 @@ function drawButton(ctx: Ctx, w: World, b: Button): void {
     ctx.textAlign = "left";
     ctx.font = `14px ${FONT}`;
     ctx.fillStyle = b.on ? GOLD : b.rarity ? RARITY_CSS[b.rarity] : "#cfe4ff";
+    // Long names and descriptions are cut off at the button, never drawn under it.
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(b.textX!, r.y - 4, r.x - b.textX! - 10, 40);
+    ctx.clip();
     ctx.fillText(b.text, b.textX!, r.y + 13);
     ctx.font = `11px ${FONT}`;
     ctx.fillStyle = "#6f8fbf";
     ctx.fillText(b.sub ?? "", b.textX!, r.y + 27);
+    ctx.restore();
   }
 
   const edge = b.on ? GOLD : !b.enabled ? "#2a3a5c" : hover ? GOLD : BLUE;

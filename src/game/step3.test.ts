@@ -105,7 +105,7 @@ describe("an owned item is its base plus its perks", () => {
 
   it("is named after its first perk, and described with its type and perks", () => {
     expect(itemName("iron_fang+poison+chain")).toBe("Venomous Iron Fang");
-    expect(describeItem("iron_fang+poison")).toBe("common  ·  dagger  ·  +3 damage  ·  poison");
+    expect(describeItem("iron_fang+poison")).toBe("common · dagger · +3 damage · poison");
     expect(describeItem("wardens_knuckle")).toContain("unique");
   });
 

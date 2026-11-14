@@ -267,7 +267,7 @@ export const BAG: Record<BagId, BagDef> = {
   greater: { name: "Greater Health Potion", about: "restores all health", price: 220, max: 1, rank: "B" },
   mana: { name: "Mana Potion", about: "restores all mana", price: 50, max: 3 },
   fury: { name: "Elixir of Fury", about: "+30% damage for 20 seconds", price: 150, max: 2 },
-  antidote: { name: "Antidote", about: "cures poison, burn and slow, and wards them off for 10s", price: 90, max: 2 },
+  antidote: { name: "Antidote", about: "cures ailments and wards them off for 10s", price: 90, max: 2 },
 };
 export const BAG_IDS = Object.keys(BAG) as BagId[];
 export const FURY = { time: 20, damage: 1.3 };
@@ -415,7 +415,7 @@ export function describeItem(owned: string): string {
   parts.push(describeBonus(def.bonus));
   const perks = perksOf(owned);
   if (perks.length) parts.push(perks.map((p) => PERKS[p].name.toLowerCase()).join(", "));
-  return parts.join("  ·  ");
+  return parts.join(" · ");
 }
 
 function weighted(pool: string[], weights: Record<Rarity, number>, rng: () => number): number {

@@ -122,7 +122,7 @@ function supplyRow(w: World, id: SupplyId, i: number): Button[] {
     id === "potion"
       ? { name: "Health Potion", about: "restores half health   [F]", price: POTION.price, max: POTION.max, rank: undefined }
       : id === "stone"
-        ? { name: "Return Stone", about: "leave a gate with your loot; fails in sealed gates   [T]", price: STONE.price, max: STONE.max, rank: undefined }
+        ? { name: "Return Stone", about: "leave a gate with your loot; not sealed ones   [T]", price: STONE.price, max: STONE.max, rank: undefined }
         : { ...BAG[id], about: `${BAG[id].about}   [${id === "mana" ? "V" : "B"}]` };
   const locked = !!def.rank && RANK_IDS.indexOf(pr.hunterRank) < RANK_IDS.indexOf(def.rank);
   const full = have >= def.max;
@@ -276,7 +276,7 @@ export function hubButtons(w: World): Button[] {
     const cost = FLASK.cost[pr.flask.size - FLASK.start];
     const maxed = pr.flask.size >= FLASK.max;
     out.push(
-      row(LEFT, n, "flask:upgrade", maxed ? "MAX" : `${cost} G`, !maxed && pr.gold >= cost, `Flask  (${pr.flask.charges}/${pr.flask.size} sips)`, `yours for good; a sip restores ${FLASK.heal * 100}% health; refills free here   [B]`),
+      row(LEFT, n, "flask:upgrade", maxed ? "MAX" : `${cost} G`, !maxed && pr.gold >= cost, `Flask  (${pr.flask.charges}/${pr.flask.size} sips)`, `a sip restores ${FLASK.heal * 100}% health; refills free here   [B]`),
     );
     const spent = STAT_KEYS.reduce((sum, k) => sum + w.player.prog.stats[k] - BASE_STAT, 0);
     out.push(
@@ -301,7 +301,8 @@ export function hubButtons(w: World): Button[] {
       out.push(b);
     });
     const other = pr.equipped[pr.activeWeapon === 1 ? "weapon" : "weapon2"];
-    out.push({ rect: { x: LEFT + 470, y: TOP, w: 96, h: 28 }, id: "weapon:swap", label: "SWAP", enabled: !!other, kind: "plain" });
+    // Narrow, so it stays clear of the bag column beside it.
+    out.push({ rect: { x: LEFT + 466, y: TOP, w: 56, h: 28 }, id: "weapon:swap", label: "SWAP", enabled: !!other, kind: "plain" });
     TITLES.forEach((t, i) => {
       const have = pr.titles.includes(t.id);
       const on = pr.title === t.id;
