@@ -16,7 +16,7 @@ export const STAT_NAMES: Record<StatKey, string> = {
 };
 
 export const BASE_STAT = 5;
-export const LEVEL_CAP = 20;
+export const LEVEL_CAP = 60;
 export const POINTS_PER_LEVEL = 3;
 export const CRIT_CAP = 0.6;
 

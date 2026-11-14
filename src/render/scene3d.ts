@@ -4,12 +4,17 @@ import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 import {
+  ASSASSIN,
   CHARGER,
   EXPLODER,
   HEALER,
+  KNIGHT,
   PLAYER,
   ROOM,
   SWARMER,
+  TOTEM,
+  WARDER,
+  WARPER,
   VIEW_H,
   VIEW_W,
   type EnemyKind,
@@ -24,7 +29,7 @@ import type { Ally, Enemy, World } from "../game/state";
  * (cos a, 0, sin a), which is a rotation of -a about the vertical axis.
  */
 
-const RANK_TINT: Record<Rank, number> = { E: 0x3aa0ff, D: 0x35e0a0, C: 0xb070ff };
+const RANK_TINT: Record<Rank, number> = { E: 0x3aa0ff, D: 0x35e0a0, C: 0xb070ff, B: 0xff9a3c, A: 0xff4f6a, S: 0xffe9a0 };
 const SEALED_TINT = 0xff3355;
 const ECHO_TINT = 0x8a6cff;
 const KIND_COLOR: Record<EnemyKind, number> = {
@@ -37,6 +42,18 @@ const KIND_COLOR: Record<EnemyKind, number> = {
   warden: 0xff5a40,
   summoner: 0xb070ff,
   duellist: 0xffffff,
+  leaper: 0xff9a3c,
+  pyro: 0xff6a20,
+  warder: 0x7fd0ff,
+  assassin: 0x9b5cff,
+  knight: 0xd0d8e8,
+  totem: 0xff4f6a,
+  warper: 0x40e0ff,
+  colossus: 0xb08050,
+  egg: 0xc8e060,
+  queen: 0xb8e040,
+  commander: 0xffd070,
+  monarch: 0xffe9a0,
 };
 
 const WALL_H = 80;
@@ -137,6 +154,109 @@ function buildEnemy(kind: EnemyKind, r: number): EnemyView {
       group.add(part(new THREE.SphereGeometry(8, 12, 10), core, 0, 56));
       group.add(part(new THREE.BoxGeometry(40, 2, 4), core, 22, 30, 13));
       group.add(part(new THREE.BoxGeometry(40, 2, 4), core, 22, 30, -13));
+      break;
+    }
+    case "leaper": {
+      // A low four-legged beast.
+      group.add(part(new THREE.BoxGeometry(r * 2.4, r * 0.9, r * 1.1), dark, 0, r * 1.1));
+      group.add(part(new THREE.BoxGeometry(r * 0.9, r * 0.8, r * 0.9), core, r * 1.4, r * 1.3));
+      for (const [lx, lz] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+        group.add(part(new THREE.BoxGeometry(4, r, 4), dark, lx * r * 0.9, r * 0.5, lz * r * 0.5));
+      }
+      break;
+    }
+    case "pyro": {
+      group.add(part(new THREE.ConeGeometry(r, 44, 6), dark, 0, 22));
+      const flame = part(new THREE.IcosahedronGeometry(9, 0), core, 0, 54);
+      group.add(flame);
+      spin = flame;
+      break;
+    }
+    case "warder": {
+      group.add(part(new THREE.BoxGeometry(r * 1.3, 52, r * 1.3), dark, 0, 26));
+      group.add(part(new THREE.BoxGeometry(6, 46, r * 2.2), core, r + 4, 26));
+      group.add(part(new THREE.BoxGeometry(6, 46, r * 2.2), core, -r - 4, 26));
+      break;
+    }
+    case "assassin": {
+      group.add(part(new THREE.CapsuleGeometry(r * 0.55, 30, 4, 8), dark, 0, 26));
+      group.add(part(new THREE.SphereGeometry(6, 10, 8), core, 0, 50));
+      group.add(part(new THREE.BoxGeometry(26, 2, 3), core, 16, 26, 9));
+      group.add(part(new THREE.BoxGeometry(26, 2, 3), core, 16, 26, -9));
+      break;
+    }
+    case "knight": {
+      group.add(part(new THREE.CapsuleGeometry(r * 0.7, 30, 4, 10), dark, 0, 28));
+      group.add(part(new THREE.BoxGeometry(12, 12, 12), core, 0, 56));
+      group.add(part(new THREE.BoxGeometry(4, 34, 24), core, r, 28, 12));
+      group.add(part(new THREE.BoxGeometry(44, 3, 5), core, 26, 34, -12));
+      break;
+    }
+    case "totem": {
+      group.add(part(new THREE.CylinderGeometry(r * 0.8, r, 30, 6), dark, 0, 15));
+      group.add(part(new THREE.CylinderGeometry(r * 0.6, r * 0.8, 26, 6), core, 0, 43));
+      group.add(part(new THREE.CylinderGeometry(r * 0.9, r * 0.5, 14, 6), dark, 0, 63));
+      break;
+    }
+    case "warper": {
+      group.add(part(new THREE.OctahedronGeometry(r, 0), core, 0, r + 14));
+      const halo = new THREE.Group();
+      halo.position.y = r + 14;
+      for (const tilt of [0, Math.PI / 2]) {
+        const ring = part(new THREE.TorusGeometry(r + 8, 1.5, 6, 24), core);
+        ring.rotation.x = tilt;
+        halo.add(ring);
+      }
+      group.add(halo);
+      spin = halo;
+      break;
+    }
+    case "colossus": {
+      group.add(part(new THREE.CylinderGeometry(r * 0.8, r, 78, 8), dark, 0, 39));
+      group.add(part(new THREE.IcosahedronGeometry(r * 0.75, 0), dark, 0, 80, r * 0.9));
+      group.add(part(new THREE.IcosahedronGeometry(r * 0.75, 0), dark, 0, 80, -r * 0.9));
+      group.add(part(new THREE.BoxGeometry(20, 14, 20), core, 0, 96));
+      break;
+    }
+    case "egg": {
+      const shell = part(new THREE.SphereGeometry(r, 12, 10), core, 0, r * 1.2);
+      shell.scale.set(1, 1.35, 1);
+      group.add(shell);
+      break;
+    }
+    case "queen": {
+      const belly = part(new THREE.SphereGeometry(r, 14, 12), dark, -r * 0.5, r);
+      belly.scale.set(1.5, 1, 1.1);
+      group.add(belly);
+      group.add(part(new THREE.SphereGeometry(r * 0.5, 12, 10), core, r * 1.1, r * 1.1));
+      group.add(part(new THREE.ConeGeometry(4, 26, 4), core, r * 1.6, r, 10));
+      group.add(part(new THREE.ConeGeometry(4, 26, 4), core, r * 1.6, r, -10));
+      for (const lz of [1, -1]) for (const lx of [0.6, 0, -0.6]) group.add(part(new THREE.BoxGeometry(4, r, 4), dark, lx * r, r * 0.5, lz * r));
+      break;
+    }
+    case "commander": {
+      // Rider and mount.
+      group.add(part(new THREE.BoxGeometry(r * 3, r * 1.1, r * 1.2), dark, 0, r * 1.2));
+      group.add(part(new THREE.BoxGeometry(r * 0.8, r * 1.2, r * 0.8), dark, r * 1.5, r * 1.9));
+      group.add(part(new THREE.CapsuleGeometry(r * 0.5, 24, 4, 8), dark, -4, r * 2.6));
+      group.add(part(new THREE.BoxGeometry(12, 12, 12), core, -4, r * 2.6 + 24));
+      group.add(part(new THREE.BoxGeometry(70, 3, 3), core, 30, r * 2.4, 14));
+      break;
+    }
+    case "monarch": {
+      group.add(part(new THREE.ConeGeometry(r, 88, 8), dark, 0, 44));
+      group.add(part(new THREE.SphereGeometry(11, 12, 10), core, 0, 96));
+      const crown = part(new THREE.TorusGeometry(14, 2, 6, 20), core, 0, 108);
+      crown.rotation.x = Math.PI / 2;
+      group.add(crown);
+      const orbit = new THREE.Group();
+      orbit.position.y = 60;
+      for (let i = 0; i < 5; i++) {
+        const a = (i / 5) * Math.PI * 2;
+        orbit.add(part(new THREE.TetrahedronGeometry(8, 0), core, Math.cos(a) * 48, 0, Math.sin(a) * 48));
+      }
+      group.add(orbit);
+      spin = orbit;
       break;
     }
   }
@@ -496,10 +616,13 @@ export class Scene3D {
       const hover = e.kind === "shooter" || e.kind === "healer" ? Math.sin(this.clock * 3 + e.x) * 4 : 0;
       v.group.position.set(e.x, hover, e.y);
       v.group.rotation.y = -e.facing;
-      if (v.spin) v.spin.rotation[e.kind === "summoner" ? "y" : "z"] = this.clock * 2;
+      const flat = e.kind === "summoner" || e.kind === "monarch" || e.kind === "warper" || e.kind === "pyro";
+      if (v.spin) v.spin.rotation[flat ? "y" : "z"] = this.clock * 2;
 
       // Colour tells the state: white flash on hit, bright on wind-up, dim when spent.
-      const winding = e.state === "windup" || e.state === "fuse" || e.state === "cast" || e.state === "attack";
+      const winding =
+        e.state === "windup" || e.state === "fuse" || e.state === "cast" || e.state === "attack" ||
+        e.state === "dwind" || e.state === "blinkwind" || e.state === "dominion" || e.state === "spit" || e.state === "sweep";
       if (e.flash > 0) {
         v.core.emissive.setHex(0xffffff);
         v.core.emissiveIntensity = 3;
@@ -510,7 +633,10 @@ export class Scene3D {
         v.core.emissive.copy(v.color);
         v.core.emissiveIntensity = e.state === "recover" ? 0.45 : e.phase === 2 ? 2.6 : 1.6;
       }
-      v.group.visible = e.inv <= 0 || Math.floor(this.clock * 30) % 2 === 0;
+      // A vanished shade is not there at all; anything else untouchable flickers.
+      v.group.visible = e.state !== "vanish" && (e.inv <= 0 || Math.floor(this.clock * 30) % 2 === 0);
+      // A leaper rises and falls through its jump.
+      if (e.state === "leap") v.group.position.y = 70 * Math.sin(Math.PI * Math.min(1, Math.max(0, 1 - e.t / 0.35)));
       // Penalty-zone enemies cannot be hurt: they burn a steady, colourless white.
       if (e.immortal && !winding) {
         v.core.emissive.setHex(0xd8e4ff);
@@ -552,7 +678,8 @@ export class Scene3D {
       v.group.position.set(a.x, Math.sin(this.clock * 2.5 + a.x) * 2 + 2, a.y);
       v.group.rotation.y = -a.facing;
       if (v.spin) v.spin.rotation[a.kind === "summoner" ? "y" : "z"] = this.clock * 2;
-      v.core.emissive.setHex(a.flash > 0 ? 0xffffff : ECHO_TINT);
+      // Under Dominion they burn red: a warning to keep clear.
+      v.core.emissive.setHex(a.flash > 0 ? 0xffffff : w.turnedT > 0 ? 0xff3040 : ECHO_TINT);
       v.core.emissiveIntensity = a.flash > 0 ? 2.6 : 1.8;
     }
   }
@@ -604,6 +731,27 @@ export class Scene3D {
       } else if (e.kind === "summoner" && e.state === "cast") {
         this.rings.place(e.x, e.y, 0, 60, 60, 0xb070ff, 0.9);
       }
+      if (e.kind === "assassin" && e.state === "windup") {
+        this.lines.place(e.x, e.y, a, ASSASSIN.lungeSpeed * ASSASSIN.lungeTime + 20, e.radius * 2, 0x9b5cff, 0.5);
+      } else if (e.kind === "knight" && e.state === "windup") {
+        this.lines.place(e.x, e.y, a, KNIGHT.lungeSpeed * KNIGHT.lungeTime + 20, e.radius * 2, 0xd0d8e8, 0.4);
+      } else if (e.kind === "commander" && e.state === "windup") {
+        this.lines.place(e.x, e.y, a, 820 * 0.7, e.radius * 2.4, 0xffd070, 0.4);
+      } else if ((e.kind === "commander" && e.state === "dwind") || (e.kind === "monarch" && e.state === "blinkwind")) {
+        this.lines.place(e.x, e.y, a, 180, e.radius * 2, 0xffffff, 0.5);
+      } else if (e.kind === "warper" && e.state === "cast") {
+        // The swap is aimed at the player: the mark is on them, closing as it comes.
+        const k = Math.max(0, e.t / WARPER.cast);
+        this.rings.place(p.x, p.y, 0, 30 + 60 * k, 30 + 60 * k, 0x40e0ff, 0.9);
+      } else if (e.kind === "monarch" && e.state === "dominion") {
+        this.rings.place(e.x, e.y, 0, 120, 120, 0xff5a60, 0.8);
+      }
+      if (e.kind === "warder") this.rings.place(e.x, e.y, 0, WARDER.aura, WARDER.aura, 0x7fd0ff, 0.18);
+      if (e.kind === "totem") {
+        const pulse = 60 + 30 * Math.sin(this.clock * 3 * TOTEM.damage);
+        this.rings.place(e.x, e.y, 0, pulse, pulse, 0xff4f6a, 0.45);
+      }
+      if (e.guard > 0) this.rings.place(e.x, e.y, 0, e.radius + 12, e.radius + 12, 0xffd84a, 0.7);
       if (e.kind === "brute" && e.state !== "recover") {
         // Faint arc showing where the shield blocks.
         this.rings.place(e.x, e.y, 0, e.radius + 10, e.radius + 10, 0x8fb4ff, 0.25);
@@ -618,6 +766,15 @@ export class Scene3D {
       this.circles.place(r.x, r.y, 0, 12, 12, ECHO_TINT, 0.5 * k);
     }
     for (const a of w.allies) this.rings.place(a.x, a.y, 0, a.radius + 6, a.radius + 6, ECHO_TINT, 0.35);
+
+    for (const patch of w.patches) {
+      const k = Math.min(1, patch.life);
+      const flick = 0.22 + 0.08 * Math.sin(this.clock * 9 + patch.x);
+      this.circles.place(patch.x, patch.y, 0, patch.radius, patch.radius, 0xff6a20, flick * k);
+      this.rings.place(patch.x, patch.y, 0, patch.radius, patch.radius, 0xff8a3c, 0.6 * k);
+    }
+    if (w.domainT > 0) this.rings.place(p.x, p.y, 0, 34, 34, 0x4f7bff, 0.7);
+    if (w.rallyTarget) this.rings.place(w.rallyTarget.x, w.rallyTarget.y, 0, w.rallyTarget.radius + 18, w.rallyTarget.radius + 18, 0xb9a4ff, 0.9);
 
     for (const z of w.zones) {
       const k = 1 - z.t / z.total;

@@ -1,5 +1,5 @@
 import { applyDamage, type Circle } from "./combat";
-import { PLAYER, type EnemyKind, type Rank, type SkillId } from "./config";
+import { PLAYER, STATUS, TOTEM, type EnemyKind, type Rank, type SkillId, type StatusId } from "./config";
 import type { Dungeon } from "./dungeon";
 import type { Slot } from "./items";
 import type { QuestState } from "./quests";
@@ -38,6 +38,26 @@ export interface Player extends Circle {
   /** Velocity from being thrown, decays quickly. */
   kx: number;
   ky: number;
+  ail: Ailments;
+  /** Where the cursor points on the ground, for skills aimed at a spot. */
+  aimX: number;
+  aimY: number;
+}
+
+/** Ailments on the player. Damage over time builds up in `owed` until it is a whole point. */
+export interface Ailments {
+  /** Poison stacks, and the time they have left. */
+  poison: number;
+  poisonT: number;
+  burnT: number;
+  slowT: number;
+  /** Seconds during which no new ailment can take hold. */
+  immune: number;
+  owed: number;
+}
+
+export function noAilments(): Ailments {
+  return { poison: 0, poisonT: 0, burnT: 0, slowT: 0, immune: 0, owed: 0 };
 }
 
 export interface Enemy extends Circle {
@@ -48,7 +68,7 @@ export interface Enemy extends Circle {
   dmg: number;
   xp: number;
   boss: boolean;
-  phase: 1 | 2;
+  phase: number;
   state: string;
   /** Time left in the current state. */
   t: number;
@@ -70,6 +90,15 @@ export interface Enemy extends Circle {
   inv: number;
   /** Cannot be damaged at all (penalty zone). */
   immortal?: boolean;
+  /** A point it is heading for, and where it set off from. */
+  tx: number;
+  ty: number;
+  sx: number;
+  sy: number;
+  /** Guard left before it is broken (knights). */
+  guard: number;
+  /** Seconds left slowed by the player's Domain. */
+  slowT: number;
 }
 
 export interface Projectile extends Circle {
@@ -77,6 +106,16 @@ export interface Projectile extends Circle {
   vy: number;
   damage: number;
   life: number;
+  status?: StatusId;
+}
+
+/** Ground that keeps hurting whoever stands on it. */
+export interface Patch {
+  x: number;
+  y: number;
+  radius: number;
+  life: number;
+  status: StatusId;
 }
 
 /** A telegraphed blast: it goes off when `t` reaches zero. */
@@ -89,6 +128,9 @@ export interface Zone {
   damage: number;
   /** If set and dead before the blast, the blast is cancelled. */
   owner?: Enemy;
+  status?: StatusId;
+  /** Leaves burning ground behind for this many seconds. */
+  patch?: number;
 }
 
 /** An expanding ring that must be dashed through. */
@@ -175,6 +217,8 @@ export interface Profile {
   lastClear: number;
   /** The hunter's own gate was neglected: a gate break is owed. */
   breakPending: boolean;
+  /** Which skill sits in each of the four slots. */
+  loadout: (SkillId | null)[];
 }
 
 /** A bound enemy. Active ones fight beside the player in every gate. */
@@ -233,8 +277,8 @@ export interface Settings {
   shake: boolean;
 }
 
-export type HubTab = "gates" | "shop" | "gear" | "quests" | "echoes" | "system";
-export const HUB_TABS: HubTab[] = ["gates", "shop", "gear", "quests", "echoes", "system"];
+export type HubTab = "gates" | "shop" | "gear" | "skills" | "quests" | "echoes" | "system";
+export const HUB_TABS: HubTab[] = ["gates", "shop", "gear", "skills", "quests", "echoes", "system"];
 
 /** Tabs on show: the Echoes tab appears once the class is earned. */
 export function visibleTabs(w: World): HubTab[] {
@@ -284,6 +328,14 @@ export interface World {
   emergency: { t: number; total: number; bonus: number } | null;
   /** Seconds left to survive in the penalty zone. */
   penaltyT: number;
+  patches: Patch[];
+  /** Rally: seconds left, and the enemy every echo is sent at. */
+  rallyT: number;
+  rallyTarget: Enemy | null;
+  /** Seconds left of the player's Domain. */
+  domainT: number;
+  /** Seconds the player's echoes are turned against them. */
+  turnedT: number;
   /** Echoes fighting in the current room. */
   allies: Ally[];
   allyShots: Projectile[];
@@ -346,11 +398,25 @@ export function floatText(w: World, x: number, y: number, text: string, color: s
   w.texts.push({ x, y, text, life: big ? 0.8 : 0.6, color, big });
 }
 
+/** Give the player an ailment, unless they are immune for the moment. */
+export function afflict(w: World, id: StatusId): void {
+  const a = w.player.ail;
+  if (a.immune > 0) return;
+  if (id === "poison") {
+    a.poison = Math.min(STATUS.poison.max, a.poison + 1);
+    a.poisonT = STATUS.poison.time;
+  } else if (id === "burn") a.burnT = STATUS.burn.time;
+  else a.slowT = STATUS.slow.time;
+}
+
 /** Damage the player unless invulnerable. Returns true when the hit landed. */
-export function hurtPlayer(w: World, amount: number): boolean {
+export function hurtPlayer(w: World, amount: number, status?: StatusId): boolean {
   const p = w.player;
   if (p.iframes > 0 || w.mode !== "gate") return false;
-  const dmg = Math.round(amount);
+  // A standing totem makes everything in the room hit harder.
+  const boost = w.enemies.some((e) => e.kind === "totem" && e.hp > 0) ? TOTEM.damage : 1;
+  const dmg = Math.round(amount * boost);
+  if (status) afflict(w, status);
   p.hp = applyDamage(p.hp, dmg);
   if (dmg > 0) w.run.tookDamage = true;
   p.iframes = PLAYER.hurtIframes;
@@ -365,11 +431,11 @@ export function hurtPlayer(w: World, amount: number): boolean {
 }
 
 /** An immediate blast: visual, plus damage if the player is inside. */
-export function blast(w: World, x: number, y: number, radius: number, damage: number, color = "#ff5a60"): void {
+export function blast(w: World, x: number, y: number, radius: number, damage: number, color = "#ff5a60", status?: StatusId): void {
   w.fx.push({ kind: "blast", x, y, radius, t: 0.3, total: 0.3, color });
   sfx(w, "blast");
   burst(w, x, y, color, 14, 300);
   w.shake = Math.max(w.shake, 5);
   const p = w.player;
-  if (Math.hypot(p.x - x, p.y - y) < radius + p.radius * 0.5) hurtPlayer(w, damage);
+  if (Math.hypot(p.x - x, p.y - y) < radius + p.radius * 0.5) hurtPlayer(w, damage, status);
 }

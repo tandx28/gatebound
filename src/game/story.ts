@@ -51,6 +51,22 @@ export const DIALOGUES: Record<string, Line[]> = {
     { speaker: LEDGER, text: "Where an enemy falls, a remnant lingers. Stand near it and press G. What you bind will fight for you." },
     { speaker: DOV, text: "There's something standing behind you. No, don't tell me. I don't want to know." },
   ],
+  m7: [
+    { speaker: LEDGER, text: "Rank B gate closed. You are no longer the only name on this page that matters." },
+    { speaker: MARA, text: "Someone asked for your file today. Not Association. He knew what an echo was before I did." },
+  ],
+  m8: [
+    { speaker: MARA, text: "I mapped where every gate has opened for ten years. They are not scattered. They are a grid, and it is nearly complete." },
+    { speaker: LEDGER, text: "A Rank S gate will open. It is not a test of you. You are the test." },
+  ],
+  m9: [
+    { speaker: "", text: "The Hollow Monarch comes apart like ash in a draught. The gate behind it does not close. It waits." },
+    { speaker: LEDGER, text: "Measurement complete." },
+    { speaker: "", text: "To be continued." },
+  ],
+  rankB: [{ speaker: MARA, text: "Rank B. There are forty hunters of that rank in Veyra. Thirty-nine of them have a guild." }],
+  rankA: [{ speaker: DOV, text: "Rank A. I told the lads I knew you when you carried bags. They think I'm lying." }],
+  rankS: [{ speaker: MARA, text: "Rank S. The form has no box for it. I drew one." }],
   rankD: [
     { speaker: MARA, text: "The Association has re-evaluated you. Rank D. I had to requisition a new card; nobody has gone up a rank in this office before." },
     { speaker: MARA, text: "The shop keeps better stock for Rank D hunters. Apparently you are worth the good stuff now." },

@@ -1,4 +1,4 @@
-import { echoCap, KINDS, RANK_IDS, RESET, VIEW_H, VIEW_W, type Rank } from "./config";
+import { bossEchoCap, echoCap, KINDS, RANK_IDS, RESET, SKILL_IDS, SKILL_RANK, SKILL_SLOTS, SKILLS, VIEW_H, VIEW_W, type Rank } from "./config";
 import { describeBonus, ITEMS, POTION, sellValue, SLOTS, STONE, TITLES, type Rarity } from "./items";
 import { activeEchoes, canActivate, riteOpen } from "./profile";
 import { visibleTabs, type World } from "./state";
@@ -29,12 +29,13 @@ export function pointIn(r: Rect, x: number, y: number): boolean {
   return x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
 }
 
-/** Gate card `i` on the gate board. */
+/** Gate card `i` on the gate board: six ranks, three to a row. */
 export function gateCard(i: number): Rect {
-  const w = 260;
-  const gap = 40;
+  const w = 280;
+  const h = 146;
+  const gap = 24;
   const x0 = VIEW_W / 2 - (w * 3 + gap * 2) / 2;
-  return { x: x0 + i * (w + gap), y: 236, w, h: 290 };
+  return { x: x0 + (i % 3) * (w + gap), y: 226 + Math.floor(i / 3) * (h + 16), w, h };
 }
 
 /**
@@ -134,7 +135,11 @@ export function hubHeadings(w: World): { x: number; y: number; text: string }[] 
   const y = TOP - 14;
   if (w.tab === "shop") return [{ x: LEFT, y, text: "TODAY'S STOCK" }, { x: RIGHT, y, text: "YOUR ITEMS" }];
   if (w.tab === "echoes") {
-    return [{ x: LEFT, y, text: `YOUR ECHOES   ·   fighting ${activeEchoes(w.profile)} of ${echoCap(w.player.prog.level)}   ·   only one boss echo at a time` }];
+    const level = w.player.prog.level;
+    return [{ x: LEFT, y, text: `YOUR ECHOES   ·   fighting ${activeEchoes(w.profile)} of ${echoCap(level)}   ·   boss echoes at once: ${bossEchoCap(level)}` }];
+  }
+  if (w.tab === "skills") {
+    return [{ x: LEFT, y, text: "SKILLS   ·   click a slot to put a skill in it; click it again to clear it" }];
   }
   if (w.tab === "gear") {
     return [
@@ -171,14 +176,14 @@ export function hubButtons(w: World): Button[] {
       out.push({ rect: gateCard(i), id: `gate:${rank}`, label: rank, enabled: true, kind: "card", rank });
     });
     out.push({
-      rect: { x: VIEW_W / 2 - 150, y: 542, w: 300, h: 36 },
+      rect: { x: VIEW_W / 2 - 310, y: 556, w: 300, h: 36 },
       id: "gate:key",
       label: `KEY DUNGEON   (keys: ${pr.keys})`,
       enabled: pr.keys > 0,
       kind: "plain",
     });
     if (riteOpen(pr)) {
-      out.push({ rect: { x: VIEW_W / 2 - 150, y: 586, w: 300, h: 36 }, id: "gate:rite", label: "RITE OF ECHOES", enabled: true, kind: "plain", on: true });
+      out.push({ rect: { x: VIEW_W / 2 + 10, y: 556, w: 300, h: 36 }, id: "gate:rite", label: "RITE OF ECHOES", enabled: true, kind: "plain", on: true });
     }
   } else if (w.tab === "shop") {
     pr.shop.stock.forEach((id, i) => {
@@ -224,13 +229,41 @@ export function hubButtons(w: World): Button[] {
     pr.inventory.forEach((id, i) => {
       out.push(itemRow(RIGHT, i, `equip:${id}`, id, "EQUIP", true));
     });
+  } else if (w.tab === "skills") {
+    const level = w.player.prog.level;
+    SKILL_IDS.forEach((id, i) => {
+      const s = SKILLS[id];
+      const open = level >= s.level;
+      const rank = pr.skillRanks[id];
+      const y = TOP + i * 52;
+      SKILL_SLOTS.forEach((slot, j) => {
+        const b: Button = {
+          rect: { x: LEFT + 560 + j * 76, y, w: 66, h: 30 },
+          id: `slot:${j}:${id}`,
+          label: slot.key,
+          enabled: open,
+          kind: j === 0 ? "row" : "plain",
+          on: pr.loadout[j] === id,
+        };
+        if (j === 0) {
+          b.text = `${s.name}${rank > 1 ? `  ${"I".repeat(rank)}` : ""}`;
+          b.sub = open ? `${s.about}  ·  ${s.mana} mana  ·  rank ${rank} of ${SKILL_RANK.max}` : `Unlocks at level ${s.level}`;
+          b.textX = LEFT;
+        }
+        out.push(b);
+      });
+    });
   } else if (w.tab === "echoes") {
+    // Two columns of ten.
     pr.echoes.forEach((e, i) => {
       const boss = KINDS[e.kind].boss;
-      const b = row(LEFT, i, `echo:toggle:${i}`, e.active ? "FIGHTING" : "RESERVE", e.active || canActivate(w, e.kind), `${KINDS[e.kind].name} echo`, `Rank ${e.rank}${boss ? "  ·  boss" : ""}`, e.active);
+      const col = i < 10 ? 60 : 660;
+      const r = i % 10;
+      const b = row(col, r, `echo:toggle:${i}`, e.active ? "FIGHTING" : "RESERVE", e.active || canActivate(w, e.kind), `${KINDS[e.kind].name} echo`, `Rank ${e.rank}${boss ? "  ·  boss" : ""}`, e.active);
+      b.rect = { x: col + 330, y: TOP + r * ROW_H, w: 90, h: 28 };
       if (boss) b.rarity = "epic";
       out.push(b);
-      out.push({ rect: { x: LEFT + 470, y: TOP + i * ROW_H, w: 90, h: 28 }, id: `echo:release:${i}`, label: "RELEASE", enabled: true, kind: "plain" });
+      out.push({ rect: { x: col + 430, y: TOP + r * ROW_H, w: 90, h: 28 }, id: `echo:release:${i}`, label: "RELEASE", enabled: true, kind: "plain" });
     });
   } else if (w.tab === "system") {
     const labels: [string, string][] = [

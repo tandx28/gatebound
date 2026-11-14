@@ -1,8 +1,10 @@
 import { seeded } from "../engine/rng";
 import { clamp } from "../engine/vec";
 import {
+  bossEchoCap,
   BREAK,
-  DAILY,
+  dailyGoals,
+  DEFAULT_LOADOUT,
   ECHO,
   echoCap,
   HIDDEN,
@@ -57,7 +59,8 @@ export function newProfile(): Profile {
     daily: { day: 0, kills: 0, rooms: 0, gates: 0, done: false },
     penaltyPending: false,
     hunterRank: "E",
-    skillRanks: { pierce: 1, whirl: 1, surge: 1 },
+    skillRanks: { pierce: 1, whirl: 1, surge: 1, rally: 1, blink: 1, domain: 1 },
+    loadout: [...DEFAULT_LOADOUT],
     classUnlocked: false,
     echoes: [],
     lastClear: 0,
@@ -119,8 +122,10 @@ export function activeEchoes(profile: Profile): number {
 /** Whether one more echo of this kind may be set active. Only one boss echo at a time. */
 export function canActivate(w: World, kind: Enemy["kind"]): boolean {
   const pr = w.profile;
-  if (activeEchoes(pr) >= echoCap(w.player.prog.level)) return false;
-  return !KINDS[kind].boss || !pr.echoes.some((e) => e.active && KINDS[e.kind].boss);
+  const level = w.player.prog.level;
+  if (activeEchoes(pr) >= echoCap(level)) return false;
+  if (!KINDS[kind].boss) return true;
+  return pr.echoes.filter((e) => e.active && KINDS[e.kind].boss).length < bossEchoCap(level);
 }
 
 /** A skill book for a skill that can still improve, counting books already found. */
@@ -241,11 +246,12 @@ function dailyEvent(w: World, ev: QuestEvent): void {
   else if (ev.type === "gate") d.gates += 1;
   else return;
   w.dirty = true;
-  if (d.kills < DAILY.kills || d.rooms < DAILY.rooms || d.gates < DAILY.gates) return;
+  const goal = dailyGoals(w.profile.hunterRank);
+  if (d.kills < goal.kills || d.rooms < goal.rooms || d.gates < goal.gates) return;
   d.done = true;
-  w.player.prog.points += DAILY.points;
+  w.player.prog.points += goal.points;
   w.profile.potions = POTION.max;
-  w.notices.push({ title: "DAILY QUEST COMPLETE", body: `+${DAILY.points} stat points  ·  potions refilled`, life: 5 });
+  w.notices.push({ title: "DAILY QUEST COMPLETE", body: `+${goal.points} stat points  ·  potions refilled`, life: 5 });
   sfx(w, "quest");
 }
 
@@ -515,6 +521,19 @@ function hubActionInner(w: World, verb: string, arg: string, extra: string | und
         pr.inventory.push(arg);
       }
       break;
+    case "slot": {
+      // Put a skill in a slot. If it sat in another slot, the two trade places.
+      const i = Number(arg);
+      const id = extra as SkillId;
+      if (!(i >= 0 && i < pr.loadout.length) || !SKILL_IDS.includes(id)) return null;
+      const from = pr.loadout.indexOf(id);
+      if (from === i) pr.loadout[i] = null;
+      else {
+        if (from >= 0) pr.loadout[from] = pr.loadout[i];
+        pr.loadout[i] = id;
+      }
+      break;
+    }
     case "echo": {
       const i = Number(extra);
       const echo = pr.echoes[i];

@@ -688,7 +688,7 @@ describe("saving inside a gate", () => {
     const cases: ((g: any) => void)[] = [
       (g) => (g.dungeon.rooms[1].doors.n = 99),
       (g) => (g.roomId = 50),
-      (g) => (g.rank = "S"),
+      (g) => (g.rank = "Z"),
       (g) => (g.dungeon.rooms[1].spawns = ["dragon"]),
       (g) => (g.dungeon.rooms = []),
       (g) => (g.kind = "penalty"),

@@ -27,6 +27,9 @@ export const RANK_WEIGHT: Record<Rank, Record<Rarity, number>> = {
   E: RARITY_WEIGHT,
   D: { common: 35, uncommon: 35, rare: 22, epic: 8 },
   C: { common: 20, uncommon: 35, rare: 30, epic: 15 },
+  B: { common: 12, uncommon: 30, rare: 36, epic: 22 },
+  A: { common: 6, uncommon: 24, rare: 40, epic: 30 },
+  S: { common: 2, uncommon: 16, rare: 42, epic: 40 },
 };
 const PRICE: Record<Rarity, number> = { common: 60, uncommon: 180, rare: 450, epic: 1000 };
 

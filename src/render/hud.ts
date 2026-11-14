@@ -1,17 +1,20 @@
 import {
   BREAK,
-  DAILY,
+  dailyGoals,
   ECHO,
   KINDS,
   PENALTY,
   PLAYER,
   RANKS,
+  PHASES,
   RITE,
-  SKILL_IDS,
+  SKILL_SLOTS,
+  STATUS,
   SKILLS,
   VIEW_H,
   VIEW_W,
 } from "../game/config";
+import type { Rank } from "../game/config";
 import type { World } from "../game/state";
 import { NOTICES_SHOWN } from "../game/world";
 import { POTION, STONE, TITLES, type Rarity } from "../game/items";
@@ -36,8 +39,8 @@ const BLUE = "#3aa0ff";
 const CYAN = "#5ee6ff";
 const GOLD = "#ffd84a";
 const FONT = '"SF Mono", Menlo, Consolas, monospace';
-const RANK_CSS = { E: "#3aa0ff", D: "#35e0a0", C: "#b070ff" } as const;
-const RANK_KEY = { E: 1, D: 2, C: 3 } as const;
+const RANK_CSS: Record<Rank, string> = { E: "#3aa0ff", D: "#35e0a0", C: "#b070ff", B: "#ff9a3c", A: "#ff4f6a", S: "#ffe9a0" };
+const RANK_KEY: Record<Rank, number> = { E: 1, D: 2, C: 3, B: 4, A: 5, S: 6 };
 const RARITY_CSS: Record<Rarity, string> = { common: "#cfd8e6", uncommon: "#6dff9c", rare: "#5aa8ff", epic: "#c58bff" };
 
 type Ctx = CanvasRenderingContext2D;
@@ -126,20 +129,53 @@ function drawVitals(ctx: Ctx, w: World): void {
   }
 }
 
+/** Ailments on the player, as small labelled chips by the health panel. */
+function drawAilments(ctx: Ctx, w: World): void {
+  const a = w.player.ail;
+  const chips: [string, string][] = [];
+  if (a.poison > 0) chips.push([`POISON x${a.poison}`, "#8fe04a"]);
+  if (a.burnT > 0) chips.push(["BURN", "#ff8a3c"]);
+  if (a.slowT > 0) chips.push([`SLOW -${Math.round((1 - STATUS.slow.speed) * 100)}%`, "#40e0ff"]);
+  if (w.turnedT > 0) chips.push(["ECHOES TURNED", "#ff5a60"]);
+  let x = 310;
+  ctx.textAlign = "left";
+  ctx.font = `bold 11px ${FONT}`;
+  for (const [label, color] of chips) {
+    const cw = ctx.measureText(label).width + 16;
+    ctx.fillStyle = "rgba(4,6,11,0.8)";
+    ctx.fillRect(x, 20, cw, 22);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(x + 0.5, 20.5, cw, 22);
+    ctx.fillStyle = color;
+    ctx.fillText(label, x + 8, 35);
+    x += cw + 8;
+  }
+}
+
 function drawSkills(ctx: Ctx, w: World): void {
   const p = w.player;
   const size = 58;
   const gap = 12;
-  const x0 = VIEW_W / 2 - (size * 3 + gap * 2) / 2;
+  const slots = w.profile.loadout;
+  const x0 = VIEW_W / 2 - (size * slots.length + gap * (slots.length - 1)) / 2;
   const y = VIEW_H - 96;
-  SKILL_IDS.forEach((id, i) => {
-    const s = SKILLS[id];
+  slots.forEach((id, i) => {
     const x = x0 + i * (size + gap);
+    panel(ctx, x, y, size, size);
+    ctx.textAlign = "center";
+    if (!id) {
+      ctx.fillStyle = "#34507f";
+      ctx.font = `bold 14px ${FONT}`;
+      ctx.fillText(SKILL_SLOTS[i].key, x + size / 2, y + 28);
+      ctx.font = `10px ${FONT}`;
+      ctx.fillText("EMPTY", x + size / 2, y + 44);
+      return;
+    }
+    const s = SKILLS[id];
     const locked = p.prog.level < s.level;
     const cd = p.skillCd[id];
     const poor = p.mana < s.mana;
-    panel(ctx, x, y, size, size);
-    ctx.textAlign = "center";
     if (locked) {
       ctx.fillStyle = "#4a5f85";
       ctx.font = `bold 11px ${FONT}`;
@@ -150,12 +186,13 @@ function drawSkills(ctx: Ctx, w: World): void {
     }
     if (cd > 0) {
       ctx.fillStyle = "rgba(4,6,11,0.7)";
-      const h = size * (cd / s.cooldown);
+      const h = size * Math.min(1, cd / s.cooldown);
       ctx.fillRect(x + 1, y + size - h, size - 1, h);
     }
-    ctx.font = `bold 20px ${FONT}`;
-    ctx.fillStyle = cd > 0 || poor ? "#56719c" : id === "surge" && p.surgeT > 0 ? GOLD : "#cfe4ff";
-    ctx.fillText(s.key, x + size / 2, y + 28);
+    const lit = (id === "surge" && p.surgeT > 0) || (id === "rally" && w.rallyT > 0) || (id === "domain" && w.domainT > 0);
+    ctx.font = `bold ${SKILL_SLOTS[i].key.length > 1 ? 14 : 20}px ${FONT}`;
+    ctx.fillStyle = cd > 0 || poor ? "#56719c" : lit ? GOLD : "#cfe4ff";
+    ctx.fillText(SKILL_SLOTS[i].key, x + size / 2, y + 28);
     // Skill rank, raised by skill books.
     const rank = w.profile.skillRanks[id];
     if (rank > 1) {
@@ -225,9 +262,16 @@ function drawBossBar(ctx: Ctx, w: World): void {
   ctx.fillStyle = "rgba(4,6,11,0.8)";
   ctx.fillRect(x - 2, 46, bw + 4, 14);
   bar(ctx, x, 48, bw, 10, boss.hp / boss.maxHp, boss.phase === 2 ? "#ff2030" : "#ff5a60");
-  // Tick at the phase change.
+  // A tick at each phase change.
   ctx.fillStyle = "#04060b";
-  ctx.fillRect(x + bw / 2 - 1, 48, 2, 10);
+  const phases = PHASES[boss.kind] ?? 2;
+  for (let i = 1; i < phases; i++) ctx.fillRect(x + (bw * i) / phases - 1, 48, 2, 10);
+  if (boss.guard > 0) {
+    ctx.textAlign = "center";
+    ctx.font = `bold 10px ${FONT}`;
+    ctx.fillStyle = "#d0d8e8";
+    ctx.fillText("GUARD UP: break it", VIEW_W / 2, 72);
+  }
 }
 
 function drawNotices(ctx: Ctx, w: World): void {
@@ -347,7 +391,7 @@ function drawGateCard(ctx: Ctx, w: World, b: Button, hover: boolean): void {
   const def = RANKS[rank];
   const over = w.player.prog.level < def.minLevel;
   ctx.shadowColor = RANK_CSS[rank];
-  ctx.shadowBlur = hover ? 30 : 10;
+  ctx.shadowBlur = hover ? 26 : 8;
   ctx.fillStyle = hover ? "rgba(14,26,52,0.95)" : "rgba(8,16,34,0.9)";
   ctx.fillRect(r.x, r.y, r.w, r.h);
   ctx.shadowBlur = 0;
@@ -355,27 +399,32 @@ function drawGateCard(ctx: Ctx, w: World, b: Button, hover: boolean): void {
   ctx.lineWidth = hover ? 2.5 : 1.5;
   ctx.strokeRect(r.x + 0.5, r.y + 0.5, r.w, r.h);
 
-  const cx = r.x + r.w / 2;
+  // The rank letter on the left, the details beside it.
   ctx.textAlign = "center";
-  ctx.font = `bold 84px ${FONT}`;
+  ctx.font = `bold 72px ${FONT}`;
   ctx.fillStyle = RANK_CSS[rank];
-  ctx.fillText(rank, cx, r.y + 104);
+  ctx.fillText(rank, r.x + 52, r.y + 96);
+  const x = r.x + 104;
+  ctx.textAlign = "left";
   ctx.font = `bold 13px ${FONT}`;
   ctx.fillStyle = "#cfe4ff";
-  ctx.fillText(`RANK ${rank} GATE`, cx, r.y + 138);
+  ctx.fillText(`RANK ${rank} GATE`, x, r.y + 30);
   ctx.font = `12px ${FONT}`;
   ctx.fillStyle = "#9fc8ff";
-  ctx.fillText(`Suited to level ${def.minLevel}+`, cx, r.y + 166);
-  ctx.fillText(`${def.rooms} rooms`, cx, r.y + 186);
-  ctx.fillText(def.kinds.map((k) => KINDS[k].name).join(" · "), cx, r.y + 206);
+  ctx.fillText(`Level ${def.minLevel}+   ·   ${def.rooms} rooms`, x, r.y + 52);
+  ctx.font = `11px ${FONT}`;
+  ctx.fillStyle = "#6f8fbf";
+  const names = [...new Set(def.kinds.map((k) => KINDS[k].name))];
+  ctx.fillText(names.slice(0, 3).join(" · "), x, r.y + 72);
+  if (names.length > 3) ctx.fillText(names.slice(3).join(" · "), x, r.y + 88);
   if (over) {
-    ctx.font = `bold 12px ${FONT}`;
+    ctx.font = `bold 11px ${FONT}`;
     ctx.fillStyle = "#ff5a60";
-    ctx.fillText("DANGER: ABOVE YOUR LEVEL", cx, r.y + 238);
+    ctx.fillText("DANGER: ABOVE YOUR LEVEL", x, r.y + 110);
   }
   ctx.font = `11px ${FONT}`;
   ctx.fillStyle = "#6f8fbf";
-  ctx.fillText(`press ${RANK_KEY[rank]} or click`, cx, r.y + r.h - 16);
+  ctx.fillText(`press ${RANK_KEY[rank]} or click`, x, r.y + r.h - 12);
 }
 
 function drawButton(ctx: Ctx, w: World, b: Button): void {
@@ -431,10 +480,11 @@ function drawQuests(ctx: Ctx, w: World): void {
     ctx.font = `bold 12px ${FONT}`;
     ctx.fillStyle = d.done ? "#6dff9c" : CYAN;
     ctx.fillText(d.done ? "DAILY QUEST  ·  COMPLETE" : "DAILY QUEST  ·  miss it and the penalty zone follows", x, y - 22);
+    const goal = dailyGoals(w.profile.hunterRank);
     const goals: [string, number, number][] = [
-      ["Kill enemies", d.kills, DAILY.kills],
-      ["Clear rooms", d.rooms, DAILY.rooms],
-      ["Clear a gate", d.gates, DAILY.gates],
+      ["Kill enemies", d.kills, goal.kills],
+      ["Clear rooms", d.rooms, goal.rooms],
+      [goal.gates > 1 ? "Clear gates" : "Clear a gate", d.gates, goal.gates],
     ];
     goals.forEach(([label, got, goal], i) => {
       const gx = x + i * 270;
@@ -444,7 +494,7 @@ function drawQuests(ctx: Ctx, w: World): void {
       bar(ctx, gx, y + 7, 230, 5, got / goal, d.done ? "#6dff9c" : CYAN);
     });
     ctx.fillStyle = "#6f8fbf";
-    ctx.fillText(`Reward: ${DAILY.points} stat points, potions refilled`, x, y + 32);
+    ctx.fillText(`Reward: ${goal.points} stat points, potions refilled`, x, y + 32);
     y += 78;
   }
   ctx.textAlign = "left";
@@ -732,6 +782,7 @@ export function drawHud(ctx: Ctx, w: World, mouseX: number, mouseY: number, proj
   } else {
     drawWorldLabels(ctx, w, project);
     drawVitals(ctx, w);
+    drawAilments(ctx, w);
     drawPurse(ctx, w);
     drawSkills(ctx, w);
     drawMinimap(ctx, w);
@@ -741,7 +792,7 @@ export function drawHud(ctx: Ctx, w: World, mouseX: number, mouseY: number, proj
     ctx.font = `12px ${FONT}`;
     ctx.fillStyle = "rgba(159,200,255,0.55)";
     ctx.fillText(
-      `WASD move · MOUSE aim · CLICK attack · SPACE dash · Q E R skills · F potion · T stone${w.profile.classUnlocked ? " · G bind" : ""} · C status · ESC pause`,
+      `WASD move · MOUSE aim · CLICK attack · SPACE dash · Q E R RMB skills · F potion · T stone${w.profile.classUnlocked ? " · G bind" : ""} · C status · ESC pause`,
       VIEW_W / 2,
       VIEW_H - 14,
     );

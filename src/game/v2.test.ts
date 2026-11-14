@@ -3,7 +3,7 @@ import { musicState } from "../audio/director";
 import type { Controls } from "../engine/input";
 import { seeded } from "../engine/rng";
 import { makeAlly, stepAlly } from "./allies";
-import { BREAK, ECHO, echoCap, KINDS, PLAYER, RANKS, RESET, RITE, ROOM, SKILL_RANK, SKILLS, STEP, SURGE, WHIRL, type EnemyKind } from "./config";
+import { BREAK, ECHO, echoCap, KINDS, PLAYER, RANKS, RESET, RITE, ROOM, SKILL_IDS, SKILL_RANK, SKILLS, STEP, SURGE, WHIRL, type EnemyKind } from "./config";
 import { makeEnemy } from "./enemies";
 import { ITEMS, RANK_WEIGHT, rollStock } from "./items";
 import { hubAction, riteOpen, settleClear, syncDay } from "./profile";
@@ -168,7 +168,7 @@ describe("skill books", () => {
     const w = createWorld(() => 0.5);
     const c = new FakeControls();
     enterArena(w, "E");
-    w.profile.skillRanks = { pierce: 3, whirl: 3, surge: 3 };
+    for (const id of SKILL_IDS) w.profile.skillRanks[id] = 3;
     w.rng = () => 0.01;
     fell(w, c, "warden", 300);
     expect(w.run.books).toEqual([]);
@@ -177,7 +177,8 @@ describe("skill books", () => {
   it("never stacks a skill past the top rank within one run", () => {
     const w = createWorld(() => 0.5);
     enterArena(w, "E");
-    w.profile.skillRanks = { pierce: 3, whirl: 2, surge: 3 };
+    for (const id of SKILL_IDS) w.profile.skillRanks[id] = 3;
+    w.profile.skillRanks.whirl = 2;
     w.run.books = ["whirl", "whirl"];
     settleClear(w);
     expect(w.profile.skillRanks.whirl).toBe(SKILL_RANK.max);
@@ -278,7 +279,7 @@ describe("rite of echoes", () => {
     run(w, c, 2.5);
     expect(w.mode).toBe("cleared");
     expect(w.profile.classUnlocked).toBe(true);
-    expect(w.profile.quests.main).toBe(MAIN.length);
+    expect(w.profile.quests.main).toBe(MAIN.findIndex((q) => q.id === "m6") + 1);
     expect(w.player.prog.points).toBe(points + 5);
     expect(w.pendingDialogue).toContain("m6");
     expect(visibleTabs(w)).toContain("echoes");
@@ -422,12 +423,13 @@ describe("remnants and binding", () => {
     expect(w.profile.echoes[1]).toEqual({ kind: "summoner", rank: "C", active: false });
   });
 
-  it("the squad grows with level, from two up to five", () => {
+  it("the squad grows with level, from two up to ten", () => {
     expect(echoCap(1)).toBe(2);
     expect(echoCap(13)).toBe(2);
-    expect(echoCap(16)).toBe(3);
-    expect(echoCap(19)).toBe(4);
-    expect(echoCap(99)).toBe(5);
+    expect(echoCap(18)).toBe(3);
+    expect(echoCap(30)).toBe(5);
+    expect(echoCap(60)).toBe(10);
+    expect(echoCap(99)).toBe(10);
   });
 });
 
@@ -518,8 +520,8 @@ describe("echoes in a fight", () => {
   });
 
   it("a boss echo hits far harder than a common one", () => {
-    const boss = makeAlly({ kind: "duellist", rank: "C", active: true }, 0, 0);
-    const common = makeAlly({ kind: "swarmer", rank: "C", active: true }, 0, 0);
+    const boss = makeAlly({ kind: "duellist", rank: "C", active: true }, 0, 0, 40);
+    const common = makeAlly({ kind: "swarmer", rank: "C", active: true }, 0, 0, 40);
     expect(boss.dmg).toBeGreaterThan(common.dmg * 2);
   });
 
@@ -681,7 +683,8 @@ describe("save, version 2", () => {
     const w = board();
     w.profile.hunterRank = "C";
     w.profile.classUnlocked = true;
-    w.profile.skillRanks = { pierce: 2, whirl: 3, surge: 1 };
+    w.profile.skillRanks.pierce = 2;
+    w.profile.skillRanks.whirl = 3;
     w.profile.echoes = [
       { kind: "warden", rank: "E", active: true },
       { kind: "brute", rank: "C", active: false },
@@ -708,7 +711,7 @@ describe("save, version 2", () => {
     expect(data.v).toBe(SAVE_VERSION);
     expect(data.profile.gold).toBe(77);
     expect(data.profile.hunterRank).toBe("E");
-    expect(data.profile.skillRanks).toEqual({ pierce: 1, whirl: 1, surge: 1 });
+    for (const id of SKILL_IDS) expect(data.profile.skillRanks[id]).toBe(1);
     expect(data.profile.classUnlocked).toBe(false);
     expect(data.profile.echoes).toEqual([]);
   });
@@ -721,16 +724,16 @@ describe("save, version 2", () => {
     const raw = JSON.parse(JSON.stringify(toSave(veteran())));
     raw.profile.echoes = [
       { kind: "dragon", rank: "C", active: true },
-      { kind: "swarmer", rank: "S", active: true },
+      { kind: "swarmer", rank: "Z", active: true },
       "nonsense",
       ...Array.from({ length: 20 }, () => ({ kind: "swarmer", rank: "C", active: false })),
     ];
     raw.profile.skillRanks = { pierce: 99, whirl: -3, surge: "x" };
-    raw.profile.hunterRank = "S";
+    raw.profile.hunterRank = "Z";
     const data = parseSave(raw)!;
     expect(data.profile.echoes.length).toBeLessThanOrEqual(ECHO.roster);
     expect(data.profile.echoes.every((e) => e.kind === "swarmer" && e.rank === "C")).toBe(true);
-    expect(data.profile.skillRanks).toEqual({ pierce: 3, whirl: 1, surge: 1 });
+    expect(data.profile.skillRanks).toMatchObject({ pierce: 3, whirl: 1, surge: 1 });
     expect(data.profile.hunterRank).toBe("E");
   });
 

@@ -38,6 +38,9 @@ export const MAIN: QuestDef[] = [
   { id: "m4", title: "The Choir Below", desc: "Clear a Rank D gate", goal: 1, reward: { gold: 250, points: 3 }, count: gateOf("D") },
   { id: "m5", title: "What the Mirror Shows", desc: "Clear a Rank C gate", goal: 1, reward: { gold: 600, points: 5 }, count: gateOf("C") },
   { id: "m6", title: "The Ledger's Offer", desc: "Complete the Rite of Echoes, on the gate board", goal: 1, reward: { gold: 0, points: 5 }, count: (ev) => (ev.type === "rite" ? 1 : 0) },
+  { id: "m7", title: "The Other Candidate", desc: "Clear a Rank B gate", goal: 1, reward: { gold: 1500, points: 5 }, count: gateOf("B") },
+  { id: "m8", title: "The Measure of the City", desc: "Clear a Rank A gate", goal: 1, reward: { gold: 4000, points: 6 }, count: gateOf("A") },
+  { id: "m9", title: "The Hollow Monarch", desc: "Clear the Rank S gate", goal: 1, reward: { gold: 10000, points: 10 }, count: gateOf("S") },
 ];
 
 /** Side quests, all open from the start. */

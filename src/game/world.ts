@@ -3,7 +3,10 @@ import { clamp, norm } from "../engine/vec";
 import { makeAlly, stepAlly, stepAllyShots } from "./allies";
 import { circlesOverlap, inArc, rollDamage, separate } from "./combat";
 import {
+  BLINK,
   BREAK,
+  COLOSSUS,
+  DOMAIN,
   ECHO,
   echoCap,
   EMERGENCY,
@@ -12,6 +15,7 @@ import {
   PENALTY,
   PIERCE,
   PLAYER,
+  RALLY,
   RANK_IDS,
   rankForLevel,
   RANKS,
@@ -21,6 +25,8 @@ import {
   SKILL_RANK,
   SKILL_IDS,
   SKILLS,
+  SKILL_SLOTS,
+  STATUS,
   SURGE,
   WHIRL,
   type EnemyKind,
@@ -30,10 +36,12 @@ import {
 import { addTrialRoom, generateDungeon, keyDungeon, OPPOSITE, type Dungeon, type RoomNode, type Side } from "./dungeon";
 import { damageEnemy, isCommitted, spawnEnemy, spawnPoint, stepEnemy } from "./enemies";
 import {
+  afflict,
   blast,
   burst,
   floatText,
   hurtPlayer,
+  noAilments,
   sfx,
   visibleTabs,
   type Enemy,
@@ -86,6 +94,11 @@ export function createWorld(rng: () => number = Math.random): World {
     coldT: 0,
     emergency: null,
     penaltyT: 0,
+    patches: [],
+    rallyT: 0,
+    rallyTarget: null,
+    domainT: 0,
+    turnedT: 0,
     allies: [],
     allyShots: [],
     remnants: [],
@@ -119,7 +132,10 @@ export function createWorld(rng: () => number = Math.random): World {
       attackFacing: 0,
       swingId: 0,
       hurtFlash: 0,
-      skillCd: { pierce: 0, whirl: 0, surge: 0 },
+      skillCd: noCooldowns(),
+      ail: noAilments(),
+      aimX: ROOM.w / 2 + 100,
+      aimY: ROOM.h / 2,
       lungeT: 0,
       lungePower: 1,
       lungeX: 1,
@@ -161,6 +177,15 @@ function clearField(w: World): void {
   w.shockwaves = [];
   w.allyShots = [];
   w.remnants = [];
+  w.patches = [];
+  w.rallyT = 0;
+  w.rallyTarget = null;
+  w.domainT = 0;
+  w.turnedT = 0;
+}
+
+function noCooldowns(): Record<SkillId, number> {
+  return { pierce: 0, whirl: 0, surge: 0, rally: 0, blink: 0, domain: 0 };
 }
 
 /** Bring the active echoes onto the field, in a ring round the player. */
@@ -169,7 +194,7 @@ function deployAllies(w: World): void {
   const squad = w.profile.echoes.filter((e) => e.active).slice(0, echoCap(p.prog.level));
   w.allies = squad.map((echo, i) => {
     const a = (i / Math.max(1, squad.length)) * Math.PI * 2;
-    return makeAlly(echo, p.x + Math.cos(a) * 46, p.y + Math.sin(a) * 46);
+    return makeAlly(echo, p.x + Math.cos(a) * 46, p.y + Math.sin(a) * 46, p.d.damage);
   });
 }
 
@@ -186,7 +211,8 @@ function resetPlayer(p: Player): void {
   p.kx = 0;
   p.ky = 0;
   p.hurtFlash = 0;
-  p.skillCd = { pierce: 0, whirl: 0, surge: 0 };
+  p.skillCd = noCooldowns();
+  p.ail = noAilments();
 }
 
 /** Common setup for entering any kind of gate. The player enters rested. */
@@ -492,10 +518,47 @@ function useSkill(w: World, id: SkillId): void {
     }
     w.fx.push({ kind: "ring", x: p.x, y: p.y, radius: WHIRL.radius, t: 0.25, total: 0.25, color: "#5ee6ff" });
     w.shake = Math.max(w.shake, 5);
-  } else {
+  } else if (id === "surge") {
     p.surgeT = SURGE.time + SKILL_RANK.surgeTime * extra;
     burst(w, p.x, p.y, "#ffd84a", 20, 260);
     w.fx.push({ kind: "ring", x: p.x, y: p.y, radius: 80, t: 0.4, total: 0.4, color: "#ffd84a" });
+  } else if (id === "rally") {
+    // Every echo drops what it is doing and goes for the enemy nearest the cursor.
+    let best: Enemy | null = null;
+    let d = Infinity;
+    for (const e of w.enemies) {
+      const n = Math.hypot(e.x - p.aimX, e.y - p.aimY);
+      if (e.hp > 0 && n < d) {
+        d = n;
+        best = e;
+      }
+    }
+    w.rallyTarget = best;
+    w.rallyT = RALLY.time + 2 * extra;
+    if (best) w.fx.push({ kind: "ring", x: best.x, y: best.y, radius: best.radius + 30, t: 0.5, total: 0.5, color: "#b9a4ff" });
+  } else if (id === "blink") {
+    const dx = p.aimX - p.x;
+    const dy = p.aimY - p.y;
+    const reach = Math.min(BLINK.range, Math.hypot(dx, dy));
+    const dir = norm(dx, dy);
+    w.fx.push({ kind: "ring", x: p.x, y: p.y, radius: 40, t: 0.3, total: 0.3, color: "#5ee6ff" });
+    // It never crosses a wall: the far end is kept inside the room.
+    p.x = clamp(p.x + dir.x * reach, p.radius, ROOM.w - p.radius);
+    p.y = clamp(p.y + dir.y * reach, p.radius, ROOM.h - p.radius);
+    p.dashT = 0;
+    p.lungeT = 0;
+    p.kx = 0;
+    p.ky = 0;
+    p.iframes = Math.max(p.iframes, BLINK.iframes);
+    for (const e of w.enemies) {
+      if (Math.hypot(e.x - p.x, e.y - p.y) <= BLINK.radius + e.radius) strike(w, e, BLINK.mult * p.d.skillPower * power, 260);
+    }
+    w.fx.push({ kind: "ring", x: p.x, y: p.y, radius: BLINK.radius, t: 0.3, total: 0.3, color: "#5ee6ff" });
+  } else {
+    w.domainT = DOMAIN.time + extra;
+    for (const e of w.enemies) e.slowT = w.domainT;
+    w.fx.push({ kind: "ring", x: p.x, y: p.y, radius: 600, t: 0.6, total: 0.6, color: "#4f7bff" });
+    w.shake = Math.max(w.shake, 4);
   }
 }
 
@@ -609,19 +672,24 @@ function tryBind(w: World): void {
   burst(w, r.x, r.y, "#8a6cff", 24, 260);
   floatText(w, r.x, r.y, echo.active ? "BOUND" : "BOUND  (in reserve)", "#b9a4ff", true);
   // An echo with room in the squad rises where it fell and fights at once.
-  if (echo.active) w.allies.push(makeAlly(echo, r.x, r.y));
+  if (echo.active) w.allies.push(makeAlly(echo, r.x, r.y, p.d.damage));
 }
 
 function stepPlayer(w: World, input: Controls, dt: number): void {
   const p = w.player;
   const eff = effective(p);
   p.facing = Math.atan2(input.aimY - p.y, input.aimX - p.x);
+  p.aimX = input.aimX;
+  p.aimY = input.aimY;
 
   const axis = input.axis();
   const move = norm(axis.x, axis.y);
   p.moving = move.x !== 0 || move.y !== 0;
 
-  for (const id of SKILL_IDS) if (input.consume(SKILLS[id].code)) useSkill(w, id);
+  // Each of the four slots fires whatever skill the player put in it.
+  w.profile.loadout.forEach((id, i) => {
+    if (input.consume(SKILL_SLOTS[i].code) && id) useSkill(w, id);
+  });
   if (input.consume("KeyF")) usePotion(w);
   if (input.consume("KeyG")) tryBind(w);
   if (input.consume("KeyT")) {
@@ -656,8 +724,9 @@ function stepPlayer(w: World, input: Controls, dt: number): void {
     p.y += p.dashY * PLAYER.dashSpeed * dt;
     if (w.rng() < 0.6) w.particles.push({ x: p.x, y: p.y, vx: 0, vy: 0, life: 0.18, color: "#5ee6ff" });
   } else {
-    p.x += move.x * eff.moveSpeed * dt;
-    p.y += move.y * eff.moveSpeed * dt;
+    const slowed = p.ail.slowT > 0 ? STATUS.slow.speed : 1;
+    p.x += move.x * eff.moveSpeed * slowed * dt;
+    p.y += move.y * eff.moveSpeed * slowed * dt;
   }
   // Being thrown: carried on top of whatever else the player is doing.
   p.x += p.kx * dt;
@@ -698,6 +767,41 @@ function stepPlayer(w: World, input: Controls, dt: number): void {
   for (const id of SKILL_IDS) p.skillCd[id] = Math.max(0, p.skillCd[id] - dt);
 }
 
+/**
+ * Poison and burn wear health down a point at a time; they ignore the brief
+ * invulnerability of a dash, and they can kill.
+ */
+function stepAilments(w: World, dt: number): void {
+  const p = w.player;
+  const a = p.ail;
+  let share = 0;
+  if (a.poisonT > 0) {
+    share += a.poison * STATUS.poison.dps;
+    a.poisonT -= dt;
+    if (a.poisonT <= 0) a.poison = 0;
+  }
+  if (a.burnT > 0) {
+    share += STATUS.burn.dps;
+    a.burnT -= dt;
+  }
+  a.slowT = Math.max(0, a.slowT - dt);
+  a.immune = Math.max(0, a.immune - dt);
+  if (share <= 0) {
+    a.owed = 0;
+    return;
+  }
+  a.owed += share * p.d.maxHp * dt;
+  if (a.owed < 1) return;
+  const points = Math.floor(a.owed);
+  a.owed -= points;
+  p.hp = Math.max(0, p.hp - points);
+  w.run.tookDamage = true;
+  if (p.hp <= 0 && w.mode === "gate") {
+    w.mode = "dead";
+    sfx(w, "death");
+  }
+}
+
 function stepHazards(w: World, dt: number): void {
   const p = w.player;
 
@@ -707,7 +811,7 @@ function stepHazards(w: World, dt: number): void {
     s.life -= dt;
     if (s.x < 0 || s.x > ROOM.w || s.y < 0 || s.y > ROOM.h) s.life = 0;
     // A shot passes through a dashing player and keeps flying.
-    if (s.life > 0 && circlesOverlap(s, p) && hurtPlayer(w, s.damage)) s.life = 0;
+    if (s.life > 0 && circlesOverlap(s, p) && hurtPlayer(w, s.damage, s.status)) s.life = 0;
   }
   w.projectiles = w.projectiles.filter((s) => s.life > 0);
 
@@ -718,11 +822,22 @@ function stepHazards(w: World, dt: number): void {
     }
     z.t -= dt;
     if (z.t <= 0) {
-      blast(w, z.x, z.y, z.radius, z.damage);
+      blast(w, z.x, z.y, z.radius, z.damage, z.status === "burn" ? "#ff8a3c" : "#ff5a60", z.status);
+      if (z.patch) {
+        // The ground stays alight. Only so many patches at once: the oldest goes out.
+        w.patches.push({ x: z.x, y: z.y, radius: COLOSSUS.patchRadius, life: z.patch, status: z.status ?? "burn" });
+        if (w.patches.length > COLOSSUS.maxPatches) w.patches.shift();
+      }
       z.t = -1;
     }
   }
   w.zones = w.zones.filter((z) => z.t > 0);
+
+  for (const patch of w.patches) {
+    patch.life -= dt;
+    if (Math.hypot(p.x - patch.x, p.y - patch.y) < patch.radius && w.mode === "gate") afflict(w, patch.status);
+  }
+  w.patches = w.patches.filter((patch) => patch.life > 0);
 
   for (const s of w.shockwaves) {
     // A ring shows where it will start before it moves or can hurt.
@@ -910,7 +1025,15 @@ export function step(w: World, input: Controls, dt: number): void {
   // So does leaving by stone. (`mode` changes deep inside, so widen it.)
   if (w.roomId !== roomBefore || (w.mode as string) !== "gate") return;
 
-  for (const e of w.enemies) stepEnemy(w, e, dt);
+  // An enemy under the player's Domain lives at half speed.
+  for (const e of w.enemies) {
+    stepEnemy(w, e, e.slowT > 0 ? dt * DOMAIN.slow : dt);
+    e.slowT = Math.max(0, e.slowT - dt);
+  }
+  w.rallyT = Math.max(0, w.rallyT - dt);
+  w.domainT = Math.max(0, w.domainT - dt);
+  w.turnedT = Math.max(0, w.turnedT - dt);
+  if (w.rallyTarget && (w.rallyT <= 0 || w.rallyTarget.hp <= 0)) w.rallyTarget = null;
   if (w.spawnQueue.length > 0) {
     w.enemies.push(...w.spawnQueue);
     w.spawnQueue = [];
@@ -946,6 +1069,7 @@ export function step(w: World, input: Controls, dt: number): void {
   w.remnants = w.remnants.filter((r) => r.life > 0);
 
   stepHazards(w, dt);
+  stepAilments(w, dt);
   healPositions(w);
 
   let bossDied = false;

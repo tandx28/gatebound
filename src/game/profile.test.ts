@@ -7,7 +7,7 @@ import { ITEMS, POTION } from "./items";
 import { beginStory, DEATH, hubAction, settleClear, settleDeath } from "./profile";
 import { MAIN } from "./quests";
 import { applySave, parseSave, SAVE_VERSION, toSave } from "./save";
-import { xpToNext } from "./stats";
+import { LEVEL_CAP, xpToNext } from "./stats";
 import { DIALOGUES } from "./story";
 import { hubButtons } from "./ui";
 import { createWorld, enterArena, enterGate, grantXp, step, type World } from "./world";
@@ -459,7 +459,7 @@ describe("save", () => {
         introSeen: "yes",
       },
     })!;
-    expect(data.prog.level).toBe(20);
+    expect(data.prog.level).toBe(LEVEL_CAP);
     expect(data.prog.xp).toBe(0);
     expect(data.prog.points).toBe(0);
     expect(data.prog.stats).toEqual({ str: 5, agi: 9, vit: 5, sen: 5, int: 5 });

@@ -1,4 +1,4 @@
-import { ECHO, KINDS, RANK_IDS, SKILL_IDS, SKILL_RANK, type EnemyKind, type Rank } from "./config";
+import { ECHO, KINDS, RANK_IDS, SKILL_IDS, SKILL_RANK, type EnemyKind, type Rank, type SkillId } from "./config";
 import { SIDES, type Dungeon, type RoomNode } from "./dungeon";
 import { ITEMS, SHOP_POOL, SLOTS, STONE, TITLES } from "./items";
 import { newProfile, newRun, refreshDerived } from "./profile";
@@ -10,7 +10,8 @@ import { resumeGate, snapshotGate } from "./world";
 /** Save format, validation and migration. Storage itself lives in the shell. */
 
 /** 2 adds hunter rank, skill ranks, the class, echoes and gate breaks. */
-export const SAVE_VERSION = 2;
+/** 3 adds ranks B to S, three more skills and the skill loadout. */
+export const SAVE_VERSION = 3;
 export const SAVE_KEY = "gatebound.save";
 
 export interface SaveData {
@@ -135,6 +136,16 @@ export function parseSave(raw: unknown): SaveData | null {
       if (!isObj(e) || !KINDS[e.kind as EnemyKind] || !RANK_IDS.includes(e.rank as Rank)) continue;
       profile.echoes.push({ kind: e.kind as EnemyKind, rank: e.rank as Rank, active: e.active === true });
     }
+  }
+  // The loadout: four slots, each a known skill or empty, no skill twice.
+  if (Array.isArray(rf.loadout)) {
+    const seen = new Set<string>();
+    profile.loadout = profile.loadout.map((_, i) => {
+      const id = (rf.loadout as unknown[])[i];
+      if (typeof id !== "string" || !SKILL_IDS.includes(id as SkillId) || seen.has(id)) return null;
+      seen.add(id);
+      return id as SkillId;
+    });
   }
   // Echoes need the class; without it a save cannot hold any.
   if (!profile.classUnlocked) profile.echoes = [];

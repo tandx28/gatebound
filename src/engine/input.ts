@@ -49,6 +49,8 @@ export class Input implements Controls {
     canvas.addEventListener("mousedown", (e) => {
       // A press can arrive without a preceding move (touchpads, automation).
       track(e);
+      // The right button is the fourth skill slot.
+      if (e.button === 2) this.queued.add("Mouse2");
       if (e.button === 0) {
         this.attackHeld = true;
         // Also queue the press, so a click shorter than one frame still swings.

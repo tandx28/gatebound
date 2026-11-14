@@ -1,8 +1,8 @@
 import { norm } from "../engine/vec";
 import { circlesOverlap, clampToRoom } from "./combat";
-import { ECHO, KINDS, RANKS, ROOM, type EnemyKind } from "./config";
+import { DOMINION, ECHO, KINDS, RALLY, ROOM, type EnemyKind } from "./config";
 import { damageEnemy } from "./enemies";
-import { floatText, sfx, type Ally, type Echo, type Enemy, type World } from "./state";
+import { floatText, hurtPlayer, sfx, type Ally, type Echo, type Enemy, type World } from "./state";
 
 /**
  * Echoes on the field. They hunt the nearest enemy on their own. Enemies
@@ -21,7 +21,22 @@ const STYLE: Record<EnemyKind, Style> = {
   shooter: "ranged",
   summoner: "ranged",
   healer: "support",
+  leaper: "melee",
+  assassin: "melee",
+  knight: "melee",
+  egg: "melee",
+  commander: "melee",
+  warder: "sweep",
+  colossus: "sweep",
+  queen: "sweep",
+  pyro: "ranged",
+  warper: "ranged",
+  monarch: "ranged",
+  totem: "support",
 };
+
+/** A sweep hits many, a shot is safe: both deal less per hit than a blade. */
+const STYLE_DAMAGE: Record<Style, number> = { melee: 1, sweep: 0.8, ranged: 0.7, support: 0 };
 
 const SWEEP_RADIUS = 95;
 const HEAL = { share: 0.08, every: 6 };
@@ -30,7 +45,11 @@ export function echoName(e: Echo): string {
   return `${KINDS[e.kind].name} echo`;
 }
 
-export function makeAlly(echo: Echo, x: number, y: number): Ally {
+/**
+ * An echo's hit is a share of the player's own (`base`), so the army grows
+ * as the hunter does. Where it was bound, and whether it was a boss, add to that.
+ */
+export function makeAlly(echo: Echo, x: number, y: number, base: number): Ally {
   const def = KINDS[echo.kind];
   return {
     x,
@@ -38,7 +57,7 @@ export function makeAlly(echo: Echo, x: number, y: number): Ally {
     radius: def.radius,
     kind: echo.kind,
     rank: echo.rank,
-    dmg: def.boss ? def.damage * ECHO.bossDamage : def.damage * RANKS[echo.rank].dmgMult * ECHO.damage,
+    dmg: base * ECHO.damage * ECHO.rankBonus[echo.rank] * STYLE_DAMAGE[STYLE[echo.kind]] * (def.boss ? ECHO.bossDamage : 1),
     cd: 0.6,
     facing: 0,
     flash: 0,
@@ -80,6 +99,21 @@ export function stepAlly(w: World, a: Ally, dt: number): void {
     if (Math.hypot(dx, dy) > 90) walk(a, dx, dy, speed, dt);
   };
 
+  // Dominion: for a while the echoes hunt their own master.
+  if (w.turnedT > 0) {
+    const dx = p.x - a.x;
+    const dy = p.y - a.y;
+    const reach = a.radius + p.radius + 12;
+    if (Math.hypot(dx, dy) > reach) walk(a, dx, dy, speed * 0.8, dt);
+    else if (a.cd <= 0) {
+      hurtPlayer(w, Math.max(1, a.dmg * DOMINION.damage));
+      a.cd = 1.2;
+      a.flash = 0.15;
+    }
+    clampToRoom(a, ROOM.w, ROOM.h);
+    return;
+  }
+
   if (style === "support") {
     follow();
     if (a.cd <= 0 && p.hp < p.d.maxHp && w.mode === "gate") {
@@ -94,7 +128,10 @@ export function stepAlly(w: World, a: Ally, dt: number): void {
     return;
   }
 
-  const t = nearestEnemy(w, a);
+  // Rally overrides each echo's own choice of target, and makes it hit harder.
+  const rallied = w.rallyT > 0 && w.rallyTarget && w.rallyTarget.hp > 0 ? w.rallyTarget : null;
+  const dmg = a.dmg * (rallied ? RALLY.damage : 1);
+  const t = rallied ?? nearestEnemy(w, a);
   if (!t) {
     follow();
     clampToRoom(a, ROOM.w, ROOM.h);
@@ -112,7 +149,7 @@ export function stepAlly(w: World, a: Ally, dt: number): void {
       const spread = a.kind === "summoner" ? [-0.2, 0, 0.2] : [0];
       for (const off of spread) {
         const ang = a.facing + off;
-        w.allyShots.push({ x: a.x, y: a.y, radius: 7, vx: Math.cos(ang) * 440, vy: Math.sin(ang) * 440, damage: a.dmg, life: 2 });
+        w.allyShots.push({ x: a.x, y: a.y, radius: 7, vx: Math.cos(ang) * 440, vy: Math.sin(ang) * 440, damage: dmg, life: 2 });
       }
       a.cd = a.kind === "summoner" ? 1.8 : 1.4;
       a.flash = 0.15;
@@ -123,12 +160,12 @@ export function stepAlly(w: World, a: Ally, dt: number): void {
     else if (a.cd <= 0) {
       if (style === "sweep") {
         for (const e of w.enemies) {
-          if (Math.hypot(e.x - a.x, e.y - a.y) <= SWEEP_RADIUS + e.radius) damageEnemy(w, e, a.dmg, false, a.x, a.y, 160);
+          if (Math.hypot(e.x - a.x, e.y - a.y) <= SWEEP_RADIUS + e.radius) damageEnemy(w, e, dmg, false, a.x, a.y, 160);
         }
         w.fx.push({ kind: "ring", x: a.x, y: a.y, radius: SWEEP_RADIUS, t: 0.25, total: 0.25, color: "#8a6cff" });
         a.cd = 1.6;
       } else {
-        damageEnemy(w, t, a.dmg, false, a.x, a.y, 120);
+        damageEnemy(w, t, dmg, false, a.x, a.y, 120);
         a.cd = a.kind === "duellist" ? 0.5 : 0.9;
       }
       a.flash = 0.15;
