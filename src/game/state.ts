@@ -35,6 +35,9 @@ export interface Player extends Circle {
   lungeY: number;
   surgeT: number;
   moving: boolean;
+  /** Velocity from being thrown, decays quickly. */
+  kx: number;
+  ky: number;
 }
 
 export interface Enemy extends Circle {
@@ -92,6 +95,8 @@ export interface Zone {
 export interface Shockwave {
   x: number;
   y: number;
+  /** Seconds of warning left before the ring starts to move. */
+  wait: number;
   r: number;
   speed: number;
   maxR: number;
@@ -290,6 +295,8 @@ export interface World {
   breakSpawn: number;
   /** The gate's boss is dead but a hidden door keeps the gate open. */
   bossDead: boolean;
+  /** The boss's remnant is waiting to be bound: the gate stays open for it. */
+  remnantHold: boolean;
   /** Bumped when the current room's doors change, so the view rebuilds. */
   layoutRev: number;
   /** Chance of a hidden door after a boss kill. Tests override it. */

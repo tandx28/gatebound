@@ -7,6 +7,8 @@ import {
   HEALER,
   KINDS,
   RANKS,
+  RING_WARNING,
+  ROAR,
   ROOM,
   SEALED,
   SHOOTER,
@@ -98,11 +100,27 @@ export function damageEnemy(
     if (e.phase === 1 && e.hp > 0 && e.hp <= e.maxHp / 2) {
       e.phase = 2;
       sfx(w, "phase");
-      e.inv = 0.8;
-      e.cd = 1;
+      // The roar: untouchable while it gathers itself, attacks cancelled, and
+      // anyone close is thrown clear without harm.
+      e.inv = ROAR.pause;
+      e.state = "recover";
+      e.t = ROAR.pause;
+      e.cd = Math.max(e.cd, ROAR.pause + 0.4);
+      e.n = 0;
+      w.zones = w.zones.filter((z) => z.owner !== e);
       w.notices.push({ title: KINDS[e.kind].name.toUpperCase(), body: "It will not hold back any longer.", life: 2.5 });
       burst(w, e.x, e.y, "#ff5a60", 30, 380);
-      w.shockwaves.push({ x: e.x, y: e.y, r: e.radius, speed: 320, maxR: 420, damage: e.dmg * 0.6, hit: false });
+      w.fx.push({ kind: "ring", x: e.x, y: e.y, radius: ROAR.radius, t: 0.5, total: 0.5, color: "#ff5a60" });
+      const p = w.player;
+      const dx = p.x - e.x;
+      const dy = p.y - e.y;
+      if (Math.hypot(dx, dy) < ROAR.radius) {
+        const away = Math.hypot(dx, dy) > 1 ? norm(dx, dy) : { x: 1, y: 0 };
+        p.kx = away.x * ROAR.push;
+        p.ky = away.y * ROAR.push;
+        p.dashT = 0;
+        p.lungeT = 0;
+      }
     }
     return true;
   }
@@ -399,7 +417,7 @@ function stepWarden(w: World, e: Enemy, dt: number, dx: number, dy: number, dist
     }
     e.t -= dt;
     if (e.t <= 0) {
-      if (two) w.shockwaves.push({ x: e.x, y: e.y, r: e.radius, speed: 300, maxR: 620, damage: e.dmg * 0.8, hit: false });
+      if (two) w.shockwaves.push({ x: e.x, y: e.y, wait: RING_WARNING, r: e.radius + 20, speed: 300, maxR: 620, damage: e.dmg * 0.8, hit: false });
       e.state = "chase";
       e.cd = two ? 1.1 : 1.6;
     }
@@ -418,10 +436,10 @@ function stepWarden(w: World, e: Enemy, dt: number, dx: number, dy: number, dist
     e.t = 1.2;
     e.n = 0;
   } else {
-    w.zones.push({ x: p.x, y: p.y, radius: 120, t: 0.85, total: 0.85, damage: e.dmg, owner: e });
+    w.zones.push({ x: p.x, y: p.y, radius: 120, t: 1, total: 1, damage: e.dmg, owner: e });
     e.n = two ? 2 : 0;
     e.cd2 = 0.35;
-    e.t = two ? 1.9 : 1.3;
+    e.t = two ? 2.05 : 1.45;
   }
   e.state = "attack";
 }

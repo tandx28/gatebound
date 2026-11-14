@@ -100,6 +100,12 @@ function stockFor(w: World): string[] {
   return rollStock(seeded(w.today * 7919 + pr.shop.rerolls * 104729 + 17), owned, RANK_WEIGHT[pr.hunterRank]);
 }
 
+/** Chance that one try binds a boss: better with Intelligence, never certain. */
+export function bossBindChance(w: World): number {
+  const bonus = (w.player.prog.stats.int - BASE_STAT) * ECHO.bossChancePerInt;
+  return Math.min(0.95, ECHO.bossChance + Math.max(0, bonus));
+}
+
 /** True while the rite of echoes is the open main quest. */
 export function riteOpen(profile: Profile): boolean {
   return MAIN[profile.quests.main]?.id === "m6" && !profile.classUnlocked;
@@ -272,7 +278,14 @@ export function onKill(w: World, e: Enemy): void {
   // An Echo Caller can bind what falls. Summoned minions leave nothing.
   const field = w.gateKind === "normal" || w.gateKind === "key" || w.gateKind === "break";
   if (w.profile.classUnlocked && field && (e.xp > 0 || e.boss)) {
-    w.remnants.push({ x: e.x, y: e.y, kind: e.kind, rank: w.rank, life: ECHO.remnantLife, tries: e.boss ? ECHO.bossTries : 1 });
+    w.remnants.push({
+      x: e.x,
+      y: e.y,
+      kind: e.kind,
+      rank: w.rank,
+      life: e.boss ? ECHO.bossRemnantLife : ECHO.remnantLife,
+      tries: e.boss ? ECHO.bossTries : 1,
+    });
   }
   if (!e.boss) {
     if (e.xp > 0 && w.gateKind === "normal" && w.rng() < KEYS.dropChance) {

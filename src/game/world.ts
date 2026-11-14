@@ -45,6 +45,7 @@ import {
 import {
   advanceDialogue,
   applySetting,
+  bossBindChance,
   canActivate,
   fireQuest,
   hubAction,
@@ -92,6 +93,7 @@ export function createWorld(rng: () => number = Math.random): World {
     breakT: 0,
     breakSpawn: 0,
     bossDead: false,
+    remnantHold: false,
     layoutRev: 0,
     hiddenChance: HIDDEN.chance,
     afterTitle: "select",
@@ -124,6 +126,8 @@ export function createWorld(rng: () => number = Math.random): World {
       lungeY: 0,
       surgeT: 0,
       moving: false,
+      kx: 0,
+      ky: 0,
     },
     enemies: [],
     spawnQueue: [],
@@ -179,6 +183,8 @@ function resetPlayer(p: Player): void {
   p.attackCd = 0;
   p.lungeT = 0;
   p.surgeT = 0;
+  p.kx = 0;
+  p.ky = 0;
   p.hurtFlash = 0;
   p.skillCd = { pierce: 0, whirl: 0, surge: 0 };
 }
@@ -197,6 +203,7 @@ function beginGate(w: World, rank: Rank, dungeon: Dungeon, kind: GateKind, seale
   w.breakSpawn = 0;
   w.allies = [];
   w.bossDead = false;
+  w.remnantHold = false;
   w.mode = "gate";
   w.menu = "none";
   w.clearT = 0;
@@ -314,7 +321,8 @@ export function snapshotGate(w: World): GateSnapshot | null {
       rank: w.rank,
       kind: w.gateKind,
       sealed: w.sealed,
-      bossDead: w.bossDead,
+      // A gate held open for a boss's remnant counts as beaten.
+      bossDead: w.bossDead || w.remnantHold,
       dungeon: w.dungeon,
       roomId: w.roomId,
       run: w.run,
@@ -332,6 +340,8 @@ export function resumeGate(w: World, snap: GateSnapshot): void {
   enterRoom(w, snap.roomId, null);
   w.player.hp = Math.max(1, Math.min(w.player.d.maxHp, snap.hp));
   w.player.mana = Math.max(0, Math.min(w.player.d.maxMana, snap.mana));
+  // The boss was already dead and nothing else waits: finish the gate.
+  if (snap.bossDead && !snap.dungeon.rooms.some((r) => r.kind === "trial" && !r.cleared)) w.clearT = 1.5;
 }
 
 /** Back to the gate board. */
@@ -342,6 +352,7 @@ export function toSelect(w: World): void {
   w.sealed = false;
   w.emergency = null;
   w.bossDead = false;
+  w.remnantHold = false;
   w.allies = [];
   clearField(w);
   w.fx = [];
@@ -529,6 +540,13 @@ function constrainPlayer(w: World): void {
  */
 function tryLeave(w: World): void {
   if ((w.gateKind !== "normal" && w.gateKind !== "key") || w.clearT > 0) return;
+  if (w.remnantHold && !w.bossDead) {
+    // Walking away from a boss's remnant: the gate was won, so it clears.
+    w.remnantHold = false;
+    w.remnants = [];
+    w.clearT = 0.01;
+    return;
+  }
   if (w.bossDead) {
     w.clearT = 0.01;
     return;
@@ -576,7 +594,7 @@ function tryBind(w: World): void {
   }
   p.mana -= ECHO.bindMana;
   const boss = KINDS[r.kind].boss;
-  if (boss && w.rng() >= ECHO.bossChance) {
+  if (boss && w.rng() >= bossBindChance(w)) {
     r.tries -= 1;
     sfx(w, "fail");
     floatText(w, r.x, r.y, r.tries > 0 ? `IT RESISTS  (${r.tries} left)` : "IT IS GONE", "#ff5a60", true);
@@ -641,6 +659,12 @@ function stepPlayer(w: World, input: Controls, dt: number): void {
     p.x += move.x * eff.moveSpeed * dt;
     p.y += move.y * eff.moveSpeed * dt;
   }
+  // Being thrown: carried on top of whatever else the player is doing.
+  p.x += p.kx * dt;
+  p.y += p.ky * dt;
+  const fade = Math.exp(-7 * dt);
+  p.kx *= fade;
+  p.ky *= fade;
   const roomBefore = w.roomId;
   constrainPlayer(w);
   if (w.roomId !== roomBefore) return;
@@ -701,6 +725,11 @@ function stepHazards(w: World, dt: number): void {
   w.zones = w.zones.filter((z) => z.t > 0);
 
   for (const s of w.shockwaves) {
+    // A ring shows where it will start before it moves or can hurt.
+    if (s.wait > 0) {
+      s.wait -= dt;
+      continue;
+    }
     s.r += s.speed * dt;
     const d = Math.hypot(p.x - s.x, p.y - s.y);
     if (!s.hit && Math.abs(d - s.r) < 16 + p.radius && hurtPlayer(w, s.damage)) s.hit = true;
@@ -936,7 +965,10 @@ export function step(w: World, input: Controls, dt: number): void {
   if (bossDied && w.gateKind === "normal") {
     // The boss's death ends the fight outright.
     for (const e of w.enemies) burst(w, e.x, e.y, "#e5484d", 10, 200);
+    // The fight ends, but what the boss left behind stays to be bound.
+    const left = w.remnants.filter((r) => KINDS[r.kind].boss);
     clearField(w);
+    w.remnants = left;
     w.shake = Math.max(w.shake, 14);
     const trial = room?.kind === "trial";
     if (trial) trialReward(w);
@@ -947,8 +979,22 @@ export function step(w: World, input: Controls, dt: number): void {
       w.bossDead = true;
       w.layoutRev += 1;
       w.notices.push({ title: "A HIDDEN DOOR", body: "Something waits behind it. Enter, or press T to leave with what you have.", life: 6 });
+    } else if (left.length > 0) {
+      // Hold the gate open until the remnant is bound, lost, or left behind.
+      w.remnantHold = true;
+      const chance = Math.round(bossBindChance(w) * 100);
+      w.notices.push({ title: "THE BOSS LINGERS", body: `Press G beside it to bind (${chance}% a try), or T to leave.`, life: 6 });
     } else {
       w.clearT = 2.2;
+      floatText(w, p.x, p.y, "GATE CLEARED", "#ffd84a", true);
+    }
+  }
+
+  if (w.remnantHold && !w.remnants.some((r) => KINDS[r.kind].boss)) {
+    w.remnantHold = false;
+    // With a hidden door open the gate stays; otherwise it now closes.
+    if (!w.bossDead && w.clearT <= 0) {
+      w.clearT = 1.5;
       floatText(w, p.x, p.y, "GATE CLEARED", "#ffd84a", true);
     }
   }

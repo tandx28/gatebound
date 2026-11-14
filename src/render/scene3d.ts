@@ -624,7 +624,14 @@ export class Scene3D {
       this.rings.place(z.x, z.y, 0, z.radius, z.radius, 0xff3040, 0.9);
       this.circles.place(z.x, z.y, 0, z.radius * k, z.radius * k, 0xff3040, 0.18 + 0.3 * k);
     }
-    for (const s of w.shockwaves) this.rings.place(s.x, s.y, 0, s.r, s.r, 0xff5a60, 0.9);
+    for (const s of w.shockwaves) {
+      if (s.wait > 0) {
+        // Warning: the ring flickers where it will start, and a faint disc fills it.
+        const flick = 0.45 + 0.45 * Math.sin(this.clock * 26);
+        this.rings.place(s.x, s.y, 0, s.r, s.r, 0xffd84a, flick);
+        this.circles.place(s.x, s.y, 0, s.r, s.r, 0xff5a60, 0.22);
+      } else this.rings.place(s.x, s.y, 0, s.r, s.r, 0xff5a60, 0.9);
+    }
     for (const f of w.fx) {
       const k = f.t / f.total;
       const c = this.color(f.color).getHex();

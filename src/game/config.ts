@@ -104,7 +104,7 @@ export const KINDS: Record<EnemyKind, KindDef> = {
   brute: { name: "Brute", radius: 24, hp: 90, speed: 70, damage: 32, xp: 28, boss: false },
   exploder: { name: "Exploder", radius: 12, hp: 14, speed: 185, damage: 34, xp: 12, boss: false },
   healer: { name: "Mender", radius: 13, hp: 30, speed: 120, damage: 10, xp: 22, boss: false },
-  warden: { name: "Stone Warden", radius: 38, hp: 1050, speed: 80, damage: 30, xp: 200, boss: true },
+  warden: { name: "Stone Warden", radius: 38, hp: 800, speed: 80, damage: 30, xp: 200, boss: true },
   summoner: { name: "The Choirmaster", radius: 24, hp: 1150, speed: 120, damage: 27, xp: 600, boss: true },
   duellist: { name: "Mirror Blade", radius: 16, hp: 3600, speed: 210, damage: 42, xp: 1500, boss: true },
 };
@@ -171,8 +171,13 @@ export const ECHO = {
   bindRange: 90,
   bindMana: 5,
   remnantLife: 8,
-  bossChance: 0.35,
+  /** Chance per try to bind a boss, before the Intelligence bonus. */
+  bossChance: 0.5,
+  /** Added to that chance per point of Intelligence above the starting value. */
+  bossChancePerInt: 0.01,
   bossTries: 3,
+  /** A boss's remnant waits this long, holding the gate open. */
+  bossRemnantLife: 30,
   /** Share of the living enemy's damage an echo deals. */
   damage: 0.35,
   bossDamage: 1.5,
@@ -196,3 +201,12 @@ export const RITE: { waves: EnemyKind[][]; points: number } = {
 
 /** A gate break: your rank's gate, left alone too long, spills into the city. */
 export const BREAK = { days: 3, time: 75, every: 10, pack: 4, maxAlive: 10, gold: 100 };
+
+/**
+ * A boss entering its second phase roars: it throws the player clear without
+ * harm and then waits, so the change is never a free hit on someone in melee.
+ */
+export const ROAR = { push: 620, pause: 1, radius: 260 };
+
+/** Every shockwave ring shows where it will start for this long before it moves. */
+export const RING_WARNING = 0.8;

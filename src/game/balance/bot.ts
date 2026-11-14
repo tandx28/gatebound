@@ -59,6 +59,11 @@ export class Bot implements Controls {
 
     for (const s of w.shockwaves) {
       const d = Math.hypot(p.x - s.x, p.y - s.y);
+      // A ring still giving its warning: just step back, and save the dash.
+      if (s.wait > 0) {
+        if (d < s.r + 110) return { ...(d > 1 ? norm(p.x - s.x, p.y - s.y) : toCentre), dash: false };
+        continue;
+      }
       const gap = d - s.r;
       // A ring cannot be outrun: dash through it toward its centre.
       if (!s.hit && gap > 0 && gap < 80) return { ...norm(s.x - p.x, s.y - p.y), dash: true };

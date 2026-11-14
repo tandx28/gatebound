@@ -101,9 +101,10 @@ describe("levelling pace", () => {
 });
 
 describe("difficulty curve, played by the bot", () => {
-  it("rank E: beatable but far from safe at level 1, routine by level 5", () => {
-    const entry = clearRate("E", 1, [], 0.08);
-    expect(entry.rate).toBeGreaterThanOrEqual(0.25);
+  it("rank E: a fair first gate for a newcomer, though not a safe one, and routine by level 5", () => {
+    // The slower bot stands in for a beginner: it should usually win, not always.
+    const entry = clearRate("E", 1, [], 0.2, 16);
+    expect(entry.rate).toBeGreaterThanOrEqual(0.5);
     expect(entry.rate).toBeLessThan(1);
     expect(clearRate("E", 5, ["iron_fang", "padded_coat"], 0.08).rate).toBeGreaterThanOrEqual(0.9);
   }, 120000);
