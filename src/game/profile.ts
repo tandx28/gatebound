@@ -901,7 +901,8 @@ function hubActionInner(w: World, verb: string, arg: string, extra: string | und
       if (arg === "exit") {
         w.afterTitle = "select";
         w.mode = "title";
-      } else w.requests.push(arg);
+      } else if (arg === "reset") w.requests.push(arg);
+      // Export and import are done by the shell inside the click itself: see fileButtonAt.
       return null;
     default:
       return null;

@@ -6,6 +6,7 @@ import { STEP, VIEW_H, VIEW_W } from "./game/config";
 import { beginStory, refreshDerived } from "./game/profile";
 import { applySave, parseSave, SAVE_KEY, toSave } from "./game/save";
 import { createWorld, step, toSelect } from "./game/world";
+import { fileButtonAt } from "./game/ui";
 import { drawHud } from "./render/hud";
 import { loadModels } from "./render/models";
 import { Scene3D } from "./render/scene3d";
@@ -107,14 +108,25 @@ function exportSave(): void {
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
   a.download = "gatebound-save.json";
+  // In the page while it is clicked, and the link kept alive until the
+  // download has begun: Safari drops it otherwise.
+  document.body.appendChild(a);
   a.click();
-  URL.revokeObjectURL(a.href);
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
 }
 
+// One file input, kept in the page: a detached one can be thrown away by the
+// browser before the player has chosen a file, and Safari ignores it outright.
+const pick = document.createElement("input");
+pick.type = "file";
+pick.accept = "application/json,.json";
+pick.style.display = "none";
+document.body.appendChild(pick);
+
 function importSave(): void {
-  const pick = document.createElement("input");
-  pick.type = "file";
-  pick.accept = "application/json,.json";
+  // Cleared first, so choosing the same file twice still counts as a change.
+  pick.value = "";
   pick.onchange = async () => {
     const file = pick.files?.[0];
     if (!file) return;
@@ -136,12 +148,18 @@ function importSave(): void {
   pick.click();
 }
 
+// A file dialog and a download must start inside the click that asked for
+// them, not a frame later, or the browser refuses.
+hud.addEventListener("click", () => {
+  const which = fileButtonAt(world, input.mouseX, input.mouseY);
+  if (which === "import") importSave();
+  else if (which === "export") exportSave();
+});
+
 /** Carry out what the gate board asked for, then save if anything changed. */
 function serviceWorld(): void {
   for (const req of world.requests.splice(0)) {
-    if (req === "export") exportSave();
-    else if (req === "import") importSave();
-    else if (req === "reset" && window.confirm("Erase all progress and start again? This cannot be undone.")) resetProgress();
+    if (req === "reset" && window.confirm("Erase all progress and start again? This cannot be undone.")) resetProgress();
   }
   if (world.dirty) {
     world.dirty = false;

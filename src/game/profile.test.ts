@@ -10,7 +10,7 @@ import { MAIN } from "./quests";
 import { applySave, parseSave, SAVE_VERSION, toSave } from "./save";
 import { LEVEL_CAP, xpToNext } from "./stats";
 import { DIALOGUES } from "./story";
-import { hubButtons } from "./ui";
+import { fileButtonAt, hubButtons } from "./ui";
 import { createWorld, enterArena, enterGate, grantXp, step, type World } from "./world";
 
 class FakeControls implements Controls {
@@ -400,10 +400,47 @@ describe("gate board tabs", () => {
     expect(w.mode).toBe("select");
   });
 
-  it("system buttons ask the shell to act", () => {
+  it("reset is left to the shell; export and import are the shell's own, done inside the click", () => {
     const w = hub();
     hubAction(w, "save:export");
-    expect(w.requests).toEqual(["export"]);
+    hubAction(w, "save:import");
+    expect(w.requests).toEqual([]);
+    hubAction(w, "save:reset");
+    expect(w.requests).toEqual(["reset"]);
+  });
+
+  it("a click is on the import or export button only on the System tab with nothing in front of it", () => {
+    const w = hub();
+    w.tab = "system";
+    const mid = (id: string) => {
+      const r = hubButtons(w).find((b) => b.id === id)!.rect;
+      return [r.x + r.w / 2, r.y + r.h / 2] as const;
+    };
+    expect(fileButtonAt(w, ...mid("save:import"))).toBe("import");
+    expect(fileButtonAt(w, ...mid("save:export"))).toBe("export");
+    expect(fileButtonAt(w, ...mid("save:reset"))).toBe(null);
+    expect(fileButtonAt(w, 5, 5)).toBe(null);
+    const at = mid("save:import");
+    w.menu = "status";
+    expect(fileButtonAt(w, ...at)).toBe(null);
+    w.menu = "none";
+    w.dialogue = { lines: [{ speaker: "", text: "x" }], i: 0 };
+    expect(fileButtonAt(w, ...at)).toBe(null);
+    w.dialogue = null;
+    w.tab = "gates";
+    expect(fileButtonAt(w, ...at)).toBe(null);
+  });
+
+  it("an exported save, read back as a file would be, loads as the same hunter", () => {
+    const w = hub();
+    w.profile.gold = 1234;
+    w.player.prog.level = 17;
+    const text = JSON.stringify(toSave(w), null, 2);
+    const data = parseSave(JSON.parse(text))!;
+    const fresh = hub();
+    applySave(fresh, data);
+    expect(fresh.profile.gold).toBe(1234);
+    expect(fresh.player.prog.level).toBe(17);
   });
 });
 

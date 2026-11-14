@@ -241,6 +241,17 @@ export function hubHeadings(w: World): { x: number; y: number; text: string }[] 
   return [];
 }
 
+/**
+ * Whether a click at this point is on the board's export or import button.
+ * Browsers only open a file dialog from inside the click itself, so the shell
+ * asks this in its click handler instead of waiting for the next step.
+ */
+export function fileButtonAt(w: World, x: number, y: number): "export" | "import" | null {
+  if (w.mode !== "select" || w.menu !== "none" || w.dialogue || w.cutscene || w.tab !== "system") return null;
+  const hit = hubButtons(w).find((b) => b.enabled && pointIn(b.rect, x, y));
+  return hit?.id === "save:export" ? "export" : hit?.id === "save:import" ? "import" : null;
+}
+
 /** Where the Story tab draws: chapters on the left, scenes on the right. */
 export const STORY = { chapterX: 150, sceneX: 700, top: TOP + 10, rowH: 58 };
 
