@@ -31,6 +31,10 @@ export interface ModelSpec {
   flat?: number;
   /** Eyes that burn this colour under the hood. */
   eyes?: number;
+  /** Taller and narrower, with a smaller head: a grown figure rather than a stocky one. */
+  lean?: boolean;
+  /** A long coat of this colour, hanging from the hips to the shins and open at the front. */
+  coat?: number;
   /** Which of the model's own hand-held parts to show; the rest are hidden. */
   show?: string[];
   /** Weapons built by the game and put in the hands. */
@@ -45,7 +49,7 @@ export interface ModelSpec {
   cast?: string;
 }
 
-export const HUNTER_MODEL: ModelSpec = { file: "rogue_hooded", pack: "adventurer", size: 1.06, flat: 0x20243a, eyes: 0x5ee6ff, show: [], strike: "1H_Melee_Attack_Slice_Horizontal", thrust: "1H_Melee_Attack_Stab" };
+export const HUNTER_MODEL: ModelSpec = { file: "rogue_hooded", pack: "adventurer", size: 1.18, flat: 0x191c2c, eyes: 0x5ee6ff, lean: true, coat: 0x12141f, show: [], strike: "1H_Melee_Attack_Slice_Horizontal", thrust: "1H_Melee_Attack_Stab" };
 
 /** The hunter's swing for each weapon. */
 const HUNTER_STRIKE: Record<WeaponType, string> = {
@@ -136,6 +140,7 @@ function build(spec: ModelSpec, radius: number, hunter: boolean): Rig | null {
   const inner = new THREE.Group();
   inner.add(body);
   inner.scale.setScalar(k);
+  if (spec.lean) inner.scale.set(k * 0.84, k, k * 0.84);
   // The models face +Z; the game's figures face +X.
   inner.rotation.y = Math.PI / 2;
   const root = new THREE.Group();
@@ -171,14 +176,38 @@ function build(spec: ModelSpec, radius: number, hunter: boolean): Rig | null {
 
   // Two points of light where the eyes are, all that shows of the face.
   const head = bone(body, "head");
+  if (spec.lean && head) head.scale.setScalar(0.74);
   if (spec.eyes !== undefined && head) {
     const lit = new THREE.MeshStandardMaterial({ color: spec.eyes, emissive: spec.eyes, emissiveIntensity: 2.4 });
     eyes.push(lit);
     for (const side of [-1, 1]) {
-      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.045, 8, 6), lit);
+      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 6), lit);
       eye.position.set(side * 0.13, 0.3, 0.36);
       head.add(eye);
     }
+  }
+
+  // The coat: a long skirt of cloth from the hips, open at the front, that sways with the stride.
+  const hips = bone(body, "hips");
+  let coat: THREE.Mesh | null = null;
+  if (spec.coat !== undefined && hips) {
+    const cloth = new THREE.MeshStandardMaterial({ color: spec.coat, roughness: 0.85, side: THREE.DoubleSide });
+    // Open over a fifth of the way round, and that gap faces forward (+Z).
+    coat = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.56, 0.95, 14, 1, true, Math.PI * 0.2, Math.PI * 1.6), cloth);
+    coat.position.y = -0.42;
+    coat.castShadow = true;
+    hips.add(coat);
+  }
+
+  // The aura: a column of cold fire that only shows when the hunter's power is up.
+  let aura: THREE.Mesh | null = null;
+  if (hunter) {
+    aura = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.5, 0.75, 2.6, 16, 1, true),
+      new THREE.MeshBasicMaterial({ color: 0x3050ff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }),
+    );
+    aura.position.y = 1.2;
+    inner.add(aura);
   }
 
   // Hand-held parts that came with the model.
@@ -292,7 +321,16 @@ function build(spec: ModelSpec, radius: number, hunter: boolean): Rig | null {
           m.emissiveIntensity = a.flash ? 0.9 : 0;
         }
       }
-      for (const m of eyes) m.emissiveIntensity = 0.6 + a.glow * 2.4;
+      for (const m of eyes) m.emissiveIntensity = (hunter ? 2.2 : 0.6) + a.glow * 2.4;
+      if (coat) coat.rotation.x = a.moving ? -0.22 + Math.sin(a.time * 9) * 0.06 : Math.sin(a.time * 1.4) * 0.02;
+      if (aura) {
+        // Nothing at rest; full when Surge, Fury or Blood Price is running.
+        const power = Math.max(0, (a.glow - 0.3) / 0.7);
+        (aura.material as THREE.MeshBasicMaterial).opacity = power * (0.13 + 0.05 * Math.sin(a.time * 11));
+        aura.rotation.y = a.time * 2.5;
+        aura.scale.y = 1 + 0.12 * Math.sin(a.time * 7);
+        aura.visible = power > 0;
+      }
 
       // Bare hands show nothing at all.
       for (const [type, g] of arsenal) g.visible = type === a.weapon;

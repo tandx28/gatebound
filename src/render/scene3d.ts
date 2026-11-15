@@ -653,7 +653,7 @@ export class Scene3D {
         const m = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined;
         if (m && "emissive" in m) {
           m.emissive.setHex(lit);
-          m.emissiveIntensity = w.turnedT > 0 ? 0.9 : 0.35;
+          m.emissiveIntensity = w.turnedT > 0 ? 0.9 : 0.2;
         }
       });
     }
@@ -868,7 +868,7 @@ export class Scene3D {
       pose,
       swing: Math.min(1, Math.max(0, since / 0.2)),
       flash: p.hurtFlash > 0,
-      glow: p.surgeT > 0 || p.furyT > 0 ? 1 : 0.3,
+      glow: p.surgeT > 0 || p.furyT > 0 || p.drainT > 0 ? 1 : 0.3,
       phase: 1,
       weapon: p.weapon,
     });

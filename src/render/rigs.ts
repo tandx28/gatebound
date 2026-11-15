@@ -751,8 +751,9 @@ export function ghostify(rig: Rig, tint: number): void {
     const m = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined;
     if (!m || !("emissive" in m)) return;
     m.transparent = true;
-    m.opacity = 0.62;
-    m.color.lerp(new THREE.Color(tint), 0.7);
+    m.opacity = 0.72;
+    // A shade is a dark shape first, with the tint only at its edges and in its glow.
+    m.color.lerp(new THREE.Color(tint), 0.7).lerp(new THREE.Color(0x0c0818), 0.72);
     m.depthWrite = false;
   });
 }
