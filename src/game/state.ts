@@ -1,6 +1,7 @@
+import type { Pillar, Trap } from "./rooms";
 import type { CutsceneState } from "./cutscenes";
 import { applyDamage, type Circle } from "./combat";
-import { PLAYER, STATUS, TOTEM, type EnemyKind, type Rank, type SkillId, type StatusId } from "./config";
+import { type ArmyOrder, PARRY, PLAYER, STATUS, TOTEM, type EnemyKind, type Rank, type SkillId, type StatusId } from "./config";
 import type { Dungeon } from "./dungeon";
 import { PERK, PERK_IDS, type BagId, type EquipSlot, type PerkId, type PowerId, type SupplyId, type WeaponType } from "./items";
 import type { QuestState } from "./quests";
@@ -35,6 +36,10 @@ export interface Player extends Circle {
   lungeX: number;
   lungeY: number;
   surgeT: number;
+  /** Seconds left in which a blow will be parried. */
+  parryT: number;
+  /** Seconds left of Blood Price: blows heal. */
+  drainT: number;
   moving: boolean;
   /** Velocity from being thrown, decays quickly. */
   kx: number;
@@ -260,6 +265,12 @@ export interface Profile {
   breakPending: boolean;
   /** Which skill sits in each of the four slots. */
   loadout: (SkillId | null)[];
+  /** How many times the story has been begun again with everything kept. */
+  cycle: number;
+  /** The highest tower floor ever cleared. */
+  towerBest: number;
+  /** Show the first gate's tips. On for a new game, off once that gate is over. */
+  tips: boolean;
   /** Gates entered since the last sealed one: the sixth in a row is always sealed. */
   sealedPity: number;
   /** Today's sealed gate on the board: its rank, and whether it has been cleared. */
@@ -289,6 +300,14 @@ export interface Ally extends Circle {
   anim: number;
   /** Sinking: gone when `anim` runs out. */
   out: boolean;
+}
+
+/** A fallen enemy, shown for a moment where it died. Nothing can touch it. */
+export interface Corpse extends Circle {
+  kind: EnemyKind;
+  facing: number;
+  /** Seconds left. */
+  t: number;
 }
 
 /** What an enemy leaves behind for a moment, for an Echo Caller to bind. */
@@ -332,6 +351,8 @@ export interface Settings {
   quality: Quality;
   /** Lower the quality without being asked if the frame rate sags. */
   autoQuality: boolean;
+  /** Keys the player has moved: the action's default key to the key now used. */
+  keys: Record<string, string>;
 }
 
 export type Quality = "high" | "medium" | "low";
@@ -345,9 +366,9 @@ export function visibleTabs(w: World): HubTab[] {
   return HUB_TABS.filter((t) => t !== "echoes" || w.profile.classUnlocked);
 }
 
-export type Menu = "none" | "status" | "pause";
+export type Menu = "none" | "status" | "pause" | "keys";
 export type Mode = "title" | "select" | "gate" | "cleared" | "dead";
-export type GateKind = "normal" | "key" | "penalty" | "rite" | "break";
+export type GateKind = "normal" | "key" | "penalty" | "rite" | "break" | "tower";
 
 /** Enough of a gate in progress to resume it from the current room. */
 export interface GateSnapshot {
@@ -368,6 +389,8 @@ export interface World {
   tab: HubTab;
   /** Dialogue on screen, if any. It blocks the gate board. */
   dialogue: { lines: Line[]; i: number } | null;
+  /** The action (by its default key) waiting for the player to press its new key. */
+  rebinding: string | null;
   /** A cutscene on screen, if any. It stops everything else. */
   cutscene: CutsceneState | null;
   /** Dialogue and cutscene ids waiting for the next visit to the gate board. */
@@ -398,14 +421,24 @@ export interface World {
   domainT: number;
   /** Seconds the player's echoes are turned against them. */
   turnedT: number;
+  /** Pillars and floor traps of the current room, and how long it has been occupied. */
+  pillars: Pillar[];
+  traps: Trap[];
+  trapClock: number;
   /** Echoes fighting in the current room. */
   allies: Ally[];
+  /** What the echoes on the field have been told to do. J changes it. */
+  armyOrder: ArmyOrder;
   /** The army has been sent away for now; H calls it back. */
   armyAway: boolean;
   /** Seconds until the army can be called or sent away again. */
   armyCd: number;
   allyShots: Projectile[];
   remnants: Remnant[];
+  corpses: Corpse[];
+  /** The tower floor being fought, and seconds until the next one begins (0 while fighting). */
+  towerFloor: number;
+  towerRest: number;
   /** Current wave of the rite, from 0. */
   riteWave: number;
   /** Seconds left in a gate break, and until its next pack arrives. */
@@ -504,6 +537,26 @@ export function afflict(w: World, id: StatusId): void {
 export function hurtPlayer(w: World, amount: number, status?: StatusId): boolean {
   const p = w.player;
   if (p.iframes > 0 || w.mode !== "gate") return false;
+  // Parry: the blow is turned, and everything close pays for it.
+  if (p.parryT > 0) {
+    p.parryT = 0;
+    p.iframes = 0.4;
+    floatText(w, p.x, p.y, "PARRIED", "#ffd84a", true);
+    sfx(w, "block");
+    w.fx.push({ kind: "ring", x: p.x, y: p.y, radius: PARRY.radius, t: 0.3, total: 0.3, color: "#ffd84a" });
+    for (const e of w.enemies) {
+      if (e.immortal || Math.hypot(e.x - p.x, e.y - p.y) > PARRY.radius + e.radius) continue;
+      const back = Math.round(p.d.damage * PARRY.mult * p.d.skillPower);
+      e.hp = Math.max(0, e.hp - back);
+      e.flash = 0.12;
+      floatText(w, e.x, e.y, String(back), "#ffd84a");
+      if (!e.boss) {
+        e.state = "recover";
+        e.t = PARRY.stun;
+      }
+    }
+    return false;
+  }
   // The Untouched Mantle swallows the first hit in each room.
   if (w.wardReady) {
     w.wardReady = false;

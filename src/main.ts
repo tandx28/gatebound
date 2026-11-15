@@ -2,8 +2,8 @@ import { musicState } from "./audio/director";
 import { Music } from "./audio/music";
 import { Sfx } from "./audio/sfx";
 import { Input } from "./engine/input";
-import { STEP, VIEW_H, VIEW_W } from "./game/config";
-import { beginStory, refreshDerived } from "./game/profile";
+import { BINDABLE, STEP, VIEW_H, VIEW_W } from "./game/config";
+import { beginStory, bindKey, refreshDerived } from "./game/profile";
 import { applySave, parseSave, SAVE_KEY, toSave } from "./game/save";
 import { createWorld, step, toSelect } from "./game/world";
 import { fileButtonAt } from "./game/ui";
@@ -71,11 +71,19 @@ function loadSettings(): void {
     if (typeof r.shake === "boolean") world.settings.shake = r.shake;
     if (r.quality === "high" || r.quality === "medium" || r.quality === "low") world.settings.quality = r.quality;
     if (typeof r.autoQuality === "boolean") world.settings.autoQuality = r.autoQuality;
+    if (typeof r.keys === "object" && r.keys !== null) {
+      // Only known actions, each on a key named by a plain string.
+      for (const [action] of BINDABLE) {
+        const code = (r.keys as Record<string, unknown>)[action];
+        if (typeof code === "string" && code.length < 24 && code !== "Escape") world.settings.keys[action] = code;
+      }
+    }
   } catch {
     // Unreadable settings fall back to the defaults.
   }
 }
 loadSettings();
+input.setBindings(world.settings.keys);
 
 const stored = parseSave(readStored());
 if (stored) applySave(world, stored);
@@ -165,8 +173,16 @@ function serviceWorld(): void {
     world.dirty = false;
     writeStored();
   }
+  // Choosing a new key: the very next key pressed is the answer (Esc cancels).
+  if (world.rebinding && !input.captureNext) {
+    input.captureNext = (code) => {
+      if (world.rebinding) bindKey(world, world.rebinding, code);
+      world.rebinding = null;
+    };
+  }
   if (world.settingsDirty) {
     world.settingsDirty = false;
+    input.setBindings(world.settings.keys);
     try {
       localStorage.setItem(SETTINGS_KEY, JSON.stringify(world.settings));
     } catch {

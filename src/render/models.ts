@@ -228,6 +228,7 @@ function build(spec: ModelSpec, radius: number, hunter: boolean): Rig | null {
         slump: "Hit_A",
         leap: "Jump_Idle",
         down: "Lie_Idle",
+        die: "Death_A",
       };
       const name = clipFor[a.pose];
       const looping = a.pose === "idle" || a.pose === "guard" || a.pose === "leap" || a.pose === "down" || name === "Blocking";

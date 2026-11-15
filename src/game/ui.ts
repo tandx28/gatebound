@@ -1,4 +1,4 @@
-import { bossEchoCap, echoCap, KINDS, RANK_IDS, RESET, SKILL_IDS, SKILL_RANK, SKILL_SLOTS, SKILLS, VIEW_H, VIEW_W, type Rank } from "./config";
+import { BINDABLE, bossEchoCap, echoCap, NGPLUS, KINDS, RANK_IDS, RESET, SKILL_IDS, SKILL_RANK, SKILL_SLOTS, SKILLS, VIEW_H, VIEW_W, type Rank } from "./config";
 import {
   BAG,
   describeBonus,
@@ -17,7 +17,7 @@ import {
   type SupplyId,
 } from "./items";
 import { CUTSCENES, seenScenes } from "./cutscenes";
-import { activeEchoes, canActivate, owns, redGateOpen, riteOpen } from "./profile";
+import { activeEchoes, boundKey, canActivate, canNewGamePlus, keyName, owns, redGateOpen, riteOpen, towerOpen } from "./profile";
 import { MAIN } from "./quests";
 import { CHAPTERS } from "./story";
 import { visibleTabs, type World } from "./state";
@@ -187,10 +187,47 @@ export function settingsButtons(w: World, labelX: number, ctlX: number, top: num
     textX: labelX,
     on: s.autoQuality,
   });
+  out.push({
+    rect: { x: ctlX, y: top + 200, w: 144, h: 28 },
+    id: "set:tips",
+    label: w.profile.tips ? "ON" : "OFF",
+    enabled: true,
+    kind: "setting",
+    text: "FIRST-GATE TIPS",
+    textX: labelX,
+    on: w.profile.tips,
+  });
+  out.push({ rect: { x: ctlX, y: top + 240, w: 144, h: 28 }, id: "set:keys", label: "CHANGE KEYS", enabled: true, kind: "setting", text: "CONTROLS", textX: labelX });
   return out;
 }
 
-export const PAUSE_PANEL: Rect = { x: VIEW_W / 2 - 220, y: 80, w: 440, h: 560 };
+export const KEYS_PANEL: Rect = { x: VIEW_W / 2 - 380, y: 90, w: 760, h: 540 };
+
+/** The controls window: every action that can be moved, in two columns. */
+export function keysButtons(w: World): Button[] {
+  const p = KEYS_PANEL;
+  const half = Math.ceil(BINDABLE.length / 2);
+  const out: Button[] = BINDABLE.map(([action, name], i) => {
+    const col = i < half ? 0 : 1;
+    const x = p.x + 40 + col * 360;
+    const waiting = w.rebinding === action;
+    return {
+      rect: { x: x + 180, y: p.y + 80 + (i % half) * 42, w: 130, h: 30 },
+      id: `keys:${action}`,
+      label: waiting ? "PRESS A KEY" : keyName(boundKey(w, action)),
+      enabled: true,
+      kind: "setting",
+      text: name.toUpperCase(),
+      textX: x,
+      on: waiting,
+    };
+  });
+  out.push({ rect: { x: p.x + 40, y: p.y + p.h - 60, w: 220, h: 34 }, id: "keys:reset", label: "RESET TO DEFAULT", enabled: Object.keys(w.settings.keys).length > 0, kind: "plain" });
+  out.push({ rect: { x: p.x + p.w - 260, y: p.y + p.h - 60, w: 220, h: 34 }, id: "keys:close", label: "DONE", enabled: true, kind: "plain" });
+  return out;
+}
+
+export const PAUSE_PANEL: Rect = { x: VIEW_W / 2 - 220, y: 60, w: 440, h: 630 };
 
 /** Buttons of the pause menu: actions on top, settings below. */
 export function pauseButtons(w: World): Button[] {
@@ -272,6 +309,16 @@ function storyButtons(w: World): Button[] {
       textX: STORY.sceneX,
     });
   });
+  if (canNewGamePlus(pr)) {
+    const y = STORY.top + CHAPTERS.length * STORY.rowH + 36;
+    out.push({
+      rect: { x: STORY.chapterX, y, w: 480, h: 36 },
+      id: "ngplus",
+      label: `NEW GAME+  ${pr.cycle + 1} of ${NGPLUS.max}   ·   keep everything, face stronger gates`,
+      enabled: true,
+      kind: "plain",
+    });
+  }
   if (!pr.ending && MAIN[pr.quests.main]?.id === "m10") {
     const y = STORY.top + CHAPTERS.length * STORY.rowH + 12;
     out.push({ rect: { x: STORY.chapterX, y, w: 230, h: 40 }, id: "ending:keeper", label: "SIGN THE LEDGER", enabled: true, kind: "plain" });
@@ -320,6 +367,15 @@ export function hubButtons(w: World): Button[] {
         enabled: true,
         kind: "plain",
         danger: true,
+      });
+    }
+    if (towerOpen(pr)) {
+      out.push({
+        rect: { x: VIEW_W / 2 - 310, y: 644, w: 620, h: 32 },
+        id: "gate:tower",
+        label: `THE TOWER   ·   climb without end   ·   best floor ${pr.towerBest}`,
+        enabled: true,
+        kind: "plain",
       });
     }
     if (riteOpen(pr)) {
@@ -385,7 +441,8 @@ export function hubButtons(w: World): Button[] {
       const s = SKILLS[id];
       const open = level >= s.level;
       const rank = pr.skillRanks[id];
-      const y = TOP + i * 52;
+      // Twelve skills: rows as close as two lines of text allow.
+      const y = TOP + i * 34;
       SKILL_SLOTS.forEach((slot, j) => {
         const b: Button = {
           rect: { x: LEFT + 560 + j * 76, y, w: 66, h: 30 },

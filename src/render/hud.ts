@@ -3,6 +3,7 @@ import {
   dailyGoals,
   ECHO,
   KINDS,
+  ORDER_TEXT,
   PENALTY,
   PLAYER,
   RANKS,
@@ -18,7 +19,7 @@ import type { Rank } from "../game/config";
 import type { World } from "../game/state";
 import { NOTICES_SHOWN } from "../game/world";
 import { FURY, itemDef, itemName, MYTHICS, POTION, POWERS, STONE, TITLES, WEAPONS, type Rarity } from "../game/items";
-import { BELT, beltCount } from "../game/profile";
+import { BELT, beltCount, boundKey, keyName, tutorialTip } from "../game/profile";
 import { CUT, CUTSCENES, SKIP_HOLD } from "../game/cutscenes";
 import { activeQuests, MAIN, questProgress } from "../game/quests";
 import { CHAPTERS } from "../game/story";
@@ -26,6 +27,8 @@ import { STAT_KEYS, STAT_NAMES, xpToNext, type StatKey } from "../game/stats";
 import {
   hubButtons,
   hubHeadings,
+  KEYS_PANEL,
+  keysButtons,
   PAUSE_PANEL,
   pauseButtons,
   pointIn,
@@ -591,7 +594,7 @@ function drawStory(ctx: Ctx, w: World): void {
   ctx.font = `13px ${FONT}`;
   if (pr.ending) {
     ctx.fillStyle = GOLD;
-    ctx.fillText(pr.ending === "keeper" ? "You signed the last page. You are the Keeper." : "You burnt the last page. You are Unwritten.", x, y + 20);
+    ctx.fillText(pr.ending === "keeper" ? "You signed the last page. You are the Keeper." : "You burnt the last page. You are Unwritten.", x, y + 14);
   } else if (MAIN[at]?.id === "m10") {
     ctx.fillStyle = "#ff9a9a";
     ctx.fillText("One page remains. The choice cannot be undone.", x + 500, y + 25);
@@ -703,7 +706,7 @@ function drawHub(ctx: Ctx, w: World): void {
     ctx.textAlign = "center";
     ctx.font = `13px ${FONT}`;
     ctx.fillStyle = "#6f8fbf";
-    ctx.fillText(`Gates cleared: ${pr.gatesCleared}   ·   Kills this session: ${w.kills}`, VIEW_W / 2, 510);
+    ctx.fillText(`Gates cleared: ${pr.gatesCleared}   ·   Kills this session: ${w.kills}`, VIEW_W / 2, 590);
   }
   if (w.tab === "echoes" && pr.echoes.length === 0) {
     ctx.textAlign = "left";
@@ -749,7 +752,7 @@ function drawPurse(ctx: Ctx, w: World): void {
   ctx.fillStyle = pr.potions > 0 ? "#6dff9c" : "#4a5f85";
   ctx.fillText(`[F] POTION x${pr.potions}`, 286, 159);
   // The stone is greyed out where it cannot work.
-  const dead = w.sealed || (w.gateKind !== "normal" && w.gateKind !== "key");
+  const dead = w.sealed || (w.gateKind !== "normal" && w.gateKind !== "key" && w.gateKind !== "tower");
   ctx.fillStyle = w.bossDead || w.remnantHold ? GOLD : pr.stones > 0 && !dead ? "#9fc8ff" : "#4a5f85";
   ctx.fillText(w.bossDead || w.remnantHold ? "[T] LEAVE GATE" : `[T] STONE x${pr.stones}`, 286, 178);
 
@@ -800,6 +803,12 @@ function drawAlerts(ctx: Ctx, w: World): void {
   if (w.gateKind === "rite" && w.mode === "gate") {
     banner(`RITE OF ECHOES   ·   wave ${Math.min(w.riteWave + 1, RITE.waves.length)} of ${RITE.waves.length}`, (w.riteWave + 1) / RITE.waves.length, "#b9a4ff");
   }
+  if (w.gateKind === "tower") {
+    ctx.textAlign = "center";
+    ctx.font = `bold 15px ${FONT}`;
+    ctx.fillStyle = GOLD;
+    ctx.fillText(`THE TOWER   ·   FLOOR ${w.towerFloor}   ·   BEST ${w.profile.towerBest}`, VIEW_W / 2, 64);
+  }
   if (w.breakT > 0) banner(`GATE BREAK   ·   hold the line   ${clock(w.breakT)}`, w.breakT / BREAK.time, "#ff8a3c");
   if (w.penaltyT > 0) banner(`PENALTY ZONE   ·   survive   ${clock(w.penaltyT)}`, w.penaltyT / PENALTY.time, "#ff5a60");
   if (w.emergency) banner(`EMERGENCY QUEST   ·   kill them all   ${clock(w.emergency.t)}`, w.emergency.t / w.emergency.total, GOLD);
@@ -816,6 +825,44 @@ function drawAlerts(ctx: Ctx, w: World): void {
     ctx.fillStyle = RED;
     ctx.fillText("SEALED GATE  ·  NO RETREAT  ·  COLD", VIEW_W - 20, VIEW_H - 40);
   }
+}
+
+/** The controls window. */
+function drawKeys(ctx: Ctx, w: World): void {
+  const p = KEYS_PANEL;
+  ctx.fillStyle = "rgba(4,6,11,0.82)";
+  ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+  ctx.shadowColor = BLUE;
+  ctx.shadowBlur = 24;
+  panel(ctx, p.x, p.y, p.w, p.h);
+  ctx.shadowBlur = 0;
+  ctx.textAlign = "center";
+  ctx.font = `bold 22px ${FONT}`;
+  ctx.fillStyle = "#cfe4ff";
+  ctx.fillText("CONTROLS", VIEW_W / 2, p.y + 42);
+  ctx.font = `11px ${FONT}`;
+  ctx.fillStyle = "#6f8fbf";
+  ctx.fillText(w.rebinding ? "Press the new key.   ESC cancels." : "Click an action, then press the key it should be on. Mouse buttons stay as they are.", VIEW_W / 2, p.y + 62);
+  for (const b of keysButtons(w)) drawButton(ctx, w, b);
+}
+
+/** A new hunter's first gate: one plain tip at a time, under the notices. */
+function drawTip(ctx: Ctx, w: World): void {
+  const tip = tutorialTip(w);
+  if (!tip) return;
+  ctx.font = `14px ${FONT}`;
+  const lines = wrap(ctx, tip, 760);
+  const h = 30 + lines.length * 20;
+  const x = VIEW_W / 2 - 400;
+  const y = VIEW_H - 150 - h;
+  ctx.fillStyle = "rgba(8,16,34,0.85)";
+  ctx.fillRect(x, y, 800, h);
+  ctx.strokeStyle = GOLD;
+  ctx.lineWidth = 1;
+  ctx.strokeRect(x + 0.5, y + 0.5, 800, h);
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#e6efff";
+  lines.forEach((t, i) => ctx.fillText(t, VIEW_W / 2, y + 26 + i * 20));
 }
 
 function drawPause(ctx: Ctx, w: World): void {
@@ -928,11 +975,17 @@ export function drawHud(ctx: Ctx, w: World, mouseX: number, mouseY: number, proj
     drawMinimap(ctx, w);
     drawBossBar(ctx, w);
     drawAlerts(ctx, w);
+    drawTip(ctx, w);
     ctx.textAlign = "center";
     ctx.font = `12px ${FONT}`;
     ctx.fillStyle = "rgba(159,200,255,0.55)";
     ctx.fillText(
-      `WASD move · CLICK attack · SPACE dash · Q E R RMB skills · F potion · V mana · B belt · X swap · T stone${w.profile.classUnlocked ? " · G bind · H army" : ""} · C status · ESC pause`,
+      (() => {
+        const k = (action: string) => keyName(boundKey(w, action));
+        const move = ["KeyW", "KeyA", "KeyS", "KeyD"].map(k).join("");
+        const army = w.profile.classUnlocked ? ` · ${k("KeyG")} bind · ${k("KeyH")} army · ${k("KeyJ")} ${ORDER_TEXT[w.armyOrder].toLowerCase()}` : "";
+        return `${move} move · CLICK attack · ${k("Space")} dash · ${k("KeyQ")} ${k("KeyE")} ${k("KeyR")} RMB skills · ${k("KeyF")} potion · ${k("KeyV")} mana · ${k("KeyB")} belt · ${k("KeyX")} swap · ${k("KeyT")} stone${army} · ${k("KeyC")} status · ESC pause`;
+      })(),
       VIEW_W / 2,
       VIEW_H - 14,
     );
@@ -940,6 +993,7 @@ export function drawHud(ctx: Ctx, w: World, mouseX: number, mouseY: number, proj
   drawNotices(ctx, w);
   if (w.menu === "status") drawStatus(ctx, w);
   if (w.menu === "pause") drawPause(ctx, w);
+  if (w.menu === "keys") drawKeys(ctx, w);
   if (w.mode === "dead" || w.mode === "cleared") drawEnd(ctx, w);
   if (w.mode === "select" && w.menu === "none") drawDialogue(ctx, w);
 }

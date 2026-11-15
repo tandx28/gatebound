@@ -2,6 +2,7 @@ import { seeded } from "../engine/rng";
 import { seenScenes, startCutscene } from "./cutscenes";
 import { clamp } from "../engine/vec";
 import {
+  BINDABLE,
   bossEchoCap,
   BREAK,
   dailyGoals,
@@ -11,12 +12,14 @@ import {
   HIDDEN,
   KEYS,
   KINDS,
+  NGPLUS,
   RANK_IDS,
   RANKS,
   RESET,
   SKILL_IDS,
   SKILL_RANK,
   SKILLS,
+  TOWER,
   type Rank,
   type SkillId,
 } from "./config";
@@ -107,13 +110,16 @@ export function newProfile(): Profile {
     daily: { day: 0, kills: 0, rooms: 0, gates: 0, done: false },
     penaltyPending: false,
     hunterRank: "E",
-    skillRanks: { pierce: 1, whirl: 1, surge: 1, rally: 1, blink: 1, domain: 1 },
+    skillRanks: Object.fromEntries(SKILL_IDS.map((id) => [id, 1])) as Record<SkillId, number>,
     loadout: [...DEFAULT_LOADOUT],
     classUnlocked: false,
     echoes: [],
     lastClear: 0,
     breakPending: false,
     ending: null,
+    cycle: 0,
+    towerBest: 0,
+    tips: true,
     sealedPity: 0,
     redGate: { day: 0, rank: "E", done: false },
   };
@@ -174,8 +180,9 @@ function stockFor(w: World): string[] {
   const rng = seeded(w.today * 7919 + pr.shop.rerolls * 104729 + 17);
   const bases = rollStock(rng, owned, RANK_WEIGHT[pr.hunterRank]);
   // Now and then a Rank A hunter or better finds a legendary on the shelf.
+  // In New Game+ there is one every day.
   const high = RANK_IDS.indexOf(pr.hunterRank) >= RANK_IDS.indexOf("A");
-  if (high && bases.length > 0 && w.today % DROPS.legendaryDayEvery === 0) {
+  if (bases.length > 0 && (pr.cycle > 0 || (high && w.today % DROPS.legendaryDayEvery === 0))) {
     const legends = SHOP_POOL.filter((id) => ITEMS[id].rarity === "legendary" && !owned.includes(id));
     if (legends.length > 0) bases[bases.length - 1] = legends[Math.min(legends.length - 1, Math.floor(rng() * legends.length))];
   }
@@ -216,6 +223,33 @@ export function bossBindChance(w: World): number {
 }
 
 /** True while the rite of echoes is the open main quest. */
+/** The tower opens to hunters of Rank C and above. */
+export function towerOpen(profile: Profile): boolean {
+  return RANK_IDS.indexOf(profile.hunterRank) >= RANK_IDS.indexOf(TOWER.openRank);
+}
+
+/**
+ * A tower floor is clear. The record and the reward are banked on the spot,
+ * so a death higher up cannot take them back.
+ */
+export function towerFloorCleared(w: World): void {
+  const pr = w.profile;
+  const floor = w.towerFloor;
+  if (floor > pr.towerBest) pr.towerBest = floor;
+  if (floor % TOWER.bossEvery === 0) {
+    const gold = TOWER.gold * floor;
+    const item = rollDrop(w.rank, w.rng);
+    pr.gold += gold;
+    if (pr.inventory.length < DROPS.bagSize) pr.inventory.push(item);
+    else pr.gold += sellValue(item);
+    w.notices.push({ title: `FLOOR ${floor} CLEARED`, body: `+${gold} gold  ·  ${itemName(item)}`, life: 4 });
+    sfx(w, "quest");
+  }
+  if (floor >= 25) earnTitle(w, "tower_25");
+  if (floor >= 50) earnTitle(w, "tower_50");
+  w.dirty = true;
+}
+
 /** Whether today's sealed gate is still standing on the board. */
 export function redGateOpen(w: World): boolean {
   const red = w.profile.redGate;
@@ -355,6 +389,33 @@ export function beginStory(w: World): void {
   w.pendingDialogue.unshift("intro_after");
 }
 
+/** Whether the story can be begun again with everything kept. */
+export function canNewGamePlus(profile: Profile): boolean {
+  return profile.ending !== null && profile.cycle < NGPLUS.max;
+}
+
+/**
+ * New Game+: the main quest starts over and the last page is unwritten again,
+ * so the other ending can be chosen. Level, gear, echoes, titles, rank and
+ * the tower record all stay. Every enemy is stronger for it.
+ */
+export function newGamePlus(w: World): boolean {
+  const pr = w.profile;
+  if (!canNewGamePlus(pr)) return false;
+  pr.cycle += 1;
+  pr.ending = null;
+  pr.quests.main = 0;
+  for (const q of MAIN) delete pr.quests.progress[q.id];
+  // Today's shelf is rolled again, for the legendary a new cycle brings.
+  pr.shop.stock = stockFor(w);
+  w.pendingDialogue = [];
+  w.notices.push({ title: `NEW GAME+  ${pr.cycle}`, body: `The Ledger opens at its first page. Enemies are ${Math.round(NGPLUS.harder * pr.cycle * 100)}% stronger.`, life: 6 });
+  w.dirty = true;
+  // Steps already met (a level, a following of echoes) pass at once.
+  fireQuest(w, { type: "level", level: w.player.prog.level });
+  return true;
+}
+
 /** Sign the last page or burn it. Once chosen, it stays chosen. */
 export function chooseEnding(w: World, ending: Ending): boolean {
   const pr = w.profile;
@@ -420,6 +481,8 @@ export function fireQuest(w: World, ev: QuestEvent): void {
   // A newly opened step may already be satisfied (a level goal, say).
   fireQuest(w, { type: "level", level: w.player.prog.level });
   if (pr.echoes.length > 0) fireQuest(w, { type: "bind", echoes: pr.echoes.length, boss: pr.echoes.some((e) => KINDS[e.kind].boss) });
+  // An Echo Caller on a second telling has no rite left to undergo.
+  if (pr.classUnlocked && pr.cycle > 0) fireQuest(w, { type: "rite" });
   nextDialogue(w);
 }
 
@@ -724,6 +787,7 @@ export function settleDeath(w: World): void {
   run.items = [];
   run.keys = 0;
   run.books = [];
+  if (w.gateKind === "tower") run.summary.unshift(`You fell on floor ${w.towerFloor} of the tower. Best: floor ${pr.towerBest}.`);
   // Dying in the penalty zone still settles the debt; so does a lost break.
   if (w.gateKind === "penalty") pr.penaltyPending = false;
   if (w.gateKind === "break") {
@@ -745,14 +809,67 @@ export function applySetting(w: World, arg: string): void {
     s.quality = QUALITIES[(QUALITIES.indexOf(s.quality) + 1) % QUALITIES.length];
     s.autoQuality = false;
   } else if (arg === "autoq") s.autoQuality = !s.autoQuality;
+  else if (arg === "tips") {
+    w.profile.tips = !w.profile.tips;
+    w.dirty = true;
+  } else if (arg === "keys") {
+    w.menu = "keys";
+    w.rebinding = null;
+  } else if (arg === "keys-reset") s.keys = {};
   else return;
   w.settingsDirty = true;
   // Play something so the new volume can be heard at once.
   sfx(w, "click");
 }
 
+/** The key an action is on now. */
+export function boundKey(w: World, action: string): string {
+  return w.settings.keys[action] ?? action;
+}
+
+/** A key's name as shown to the player. */
+export function keyName(code: string): string {
+  if (code.startsWith("Key")) return code.slice(3);
+  if (code.startsWith("Digit")) return code.slice(5);
+  if (code.startsWith("Arrow")) return code.slice(5).toUpperCase();
+  return code.replace(/([a-z])([A-Z])/g, "$1 $2").toUpperCase();
+}
+
+/**
+ * Put an action on a key. If another action was on that key, the two trade,
+ * so no action is ever left without one and no key does two things.
+ */
+export function bindKey(w: World, action: string, code: string): void {
+  if (code === "Escape" || !BINDABLE.some(([a]) => a === action)) return;
+  const keys = w.settings.keys;
+  const old = boundKey(w, action);
+  const other = BINDABLE.map(([a]) => a).find((a) => a !== action && boundKey(w, a) === code);
+  if (other) keys[other] = old;
+  keys[action] = code;
+  // An action back on its own key needs no entry.
+  for (const [a] of BINDABLE) if (keys[a] === a) delete keys[a];
+  w.settingsDirty = true;
+  sfx(w, "click");
+}
+
+/** The tip shown in a new hunter's first gate: one thing per room. */
+export function tutorialTip(w: World): string | null {
+  if (!w.profile.tips || w.mode !== "gate" || w.gateKind !== "normal" || !w.dungeon) return null;
+  const k = (action: string) => keyName(boundKey(w, action));
+  const seen = w.dungeon.rooms.filter((r) => r.visited).length;
+  const tips = [
+    `${k("KeyW")} ${k("KeyA")} ${k("KeyS")} ${k("KeyD")} to move. Walk through a glowing doorway to find the enemies.`,
+    "CLICK to attack where the mouse points. Red marks on the floor show where a blow will land: step out of them.",
+    `${k("Space")} dashes. Nothing can hurt you mid-dash, so dash THROUGH an attack, not away from it.`,
+    `${k("KeyF")} drinks a potion. ${k("KeyB")} sips the flask, which refills for free back at the board.`,
+    `Doors lock until a room is clear. The boss waits behind the red door. ${k("KeyT")} uses a Return Stone to leave with your loot.`,
+    `${k("KeyC")} opens your status: spend stat points there. Tips end with this gate. Good hunting.`,
+  ];
+  return tips[Math.min(tips.length, seen) - 1] ?? null;
+}
+
 /** What a gate-board action asks the caller to start, if anything. */
-export type Enter = Rank | "key" | "rite" | "sealed" | null;
+export type Enter = Rank | "key" | "rite" | "sealed" | "tower" | null;
 
 /** Perform a gate-board action by id. */
 export function hubAction(w: World, id: string): Enter {
@@ -775,6 +892,9 @@ function hubActionInner(w: World, verb: string, arg: string, extra: string | und
     case "set":
       applySetting(w, arg);
       return null;
+    case "ngplus":
+      newGamePlus(w);
+      return null;
     case "ending":
       if (arg === "keeper" || arg === "unwritten") chooseEnding(w, arg);
       return null;
@@ -789,6 +909,7 @@ function hubActionInner(w: World, verb: string, arg: string, extra: string | und
       if (arg === "key") return pr.keys > 0 ? "key" : null;
       if (arg === "rite") return riteOpen(pr) ? "rite" : null;
       if (arg === "sealed") return redGateOpen(w) ? "sealed" : null;
+      if (arg === "tower") return towerOpen(pr) ? "tower" : null;
       return RANK_IDS.includes(arg as Rank) ? (arg as Rank) : null;
     case "buy":
       if (arg === "potion") {

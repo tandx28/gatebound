@@ -554,9 +554,10 @@ export function seenScenes(profile: Profile): string[] {
   const done = new Set(MAIN.slice(0, profile.quests.main).map((q) => q.id));
   return Object.keys(CUTSCENES).filter((id) => {
     if (id === "intro") return profile.introSeen;
-    if (id === "end_keeper") return profile.ending === "keeper";
-    if (id === "end_unwritten") return profile.ending === "unwritten";
-    return done.has(id);
+    // An ending once reached leaves its title behind, whatever has been begun again since.
+    if (id === "end_keeper") return profile.ending === "keeper" || profile.titles.includes("keeper");
+    if (id === "end_unwritten") return profile.ending === "unwritten" || profile.titles.includes("unwritten");
+    return done.has(id) || profile.cycle > 0;
   });
 }
 

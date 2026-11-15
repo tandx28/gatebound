@@ -1,3 +1,4 @@
+import { trapPhase } from "../rooms";
 import type { Controls } from "../../engine/input";
 import { seeded } from "../../engine/rng";
 import { angleDiff, norm } from "../../engine/vec";
@@ -41,6 +42,30 @@ export class Bot implements Controls {
     if (this.think > 0) return;
     this.think = this.reaction;
     this.decide(w);
+    this.detour(w);
+  }
+
+  /** Walk round pillars, and round traps that are about to go off, as a player would. */
+  private detour(w: World): void {
+    const m = this.move;
+    if (m.x === 0 && m.y === 0) return;
+    const p = w.player;
+    const blocks: { x: number; y: number; radius: number }[] = [...w.pillars];
+    for (const t of w.traps) {
+      if (t.kind === "sludge" || trapPhase(t, w.trapClock).phase !== "idle") blocks.push({ x: t.x, y: t.y, radius: t.kind === "flame" ? 60 : t.radius });
+    }
+    for (const b of blocks) {
+      const vx = b.x - p.x;
+      const vy = b.y - p.y;
+      const along = vx * m.x + vy * m.y;
+      const side = vx * m.y - vy * m.x;
+      const reach = b.radius + p.radius + 6;
+      if (along <= 0 || along > reach + 50 || Math.abs(side) > reach) continue;
+      // Turn away from its centre; dead ahead, pick a side and keep to it.
+      const turn = side >= 0 ? 1 : -1;
+      this.move = norm(m.x - m.y * turn * 1.6, m.y + m.x * turn * 1.6);
+      return;
+    }
   }
 
   private go(x: number, y: number): void {

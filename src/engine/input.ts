@@ -1,4 +1,4 @@
-import { VIEW_H, VIEW_W } from "../game/config";
+import { BINDABLE, VIEW_H, VIEW_W } from "../game/config";
 
 /** What the simulation reads from the player. Tests supply a fake. */
 export interface Controls {
@@ -29,15 +29,44 @@ export class Input implements Controls {
   aimX = 0;
   aimY = 0;
   attackHeld = false;
+  /** Set to take the very next key press instead of playing it: used to choose a new key. */
+  captureNext: ((code: string) => void) | null = null;
+  /** The key pressed, to the action it now performs. `null`: that key has been given away. */
+  private remap = new Map<string, string | null>();
+
+  /** Tell the keyboard which keys the player has moved. */
+  setBindings(keys: Record<string, string>): void {
+    this.remap.clear();
+    // A default key whose action has moved elsewhere does nothing, unless another action took it.
+    for (const [action] of BINDABLE) if (keys[action] && keys[action] !== action) this.remap.set(action, null);
+    for (const [action] of BINDABLE) if (keys[action]) this.remap.set(keys[action], action);
+    this.keys.clear();
+  }
+
+  /** The action a physical key stands for, or null if it stands for none. */
+  private logical(code: string): string | null {
+    return this.remap.has(code) ? this.remap.get(code)! : code;
+  }
 
   constructor(canvas: HTMLCanvasElement) {
     window.addEventListener("keydown", (e) => {
       if (e.repeat) return;
-      this.keys.add(e.code);
-      this.queued.add(e.code);
       if (e.code === "Space" || e.code === "Tab") e.preventDefault();
+      if (this.captureNext) {
+        const take = this.captureNext;
+        this.captureNext = null;
+        take(e.code);
+        return;
+      }
+      const code = this.logical(e.code);
+      if (!code) return;
+      this.keys.add(code);
+      this.queued.add(code);
     });
-    window.addEventListener("keyup", (e) => this.keys.delete(e.code));
+    window.addEventListener("keyup", (e) => {
+      const code = this.logical(e.code);
+      if (code) this.keys.delete(code);
+    });
     window.addEventListener("blur", () => {
       this.keys.clear();
       this.attackHeld = false;

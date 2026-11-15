@@ -31,7 +31,7 @@ export const PLAYER = {
   hurtIframes: 0.5,
 };
 
-export type SkillId = "pierce" | "whirl" | "surge" | "rally" | "blink" | "domain";
+export type SkillId = "pierce" | "whirl" | "surge" | "rally" | "blink" | "domain" | "swap" | "sacrifice" | "parry" | "shot" | "ward" | "drain";
 
 export interface SkillDef {
   name: string;
@@ -46,7 +46,7 @@ export interface SkillDef {
   cooldown: number;
 }
 
-export const SKILL_IDS: SkillId[] = ["pierce", "whirl", "surge", "rally", "blink", "domain"];
+export const SKILL_IDS: SkillId[] = ["pierce", "whirl", "surge", "rally", "swap", "sacrifice", "blink", "parry", "shot", "domain", "ward", "drain"];
 
 /** The four skill slots: three keys and the right mouse button. */
 export const SKILL_SLOTS: { key: string; code: string }[] = [
@@ -64,7 +64,21 @@ export const SKILLS: Record<SkillId, SkillDef> = {
   rally: { name: "Rally", about: "Send every echo at the enemy nearest the cursor", key: "RMB", code: "Mouse2", level: 20, mana: 10, cooldown: 14 },
   blink: { name: "Blink", about: "Teleport to the cursor and burst on arrival", key: "", code: "", level: 32, mana: 8, cooldown: 7 },
   domain: { name: "Domain", about: "Slow every enemy in the room and soften them", key: "", code: "", level: 45, mana: 16, cooldown: 25 },
+  swap: { name: "Trade Places", about: "Swap places with the echo nearest the cursor", key: "", code: "", level: 24, mana: 6, cooldown: 8 },
+  sacrifice: { name: "Last Order", about: "The echo nearest the cursor bursts", key: "", code: "", level: 30, mana: 14, cooldown: 18 },
+  parry: { name: "Parry", about: "Turn the next blow within a moment back on those nearby", key: "", code: "", level: 36, mana: 5, cooldown: 6 },
+  shot: { name: "Long Shot", about: "A line of force through everything ahead", key: "", code: "", level: 42, mana: 12, cooldown: 9 },
+  ward: { name: "Ward", about: "The next hit you take does nothing", key: "", code: "", level: 48, mana: 14, cooldown: 22 },
+  drain: { name: "Blood Price", about: "For a while, your blows heal you", key: "", code: "", level: 54, mana: 16, cooldown: 24 },
 };
+
+export const SWAP = { iframes: 0.3 };
+export const SACRIFICE = { radius: 170, mult: 5 };
+export const PARRY = { time: 0.45, radius: 150, mult: 2.5, stun: 0.9 };
+export const SHOT = { range: 720, width: 30, mult: 3.2 };
+export const DRAIN = { time: 6, share: 0.12 };
+/** Which sound each of the later skills borrows. */
+export const SKILL_SOUND: Partial<Record<SkillId, string>> = { swap: "dash", sacrifice: "blast", parry: "block", shot: "pierce", ward: "chime", drain: "surge" };
 
 export const RALLY = { time: 6, damage: 1.5 };
 export const BLINK = { range: 320, radius: 75, mult: 1.5, iframes: 0.25 };
@@ -282,6 +296,53 @@ export const RESET = { price: 400 };
  * Echoes: the fallen, bound to fight beside you. A remnant lingers where an
  * enemy dies; binding it costs mana. Bosses resist, and allow a few tries.
  */
+/** A heavy blow (sword, spear, any skill) breaks a small enemy's wind-up. Bosses and big enemies shrug it off. */
+export const STAGGER = { maxRadius: 18, time: 0.45 };
+/** How long a fallen enemy lies where it fell. */
+export const CORPSE = { time: 1.6, sink: 0.5 };
+
+/** New Game+: the story again with everything kept, against stronger enemies that pay more. */
+export const NGPLUS = { max: 3, harder: 0.6, reward: 0.5 };
+
+/**
+ * The tower: one room a floor, without end. Every tenth floor climbs a rank
+ * (and stays at S from floor 51), and within a rank each floor is a little
+ * harder than the last. Every fifth floor is a boss, and pays out.
+ */
+export const TOWER = { openRank: "C" as Rank, bossEvery: 5, floorsPerRank: 10, perFloor: 0.07, pack: 3, packGrow: 0.3, maxPack: 9, rest: 2.5, gold: 60 };
+
+export function towerRank(floor: number): Rank {
+  return RANK_IDS[Math.min(RANK_IDS.length - 1, Math.floor((floor - 1) / TOWER.floorsPerRank))];
+}
+
+/** Actions that can be moved to another key: the key each has by default, and its name. */
+export const BINDABLE: [string, string][] = [
+  ["KeyW", "Move up"],
+  ["KeyS", "Move down"],
+  ["KeyA", "Move left"],
+  ["KeyD", "Move right"],
+  ["Space", "Dash"],
+  ["KeyQ", "Skill 1"],
+  ["KeyE", "Skill 2"],
+  ["KeyR", "Skill 3"],
+  ["KeyF", "Potion"],
+  ["KeyV", "Mana draught"],
+  ["KeyB", "Belt item"],
+  ["KeyZ", "Next belt item"],
+  ["KeyX", "Swap weapon"],
+  ["KeyT", "Return Stone"],
+  ["KeyG", "Bind a remnant"],
+  ["KeyH", "Army away / back"],
+  ["KeyJ", "Army orders"],
+  ["KeyC", "Status"],
+];
+
+/** What the army has been told to do. Guard: fight only what comes this close to the hunter. */
+export type ArmyOrder = "hunt" | "guard" | "hold";
+export const ORDERS: ArmyOrder[] = ["hunt", "guard", "hold"];
+export const ORDER = { guardRadius: 240, holdRange: 420 };
+export const ORDER_TEXT: Record<ArmyOrder, string> = { hunt: "HUNT", guard: "GUARD ME", hold: "HOLD HERE" };
+
 /** Calling the army out of the ground, and sending it back. */
 export const ARMY = { rise: 0.8, leave: 0.5, cooldown: 1.2 };
 

@@ -5,6 +5,7 @@ import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 import {
   ARMY,
+  CORPSE,
   ASSASSIN,
   CHARGER,
   EXPLODER,
@@ -22,9 +23,10 @@ import {
 } from "../game/config";
 import type { Dungeon, Side } from "../game/dungeon";
 import { WEAPONS, type WeaponType } from "../game/items";
-import type { Ally, Enemy, Quality, World } from "../game/state";
+import type { Ally, Corpse, Enemy, Quality, World } from "../game/state";
 import { KINDS, type EnemyKind } from "../game/config";
 import { CUT, CUTSCENES, type ActorKind, type CutActor } from "../game/cutscenes";
+import { TRAPS, trapPhase } from "../game/rooms";
 import { modelRig } from "./models";
 import { buildRig, ghostify, poseFor, type Pose, type Rig } from "./rigs";
 
@@ -44,6 +46,8 @@ const figure = (kind: ActorKind, radius?: number): Rig =>
 const RANK_TINT: Record<Rank, number> = { E: 0x3aa0ff, D: 0x35e0a0, C: 0xb070ff, B: 0xff9a3c, A: 0xff4f6a, S: 0xffe9a0 };
 const SEALED_TINT = 0xff3355;
 const ECHO_TINT = 0x8a6cff;
+/** The stone each rank's gates are cut from, so a deeper gate looks like a different place. */
+const RANK_STONE: Record<Rank, number> = { E: 0x8b90a0, D: 0x7f9688, C: 0x9186a6, B: 0xa59378, A: 0xa07e86, S: 0xaaa58e };
 const WALL_H = 80;
 const WALL_T = 30;
 const CAM_OFFSET = new THREE.Vector3(0, 800, 590);
@@ -218,6 +222,8 @@ export class Scene3D {
   private allies = new Map<Ally, Rig>();
   /** Figures on stage in the cutscene being played. */
   private actors = new Map<CutActor, Rig>();
+  /** Enemies that have just fallen, playing out their deaths. */
+  private corpses = new Map<Corpse, Rig>();
   private floorTex: THREE.CanvasTexture;
   private wallTex: THREE.CanvasTexture;
   private quality: Quality | null = null;
@@ -366,7 +372,7 @@ export class Scene3D {
     disposeTree(this.hunter.root);
     this.hunter = figure("player");
     this.player.add(this.hunter.root);
-    for (const map of [this.enemies, this.allies, this.actors]) {
+    for (const map of [this.enemies, this.allies, this.actors, this.corpses]) {
       for (const rig of map.values()) {
         this.scene.remove(rig.root);
         disposeTree(rig.root);
@@ -448,7 +454,7 @@ export class Scene3D {
     const floorMap = this.floorTex.clone();
     floorMap.needsUpdate = true;
     floorMap.repeat.set(ROOM.w / 400, ROOM.h / 400);
-    const shade = new THREE.Color(isBoss ? 0x6a4a50 : 0x8b90a0).lerp(new THREE.Color(tint), isBoss ? 0.05 : 0.1);
+    const shade = new THREE.Color(isBoss ? 0x6a4a50 : RANK_STONE[w.rank]).lerp(new THREE.Color(tint), isBoss ? 0.05 : 0.1);
     const floor = new THREE.Mesh(
       new THREE.PlaneGeometry(ROOM.w, ROOM.h),
       new THREE.MeshStandardMaterial({ map: floorMap, color: shade, roughness: 0.92, metalness: 0.02 }),
@@ -458,7 +464,19 @@ export class Scene3D {
     floor.receiveShadow = true;
     this.roomGroup.add(floor);
 
-    const wallMat = new THREE.MeshStandardMaterial({ map: this.wallTex, color: isBoss ? 0x7a6066 : 0x8a8f9c, roughness: 0.95, metalness: 0 });
+    // Pillars: stone drums with a band of the gate's colour, tall enough to hide behind.
+    for (const pillar of w.pillars) {
+      const stone = new THREE.MeshStandardMaterial({ map: this.wallTex, color: RANK_STONE[w.rank], roughness: 0.95 });
+      const drum = new THREE.Mesh(new THREE.CylinderGeometry(pillar.radius * 0.9, pillar.radius, 150, 14), stone);
+      drum.position.set(pillar.x, 75, pillar.y);
+      drum.castShadow = true;
+      drum.receiveShadow = true;
+      const band = new THREE.Mesh(new THREE.CylinderGeometry(pillar.radius * 0.96, pillar.radius * 0.96, 6, 14), glow(tint, 0.5));
+      band.position.set(pillar.x, 112, pillar.y);
+      this.roomGroup.add(drum, band);
+    }
+
+    const wallMat = new THREE.MeshStandardMaterial({ map: this.wallTex, color: isBoss ? 0x7a6066 : RANK_STONE[w.rank], roughness: 0.95, metalness: 0 });
     const trimMat = glow(isBoss ? 0xff3355 : tint, 0.55);
     const nearTrimMat = glow(isBoss ? 0xff3355 : tint, 0.12);
     const cx = ROOM.w / 2;
@@ -549,6 +567,29 @@ export class Scene3D {
       rig.root.visible = e.state !== "vanish" && (e.inv <= 0 || e.immortal || Math.floor(this.clock * 30) % 2 === 0);
       // A leaper rises and falls through its jump.
       if (e.state === "leap") rig.root.position.y = 70 * Math.sin(Math.PI * Math.min(1, Math.max(0, 1 - e.t / 0.35)));
+    }
+  }
+
+  /** The fallen lie where they fell, then sink out of sight. */
+  private syncCorpses(w: World): void {
+    for (const [c, rig] of this.corpses) {
+      if (!w.corpses.includes(c)) {
+        this.scene.remove(rig.root);
+        disposeTree(rig.root);
+        this.corpses.delete(c);
+      }
+    }
+    for (const c of w.corpses) {
+      let rig = this.corpses.get(c);
+      if (!rig) {
+        rig = figure(c.kind, c.radius);
+        this.corpses.set(c, rig);
+        this.scene.add(rig.root);
+      }
+      const sunk = Math.max(0, 1 - c.t / CORPSE.sink);
+      rig.root.position.set(c.x, -(rig.height + 12) * sunk * sunk, c.y);
+      rig.root.rotation.y = -c.facing;
+      rig.animate({ time: this.clock, moving: false, pose: "die", swing: 1, flash: false, glow: 0, phase: 1 });
     }
   }
 
@@ -645,6 +686,23 @@ export class Scene3D {
     this.rings.begin();
     this.lines.begin();
     for (const pool of Object.values(this.sectors)) pool.begin();
+
+    // Floor traps: always marked, ringed while they warn, filled while they bite.
+    for (const t of w.traps) {
+      const { phase, k } = trapPhase(t, w.trapClock);
+      if (t.kind === "sludge") {
+        this.circles.place(t.x, t.y, 0, t.radius, t.radius, 0x5a8a3a, 0.4);
+        this.rings.place(t.x, t.y, 0, t.radius, t.radius, 0x8ac060, 0.5);
+      } else if (t.kind === "spike") {
+        this.rings.place(t.x, t.y, 0, t.radius, t.radius, phase === "idle" ? 0x8a8f99 : 0xff3040, phase === "idle" ? 0.35 : 0.9);
+        if (phase === "warn") this.circles.place(t.x, t.y, 0, t.radius * k, t.radius * k, 0xff3040, 0.3);
+        if (phase === "on") this.circles.place(t.x, t.y, 0, t.radius, t.radius, 0xffe0e0, 0.75);
+      } else {
+        const width = TRAPS.flame.width * 2;
+        const color = phase === "on" ? 0xffb040 : 0xff7a20;
+        this.lines.place(t.x - t.radius, t.y, 0, t.radius * 2, phase === "idle" ? 6 : phase === "warn" ? width * k : width, color, phase === "idle" ? 0.3 : phase === "warn" ? 0.3 : 0.8);
+      }
+    }
 
     for (const e of w.enemies) {
       const a = Math.atan2(e.dirY, e.dirX);
@@ -822,6 +880,7 @@ export class Scene3D {
     if (stage) this.player.position.set(stage.x, 0, stage.y);
 
     this.syncEnemies(w, alpha);
+    this.syncCorpses(w);
     this.syncAllies(w, alpha);
     this.syncShots(w, alpha);
     this.syncDecals(w);

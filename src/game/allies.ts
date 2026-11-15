@@ -1,6 +1,6 @@
 import { norm } from "../engine/vec";
 import { circlesOverlap, clampToRoom } from "./combat";
-import { DOMINION, ECHO, KINDS, RALLY, ROOM, type EnemyKind } from "./config";
+import { DOMINION, ECHO, KINDS, ORDER, RALLY, ROOM, type EnemyKind } from "./config";
 import { damageEnemy } from "./enemies";
 import { playerHit } from "./perks";
 import { floatText, hurtPlayer, sfx, type Ally, type Echo, type Enemy, type World } from "./state";
@@ -70,8 +70,13 @@ export function makeAlly(echo: Echo, x: number, y: number, base: number): Ally {
 function nearestEnemy(w: World, a: Ally): Enemy | null {
   let best: Enemy | null = null;
   let d = Infinity;
+  const p = w.player;
   for (const e of w.enemies) {
     if (e.hp <= 0 || e.immortal) continue;
+    // On guard, only what has come close to the hunter is worth leaving their side for.
+    if (w.armyOrder === "guard" && Math.hypot(e.x - p.x, e.y - p.y) > ORDER.guardRadius + e.radius) continue;
+    // Holding, an echo answers only what comes within its reach.
+    if (w.armyOrder === "hold" && Math.hypot(e.x - a.x, e.y - a.y) > (STYLE[a.kind] === "ranged" ? ORDER.holdRange : a.radius + e.radius + 20)) continue;
     const n = Math.hypot(e.x - a.x, e.y - a.y);
     if (n < d) {
       d = n;
@@ -81,7 +86,8 @@ function nearestEnemy(w: World, a: Ally): Enemy | null {
   return best;
 }
 
-function walk(a: Ally, dx: number, dy: number, speed: number, dt: number): void {
+function walk(a: Ally, dx: number, dy: number, speed: number, dt: number, held = false): void {
+  if (held) return;
   const d = norm(dx, dy);
   a.x += d.x * speed * dt;
   a.y += d.y * speed * dt;
@@ -101,10 +107,12 @@ export function stepAlly(w: World, a: Ally, dt: number): void {
   a.cd = Math.max(0, a.cd - dt);
   a.flash = Math.max(0, a.flash - dt);
 
+  // Told to hold, an echo stays where it stands (Rally and Dominion still move it).
+  const held = w.armyOrder === "hold" && !(w.rallyT > 0 && w.rallyTarget);
   const follow = () => {
     const dx = p.x - a.x;
     const dy = p.y - a.y;
-    if (Math.hypot(dx, dy) > 90) walk(a, dx, dy, speed, dt);
+    if (Math.hypot(dx, dy) > 90) walk(a, dx, dy, speed, dt, held);
   };
 
   // Dominion: for a while the echoes hunt their own master.
@@ -151,8 +159,8 @@ export function stepAlly(w: World, a: Ally, dt: number): void {
   a.facing = Math.atan2(dy, dx);
 
   if (style === "ranged") {
-    if (dist > 300) walk(a, dx, dy, speed, dt);
-    else if (dist < 180) walk(a, -dx, -dy, speed, dt);
+    if (dist > 300) walk(a, dx, dy, speed, dt, held);
+    else if (dist < 180) walk(a, -dx, -dy, speed, dt, held);
     if (a.cd <= 0) {
       const spread = a.kind === "summoner" ? [-0.2, 0, 0.2] : [0];
       for (const off of spread) {
@@ -164,7 +172,7 @@ export function stepAlly(w: World, a: Ally, dt: number): void {
     }
   } else {
     const reach = a.radius + t.radius + 16;
-    if (dist > reach) walk(a, dx, dy, speed, dt);
+    if (dist > reach) walk(a, dx, dy, speed, dt, held);
     else if (a.cd <= 0) {
       if (style === "sweep") {
         for (const e of w.enemies) {

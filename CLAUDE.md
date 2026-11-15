@@ -78,6 +78,7 @@ src/game/
   profile.ts            everything between gates: shop, quests, loot, hubAction
   quests.ts, story.ts   main and side quests, chapters, dialogue text
   cutscenes.ts          cutscene scripts and their stepping (pure data + state)
+  rooms.ts              pillars and floor traps: worked out from the room, never saved
   dungeon.ts            room-graph generator
   save.ts               save format, validation, migration
   ui.ts                 button rectangles for the board, pause and status menus
@@ -172,6 +173,9 @@ redraws; use it because background tabs throttle frames), `__input`,
   offenders.
 - **Cutscenes** are in-engine, under 40 seconds each, skippable by holding
   Esc for 2 seconds, and replayable from the Story tab.
+- **Build first, test once.** When several features are agreed, write them
+  all (typecheck as you go), then do one pass of tests, balance, browser
+  check and publish. The owner's usage is limited and testing is the cost.
 - **Out of scope** unless the owner asks: touch controls, multiplayer,
   voice acting, accounts, servers.
 
@@ -187,6 +191,7 @@ redraws; use it because background tabs throttle frames), `__input`,
 | Declaring a visual change done from tests alone | Tests cannot see a figure sunk in the floor, text off its panel, or a white screen | Open the page, drive it with `__advance`, look at a screenshot, read the console |
 | Judging motion from one screenshot of a background tab | Frames are throttled; you see a stale frame | Call `__advance(t)` then capture; capture twice if unsure |
 | Fixing a failing test by loosening it | Hides the defect the test was written for | Find which object fails (print it), fix the cause; change a test only when the *intent* changed, and say so |
+| Calling the dungeon generator in a test with a constant `rng` | It loops for ever looking for a free cell | Give it `seeded(n)` |
 | Tuning damage or health by feel | One rank becomes a wall or a walkover | Change `config.ts`, run `npm run balance`, compare with the pinned targets |
 | An attack that damages on its first frame | Unavoidable hits; the owner has already complained about this once | Warn first: `Shockwave.wait`, zone timers, wind-up states |
 | Clearing the field without thinking what must survive | Boss remnants and held gates vanish | Check `clearField` callers; preserve what the player is meant to act on |

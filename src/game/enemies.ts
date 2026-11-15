@@ -19,6 +19,7 @@ import {
   RING_WARNING,
   ROAR,
   ROOM,
+  NGPLUS,
   SEALED_SCALE,
   SHOOTER,
   SWARMER,
@@ -195,7 +196,17 @@ export function damageEnemy(
 
 /** Make an enemy for the gate in progress, with its modifiers applied. */
 export function spawnEnemy(w: World, kind: EnemyKind, x: number, y: number): Enemy {
-  return makeEnemy(kind, x, y, w.rank, w.sealed ? SEALED_SCALE[w.rank] : undefined);
+  const e = makeEnemy(kind, x, y, w.rank, w.sealed ? SEALED_SCALE[w.rank] : undefined);
+  const cycle = w.profile.cycle;
+  if (cycle > 0) {
+    // New Game+: everything is tougher, hits harder, and is worth more.
+    const m = 1 + NGPLUS.harder * cycle;
+    e.maxHp = Math.round(e.maxHp * m);
+    e.hp = e.maxHp;
+    e.dmg *= m;
+    e.xp = Math.round(e.xp * (1 + NGPLUS.reward * cycle));
+  }
+  return e;
 }
 
 function fire(w: World, e: Enemy, angle: number, speed: number, damage: number, status?: StatusId): void {

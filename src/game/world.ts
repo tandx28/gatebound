@@ -3,9 +3,12 @@ import { clamp, norm } from "../engine/vec";
 import { makeAlly, stepAlly, stepAllyShots } from "./allies";
 import { circlesOverlap, inArc, rollDamage, separate } from "./combat";
 import { stepCutscene } from "./cutscenes";
+import { blockCircle, furnish, insidePillar, PILLAR, stepTraps } from "./rooms";
 import {
   ARMY,
   BLINK,
+  CORPSE,
+  DRAIN,
   BREAK,
   COLOSSUS,
   DOMAIN,
@@ -14,6 +17,9 @@ import {
   EMERGENCY,
   HIDDEN,
   KINDS,
+  ORDER_TEXT,
+  ORDERS,
+  PARRY,
   PENALTY,
   PIERCE,
   PLAYER,
@@ -23,24 +29,33 @@ import {
   RANKS,
   RITE,
   ROOM,
+  SACRIFICE,
   SEALED,
   SEALED_GUARD,
+  SHOT,
+  SKILL_SOUND,
+  SWAP,
   SKILL_RANK,
   SKILL_IDS,
   SKILLS,
   SKILL_SLOTS,
+  STAGGER,
   STATUS,
   SURGE,
+  TOWER,
+  towerRank,
   WHIRL,
   type EnemyKind,
   type Rank,
   type SkillId,
 } from "./config";
 import { addTrialRoom, generateDungeon, keyDungeon, OPPOSITE, type Dungeon, type RoomNode, type Side } from "./dungeon";
-import { isCommitted, spawnEnemy, spawnPoint, stepEnemy } from "./enemies";
+import { damageEnemy, isCommitted, spawnEnemy, spawnPoint, stepEnemy } from "./enemies";
 import { BOW, FURY, PERK, WEAPONS } from "./items";
 import { playerHit, stepEnemyPerks } from "./perks";
 import {
+  healPlayer,
+  type Ally,
   afflict,
   blast,
   burst,
@@ -57,6 +72,7 @@ import {
   type World,
 } from "./state";
 import {
+  towerFloorCleared,
   advanceDialogue,
   applySetting,
   bossBindChance,
@@ -80,7 +96,7 @@ import {
   usePotion,
 } from "./profile";
 import { addXp, allocate, derive, newProgress, POINTS_PER_LEVEL, STAT_KEYS } from "./stats";
-import { hubButtons, pauseButtons, pointIn, statButton, titleButton } from "./ui";
+import { keysButtons, hubButtons, pauseButtons, pointIn, statButton, titleButton } from "./ui";
 
 export type { Enemy, Player, World } from "./state";
 
@@ -92,12 +108,14 @@ export function createWorld(rng: () => number = Math.random): World {
     run: newRun(),
     tab: "gates",
     dialogue: null,
+    rebinding: null,
     cutscene: null,
     pendingDialogue: [],
     dirty: false,
     requests: [],
     sounds: [],
-    settings: { sfx: 0.7, music: 0.5, shake: true, quality: "high", autoQuality: true },
+    settings: {
+      keys: {}, sfx: 0.7, music: 0.5, shake: true, quality: "high", autoQuality: true },
     settingsDirty: false,
     today: 0,
     gateKind: "normal",
@@ -110,11 +128,18 @@ export function createWorld(rng: () => number = Math.random): World {
     rallyTarget: null,
     domainT: 0,
     turnedT: 0,
+    pillars: [],
+    traps: [],
+    trapClock: 0,
     allies: [],
+    armyOrder: "hunt",
     armyAway: false,
     armyCd: 0,
     allyShots: [],
     remnants: [],
+    corpses: [],
+    towerFloor: 0,
+    towerRest: 0,
     riteWave: 0,
     breakT: 0,
     breakSpawn: 0,
@@ -165,6 +190,8 @@ export function createWorld(rng: () => number = Math.random): World {
       lungeX: 1,
       lungeY: 0,
       surgeT: 0,
+      parryT: 0,
+      drainT: 0,
       moving: false,
       kx: 0,
       ky: 0,
@@ -201,6 +228,7 @@ function clearField(w: World): void {
   w.shockwaves = [];
   w.allyShots = [];
   w.remnants = [];
+  w.corpses = [];
   w.patches = [];
   w.rallyT = 0;
   w.rallyTarget = null;
@@ -209,7 +237,7 @@ function clearField(w: World): void {
 }
 
 function noCooldowns(): Record<SkillId, number> {
-  return { pierce: 0, whirl: 0, surge: 0, rally: 0, blink: 0, domain: 0 };
+  return Object.fromEntries(SKILL_IDS.map((id) => [id, 0])) as Record<SkillId, number>;
 }
 
 /** Bring the active echoes onto the field, in a ring round the player. */
@@ -243,6 +271,8 @@ function resetPlayer(p: Player): void {
   p.ky = 0;
   p.hurtFlash = 0;
   p.skillCd = noCooldowns();
+  p.parryT = 0;
+  p.drainT = 0;
   p.ail = noAilments();
   p.furyT = 0;
   p.swapCd = 0;
@@ -260,9 +290,12 @@ function beginGate(w: World, rank: Rank, dungeon: Dungeon, kind: GateKind, seale
   w.emergency = null;
   w.penaltyT = 0;
   w.riteWave = 0;
+  w.towerFloor = 0;
+  w.towerRest = 0;
   w.breakT = 0;
   w.breakSpawn = 0;
   w.allies = [];
+  w.armyOrder = "hunt";
   w.armyAway = false;
   w.armyCd = 0;
   w.bossDead = false;
@@ -291,7 +324,7 @@ export function enterGate(w: World, rank: Rank, opts: { sealed?: boolean } = {})
   w.run.overLevel = w.player.prog.level < RANKS[rank].minLevel;
   enterRoom(w, dungeon.startId, null);
   if (sealed) {
-    w.notices.push({ title: "SEALED GATE", body: "The way out is gone. Stronger enemies, biting cold, a master already awake. Double reward, and a prize.", life: 6 });
+    w.notices.push({ title: "SEALED GATE", body: "No way out. Its master is awake. Double reward, and a prize.", life: 6 });
     floatText(w, w.player.x, w.player.y, "SEALED", "#ff3355", true);
     sfx(w, "alarm");
     w.shake = Math.max(w.shake, 12);
@@ -355,6 +388,35 @@ export function enterRite(w: World): void {
   w.notices.push({ title: "RITE OF ECHOES", body: `Wave 1 of ${RITE.waves.length}. You enter alone.`, life: 4 });
 }
 
+/** Begin a tower floor: a pack, or on every fifth floor the rank's boss. */
+function startFloor(w: World, floor: number): void {
+  w.towerFloor = floor;
+  w.towerRest = 0;
+  w.rank = towerRank(floor);
+  const def = RANKS[w.rank];
+  if (floor % TOWER.bossEvery === 0) spawnPack(w, [def.boss]);
+  else {
+    const size = Math.min(TOWER.maxPack, Math.floor(TOWER.pack + floor * TOWER.packGrow));
+    const kinds = def.kinds.filter((k) => k !== "totem");
+    spawnPack(w, Array.from({ length: size }, () => kinds[Math.min(kinds.length - 1, Math.floor(w.rng() * kinds.length))]));
+  }
+  // Within a rank, every floor is a little tougher than the one below.
+  const harder = 1 + TOWER.perFloor * ((floor - 1) % TOWER.floorsPerRank);
+  for (const e of w.enemies) {
+    e.maxHp = Math.round(e.maxHp * harder);
+    e.hp = e.maxHp;
+    e.dmg *= harder;
+  }
+  sfx(w, floor % TOWER.bossEvery === 0 ? "alarm" : "door");
+  w.notices.push({ title: `THE TOWER  ·  FLOOR ${floor}`, body: floor % TOWER.bossEvery === 0 ? "A master holds this floor." : `Rank ${w.rank} strength.`, life: 2.5 });
+}
+
+/** The tower: climb until you fall or leave. Nothing is restocked on the way up. */
+export function enterTower(w: World): void {
+  beginArena(w, "E", "tower", false);
+  startFloor(w, 1);
+}
+
 /** A gate break: hold out against packs of your own rank until it closes. */
 export function enterBreak(w: World): void {
   beginArena(w, w.profile.hunterRank, "break", false);
@@ -416,6 +478,11 @@ export function resumeGate(w: World, snap: GateSnapshot): void {
 
 /** Back to the gate board. */
 export function toSelect(w: World): void {
+  // The first gate is over, however it ended: so are its tips.
+  if (w.dungeon && w.gateKind === "normal" && w.profile.tips) {
+    w.profile.tips = false;
+    w.dirty = true;
+  }
   w.mode = "select";
   w.dungeon = null;
   w.gateKind = "normal";
@@ -425,6 +492,8 @@ export function toSelect(w: World): void {
   w.remnantHold = false;
   w.allies = [];
   clearField(w);
+  w.pillars = [];
+  w.traps = [];
   w.fx = [];
   w.texts = [];
   w.particles = [];
@@ -442,6 +511,11 @@ export function enterRoom(w: World, id: number, from: Side | null): void {
   const p = w.player;
   w.roomId = id;
   clearField(w);
+  // Only a gate's own rooms are furnished: arenas, the rite and the tower stay bare.
+  const furniture = furnish(w.rank, w.gateKind === "normal" || w.gateKind === "key" ? room : null);
+  w.pillars = furniture.pillars;
+  w.traps = furniture.traps;
+  w.trapClock = 0;
   const inset = 70;
   if (from === "n") [p.x, p.y] = [ROOM.w / 2, inset];
   else if (from === "s") [p.x, p.y] = [ROOM.w / 2, ROOM.h - inset];
@@ -550,18 +624,37 @@ export function skillReady(p: Player, id: SkillId): boolean {
   return p.prog.level >= s.level && p.skillCd[id] <= 0 && p.mana >= s.mana;
 }
 
-function strike(w: World, e: Enemy, mult: number, knock: number): boolean {
+function strike(w: World, e: Enemy, mult: number, knock: number, heavy = true): boolean {
   const p = w.player;
   const roll = rollDamage(effective(p).damage * mult, p.d.critChance, PLAYER.critMult, w.rng);
-  return playerHit(w, e, roll.amount, roll.crit, p.x, p.y, knock);
+  // What it was doing before the blow: the blow itself may knock it out of that.
+  const was = e.state;
+  const landed = playerHit(w, e, roll.amount, roll.crit, p.x, p.y, knock);
+  if (landed && heavy) stagger(w, e, was);
+  // Blood Price: a share of every blow comes back as health.
+  if (landed && p.drainT > 0) healPlayer(w, roll.amount * DRAIN.share);
+  return landed;
+}
+
+/** States in which an enemy is drawing back to strike, and can be stopped. */
+const WINDING = new Set(["windup", "dwind", "blinkwind", "cast", "spit"]);
+
+/** A heavy blow stops a small enemy's attack before it lands. */
+function stagger(w: World, e: Enemy, was: string): void {
+  if (e.boss || e.hp <= 0 || e.radius > STAGGER.maxRadius || !WINDING.has(was)) return;
+  e.state = "recover";
+  e.t = STAGGER.time;
+  floatText(w, e.x, e.y, "STAGGERED", "#ffd84a");
 }
 
 /** A basic attack landing: counted, for Twin Fang's every-fifth-hit second strike. */
 function basicHit(w: World, e: Enemy, mult: number): void {
   const p = w.player;
-  if (!strike(w, e, mult, 300)) return;
+  // A sword or a spear lands heavily; a dagger does not.
+  const heavy = p.weapon === "sword" || p.weapon === "spear";
+  if (!strike(w, e, mult, 300, heavy)) return;
   p.hits += 1;
-  if (p.powers.includes("twin_fang") && p.hits % 5 === 0 && e.hp > 0) strike(w, e, mult, 0);
+  if (p.powers.includes("twin_fang") && p.hits % 5 === 0 && e.hp > 0) strike(w, e, mult, 0, false);
 }
 
 /** The weapon in hand, or a dagger's reach and pace for bare hands. */
@@ -579,8 +672,68 @@ function useSkill(w: World, id: SkillId): void {
   p.skillCd[id] = SKILLS[id].cooldown * (1 - SKILL_RANK.cooldown * extra);
   p.attackT = 0;
   p.swingId += 1;
-  sfx(w, id);
-  if (id === "pierce") {
+  sfx(w, SKILL_SOUND[id] ?? id);
+  // The echo nearest the cursor, for the two skills that spend one.
+  const nearestAlly = (): Ally | null => {
+    let best: Ally | null = null;
+    let d = Infinity;
+    for (const a of w.allies) {
+      const n = Math.hypot(a.x - p.aimX, a.y - p.aimY);
+      if (a.anim <= 0 && n < d) {
+        d = n;
+        best = a;
+      }
+    }
+    return best;
+  };
+  const refund = () => {
+    p.mana += SKILLS[id].mana;
+    p.skillCd[id] = 0;
+    sfx(w, "deny");
+    floatText(w, p.x, p.y, "NO ECHO", "#b9a4ff");
+  };
+  if (id === "swap") {
+    const a = nearestAlly();
+    if (!a) return refund();
+    for (const at of [p, a]) w.fx.push({ kind: "ring", x: at.x, y: at.y, radius: 44, t: 0.3, total: 0.3, color: "#b9a4ff" });
+    [p.x, p.y, a.x, a.y] = [a.x, a.y, p.x, p.y];
+    p.dashT = 0;
+    p.lungeT = 0;
+    p.kx = 0;
+    p.ky = 0;
+    p.iframes = Math.max(p.iframes, SWAP.iframes);
+  } else if (id === "sacrifice") {
+    const a = nearestAlly();
+    if (!a) return refund();
+    for (const e of w.enemies) {
+      if (Math.hypot(e.x - a.x, e.y - a.y) <= SACRIFICE.radius + e.radius) damageEnemy(w, e, effective(p).damage * SACRIFICE.mult * p.d.skillPower * power, false, a.x, a.y, 380);
+    }
+    w.fx.push({ kind: "blast", x: a.x, y: a.y, radius: SACRIFICE.radius, t: 0.35, total: 0.35, color: "#8a6cff" });
+    burst(w, a.x, a.y, "#8a6cff", 30, 360);
+    w.shake = Math.max(w.shake, 9);
+    // It is spent for this room; the echo itself is not lost.
+    w.allies = w.allies.filter((x) => x !== a);
+  } else if (id === "parry") {
+    p.parryT = PARRY.time;
+    w.fx.push({ kind: "ring", x: p.x, y: p.y, radius: 46, t: PARRY.time, total: PARRY.time, color: "#ffd84a" });
+  } else if (id === "shot") {
+    const dx = Math.cos(p.facing);
+    const dy = Math.sin(p.facing);
+    for (const e of w.enemies) {
+      const along = (e.x - p.x) * dx + (e.y - p.y) * dy;
+      const off = Math.abs((e.x - p.x) * dy - (e.y - p.y) * dx);
+      if (along > 0 && along < SHOT.range + e.radius && off < SHOT.width + e.radius) strike(w, e, SHOT.mult * p.d.skillPower * power, 240);
+    }
+    for (let d = 80; d < SHOT.range; d += 110) w.fx.push({ kind: "ring", x: p.x + dx * d, y: p.y + dy * d, radius: SHOT.width, t: 0.2 + d / 4000, total: 0.2 + d / 4000, color: "#5ee6ff" });
+    w.shake = Math.max(w.shake, 6);
+  } else if (id === "ward") {
+    w.wardReady = true;
+    w.fx.push({ kind: "ring", x: p.x, y: p.y, radius: 60, t: 0.5, total: 0.5, color: "#ffd84a" });
+    floatText(w, p.x, p.y, "WARDED", "#ffd84a");
+  } else if (id === "drain") {
+    p.drainT = DRAIN.time + extra;
+    burst(w, p.x, p.y, "#ff5a60", 18, 220);
+  } else if (id === "pierce") {
     p.lungeT = PIERCE.time;
     p.lungePower = power;
     p.lungeX = Math.cos(p.facing);
@@ -679,7 +832,7 @@ function constrainPlayer(w: World): void {
  * Return Stone, which does nothing in a sealed gate or the penalty zone.
  */
 function tryLeave(w: World): void {
-  if ((w.gateKind !== "normal" && w.gateKind !== "key") || w.clearT > 0) return;
+  if ((w.gateKind !== "normal" && w.gateKind !== "key" && w.gateKind !== "tower") || w.clearT > 0) return;
   if (w.remnantHold && !w.bossDead) {
     // Walking away from a boss's remnant: the gate was won, so it clears.
     w.remnantHold = false;
@@ -832,6 +985,11 @@ function stepPlayer(w: World, input: Controls, dt: number): void {
   }
   if (input.consume("KeyG")) tryBind(w);
   if (input.consume("KeyH")) toggleArmy(w);
+  if (input.consume("KeyJ") && w.profile.classUnlocked) {
+    w.armyOrder = ORDERS[(ORDERS.indexOf(w.armyOrder) + 1) % ORDERS.length];
+    floatText(w, p.x, p.y, ORDER_TEXT[w.armyOrder], "#b9a4ff", true);
+    sfx(w, "click");
+  }
   w.armyCd = Math.max(0, w.armyCd - dt);
   if (input.consume("KeyT")) {
     tryLeave(w);
@@ -939,6 +1097,8 @@ function stepPlayer(w: World, input: Controls, dt: number): void {
   p.hurtFlash = Math.max(0, p.hurtFlash - dt);
   p.mana = Math.min(p.d.maxMana, p.mana + PLAYER.manaRegen * dt);
   for (const id of SKILL_IDS) p.skillCd[id] = Math.max(0, p.skillCd[id] - dt);
+  p.parryT = Math.max(0, p.parryT - dt);
+  p.drainT = Math.max(0, p.drainT - dt);
 }
 
 /**
@@ -1078,6 +1238,7 @@ function stepSelect(w: World, input: Controls): void {
   const enter = hubAction(w, action);
   if (enter === "key") enterKeyGate(w);
   else if (enter === "rite") enterRite(w);
+  else if (enter === "tower") enterTower(w);
   else if (enter === "sealed") enterGate(w, w.profile.redGate.rank, { sealed: true });
   else if (enter) enterGate(w, enter);
 }
@@ -1089,6 +1250,23 @@ function stepTitle(w: World, input: Controls): void {
   w.mode = w.afterTitle === "gate" && w.dungeon ? "gate" : "select";
   w.menu = "none";
   sfx(w, "chime");
+}
+
+/** The controls window: click an action, then press the key it should be on. */
+function stepKeys(w: World, input: Controls): void {
+  // While a key is awaited the shell takes the next press; nothing here may eat it.
+  if (w.rebinding) return;
+  if (input.consume("Escape")) {
+    w.menu = w.mode === "gate" ? "pause" : "none";
+    return;
+  }
+  if (!input.consume("Mouse0")) return;
+  const hit = keysButtons(w).find((b) => pointIn(b.rect, input.mouseX, input.mouseY));
+  if (!hit) return;
+  sfx(w, "click");
+  if (hit.id === "keys:close") w.menu = w.mode === "gate" ? "pause" : "none";
+  else if (hit.id === "keys:reset") applySetting(w, "keys-reset");
+  else w.rebinding = hit.id.slice(5);
 }
 
 /** Pause menu: resume, save, or save and leave to the title screen. */
@@ -1115,6 +1293,8 @@ function stepPause(w: World, input: Controls): void {
 }
 
 function stepEffects(w: World, dt: number): void {
+  for (const c of w.corpses) c.t -= dt;
+  if (w.corpses.some((c) => c.t <= 0)) w.corpses = w.corpses.filter((c) => c.t > 0);
   for (const t of w.texts) {
     t.life -= dt;
     t.y -= 40 * dt;
@@ -1183,7 +1363,7 @@ export function step(w: World, input: Controls, dt: number): void {
   if (w.cutscene) return stepCutscene(w, input, dt);
 
   // The status window and the pause menu stop everything behind them.
-  const canMenu = (w.mode === "gate" || w.mode === "select") && w.menu !== "pause";
+  const canMenu = (w.mode === "gate" || w.mode === "select") && w.menu !== "pause" && w.menu !== "keys";
   if (canMenu && input.consume("KeyC", "Tab")) w.menu = w.menu === "status" ? "none" : "status";
   if (w.menu === "status") {
     if (input.consume("Escape")) w.menu = "none";
@@ -1191,6 +1371,7 @@ export function step(w: World, input: Controls, dt: number): void {
     return;
   }
   if (w.menu === "pause") return stepPause(w, input);
+  if (w.menu === "keys") return stepKeys(w, input);
   if (w.mode === "gate" && input.consume("Escape")) {
     w.menu = "pause";
     sfx(w, "click");
@@ -1257,7 +1438,24 @@ export function step(w: World, input: Controls, dt: number): void {
     }
   }
 
+  // Pillars stop everyone. One that runs into a pillar mid-charge is dazed by it.
+  if (w.pillars.length > 0) {
+    blockCircle(p, w.pillars);
+    for (const e of w.enemies) {
+      const charging = e.state === "charge" || e.state === "lunge";
+      if (!blockCircle(e, w.pillars) || e.boss || !charging) continue;
+      e.state = "recover";
+      e.t = PILLAR.stun;
+      floatText(w, e.x, e.y, "DAZED", "#ffd84a");
+      sfx(w, "block");
+    }
+  }
   for (const a of w.allies) stepAlly(w, a, dt);
+  if (w.pillars.length > 0) {
+    for (const a of w.allies) blockCircle(a, w.pillars);
+    for (const s of [...w.projectiles, ...w.allyShots]) if (insidePillar(s.x, s.y, w.pillars)) s.life = 0;
+  }
+  stepTraps(w, dt);
   // An echo that has finished sinking is gone.
   if (w.allies.some((a) => a.out && a.anim <= 0)) w.allies = w.allies.filter((a) => !(a.out && a.anim <= 0));
   stepAllyShots(w, dt);
@@ -1279,6 +1477,7 @@ export function step(w: World, input: Controls, dt: number): void {
     sfx(w, e.boss ? "bosskill" : "kill");
     burst(w, e.x, e.y, "#e5484d", e.boss ? 60 : 16, e.boss ? 420 : 260);
     onKill(w, e);
+    w.corpses.push({ kind: e.kind, x: e.x, y: e.y, radius: e.radius, facing: e.facing, t: CORPSE.time });
     // What the gear gives for a kill.
     if (p.perks.siphon > 0) p.mana = Math.min(p.d.maxMana, p.mana + PERK.siphon * p.perks.siphon);
     if (p.powers.includes("trials_end")) p.skillCd.pierce = 0;
@@ -1371,6 +1570,19 @@ export function step(w: World, input: Controls, dt: number): void {
     if (w.coldT >= SEALED.coldEvery) {
       w.coldT = 0;
       if (p.hp > 1) p.hp -= 1;
+    }
+  }
+
+  // The tower: a breath after the last enemy falls, then the next floor.
+  if (w.gateKind === "tower" && (w.mode as string) === "gate") {
+    if (w.towerRest > 0) {
+      w.towerRest -= dt;
+      if (w.towerRest <= 0) startFloor(w, w.towerFloor + 1);
+    } else if (w.enemies.length === 0) {
+      towerFloorCleared(w);
+      w.towerRest = TOWER.rest;
+      floatText(w, p.x, p.y, `FLOOR ${w.towerFloor} CLEARED`, "#ffd84a", true);
+      sfx(w, "roomclear");
     }
   }
 

@@ -1,4 +1,4 @@
-import { ECHO, KINDS, RANK_IDS, SKILL_IDS, SKILL_RANK, type EnemyKind, type Rank, type SkillId } from "./config";
+import { NGPLUS, ECHO, KINDS, RANK_IDS, SKILL_IDS, SKILL_RANK, type EnemyKind, type Rank, type SkillId } from "./config";
 import { SIDES, type Dungeon, type RoomNode } from "./dungeon";
 import {
   BAG,
@@ -249,6 +249,10 @@ export function parseSave(raw: unknown): SaveData | null {
     const old = int(rq.main, 0, OLD_MAIN.length, 0);
     profile.quests.main = old >= OLD_MAIN.length ? MAIN.findIndex((q) => q.id === "m9") + 1 : MAIN.findIndex((q) => q.id === OLD_MAIN[old]);
   }
+  profile.towerBest = int(rf.towerBest, 0, 1e6, 0);
+  profile.cycle = int(rf.cycle, 0, NGPLUS.max, 0);
+  // Tips are for new hunters: a save made before they existed has no need of them.
+  profile.tips = rf.tips === true;
   profile.sealedPity = int(rf.sealedPity, 0, 99, 0);
   if (isObj(rf.redGate) && RANK_IDS.includes(rf.redGate.rank as Rank)) {
     profile.redGate = { day: int(rf.redGate.day, 0, 1e7, 0), rank: rf.redGate.rank as Rank, done: rf.redGate.done === true };
