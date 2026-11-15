@@ -967,6 +967,12 @@ export function drawHud(ctx: Ctx, w: World, mouseX: number, mouseY: number, proj
     drawHub(ctx, w);
     drawVitals(ctx, w);
   } else {
+    // Darkness at the edges of every gate: the light does not reach far.
+    const gloom = ctx.createRadialGradient(VIEW_W / 2, VIEW_H / 2, VIEW_H * 0.42, VIEW_W / 2, VIEW_H / 2, VIEW_H * 0.98);
+    gloom.addColorStop(0, "rgba(2,3,8,0)");
+    gloom.addColorStop(1, "rgba(2,3,8,0.62)");
+    ctx.fillStyle = gloom;
+    ctx.fillRect(0, 0, VIEW_W, VIEW_H);
     drawWorldLabels(ctx, w, project);
     drawVitals(ctx, w);
     drawAilments(ctx, w);

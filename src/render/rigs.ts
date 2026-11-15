@@ -647,9 +647,9 @@ export function buildRig(kind: EnemyKind | "player", radius = 14): Rig {
     case "monarch":
       return humanoid(P(0xe9e2d0, 0x15131c, 0x2a2536, 0xffe9a0, 0xffe9a0), { scale: s * 0.74, robe: true, crown: true, hover: 8, right: "staff", legLen: 14, torsoH: 19 });
     case "leaper":
-      return beast(P(0, 0x4d4f58, 0x26272d, 0, 0xff9a3c), { scale: s * 0.8, length: 34, girth: 11, legLen: 9 });
+      return beast(P(0, 0x2b2c33, 0x141519, 0, 0xff3030), { scale: s * 0.8, length: 34, girth: 11, legLen: 9 });
     case "charger":
-      return beast(P(0, 0x5a3d2a, 0x2c1e15, 0, 0xff8a3c), { scale: s * 0.74, length: 34, girth: 16, legLen: 7, horns: true, tail: false });
+      return beast(P(0, 0x33241b, 0x18110c, 0, 0xff5a20), { scale: s * 0.74, length: 34, girth: 16, legLen: 7, horns: true, tail: false });
     case "commander": {
       // Mounted in the first phase, on foot in the second.
       const mount = beast(P(0, 0x3a3d48, 0x1d1f26, 0, 0xffd070), { scale: s * 0.62, length: 44, girth: 15, legLen: 13, saddle: true });
@@ -674,11 +674,11 @@ export function buildRig(kind: EnemyKind | "player", radius = 14): Rig {
       };
     }
     case "queen":
-      return insect(P(0, 0x5f7a2a, 0x2b3613, 0, 0xd8ff5a), s * 0.5);
+      return insect(P(0, 0x2c3318, 0x14180b, 0, 0xc8ff40), s * 0.5);
     case "exploder":
       return prop((skin, root) => {
-        const sac = solid(ball(radius), skin.matte(0x8a6a2a, 0.5), 0, radius * 1.05);
-        const core = solid(ball(radius * 0.62), skin.accent(0xffd84a), 0, radius * 1.05);
+        const sac = solid(ball(radius), skin.matte(0x3a1414, 0.5), 0, radius * 1.05);
+        const core = solid(ball(radius * 0.62), skin.accent(0xff5a20), 0, radius * 1.05);
         root.add(sac, core);
         const legs: THREE.Mesh[] = [];
         for (const [x, z] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
@@ -698,7 +698,7 @@ export function buildRig(kind: EnemyKind | "player", radius = 14): Rig {
       });
     case "egg":
       return prop((skin, root) => {
-        const shell = solid(ball(radius), skin.matte(0xa9b56a, 0.4), 0, radius * 1.25);
+        const shell = solid(ball(radius), skin.matte(0x3d4426, 0.4), 0, radius * 1.25);
         shell.scale.set(1, 1.35, 1);
         root.add(shell, solid(ball(radius * 0.5), skin.accent(0xc8e060), 0, radius * 1.1));
         return { height: radius * 2.8, tick: (a) => (shell.rotation.z = Math.sin(a.time * 9) * 0.06) };

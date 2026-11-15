@@ -47,7 +47,7 @@ const RANK_TINT: Record<Rank, number> = { E: 0x3aa0ff, D: 0x35e0a0, C: 0xb070ff,
 const SEALED_TINT = 0xff3355;
 const ECHO_TINT = 0x8a6cff;
 /** The stone each rank's gates are cut from, so a deeper gate looks like a different place. */
-const RANK_STONE: Record<Rank, number> = { E: 0x8b90a0, D: 0x7f9688, C: 0x9186a6, B: 0xa59378, A: 0xa07e86, S: 0xaaa58e };
+const RANK_STONE: Record<Rank, number> = { E: 0x6c7080, D: 0x5f7468, C: 0x6f6684, B: 0x80705a, A: 0x7c5f66, S: 0x85806c };
 const WALL_H = 80;
 const WALL_T = 30;
 const CAM_OFFSET = new THREE.Vector3(0, 800, 590);
@@ -216,7 +216,7 @@ export class Scene3D {
   private player = new THREE.Group();
   private hunter: Rig;
   /** A lantern's worth of warm light, carried high enough that nothing passes through it. */
-  private playerLight = new THREE.PointLight(0xffd9a8, 14000, 620, 2);
+  private playerLight = new THREE.PointLight(0xc4d8ff, 15000, 620, 2);
   private sun = new THREE.DirectionalLight(0xffe9d0, 2.4);
   private enemies = new Map<Enemy, Rig>();
   private allies = new Map<Ally, Rig>();
@@ -799,6 +799,8 @@ export class Scene3D {
     if (p.surgeT > 0) this.rings.place(p.x, p.y, 0, 26, 26, 0xffd84a, 0.7);
     // Aim marker under the player.
     if (w.mode === "gate") this.lines.place(p.x, p.y, p.facing, 34, 2, 0x5ee6ff, 0.5);
+    // The hunter stands in a pool of cold light that breathes.
+    if (w.mode === "gate") this.rings.place(p.x, p.y, 0, 24 + 2 * Math.sin(this.clock * 3), 24 + 2 * Math.sin(this.clock * 3), 0x5ee6ff, 0.45);
 
     this.circles.end();
     this.rings.end();
@@ -870,7 +872,7 @@ export class Scene3D {
       phase: 1,
       weapon: p.weapon,
     });
-    this.playerLight.color.setHex(p.surgeT > 0 ? 0xffd070 : 0xffd9a8);
+    this.playerLight.color.setHex(p.surgeT > 0 ? 0xffd070 : 0xc4d8ff);
     // Blink while invulnerable after a hit (not during a dash).
     this.player.visible = !(p.iframes > 0 && !fast && Math.floor(p.iframes * 20) % 2 === 0) && w.mode !== "dead" && w.mode !== "title";
 

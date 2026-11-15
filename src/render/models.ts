@@ -27,6 +27,10 @@ export interface ModelSpec {
   size: number;
   /** Multiplied into every colour, to tell kinds that share a model apart. */
   tint?: number;
+  /** One flat colour in place of the model's own: a figure seen as a dark shape. */
+  flat?: number;
+  /** Eyes that burn this colour under the hood. */
+  eyes?: number;
   /** Which of the model's own hand-held parts to show; the rest are hidden. */
   show?: string[];
   /** Weapons built by the game and put in the hands. */
@@ -41,7 +45,7 @@ export interface ModelSpec {
   cast?: string;
 }
 
-export const HUNTER_MODEL: ModelSpec = { file: "rogue_hooded", pack: "adventurer", size: 1.02, show: [], strike: "1H_Melee_Attack_Slice_Horizontal", thrust: "1H_Melee_Attack_Stab" };
+export const HUNTER_MODEL: ModelSpec = { file: "rogue_hooded", pack: "adventurer", size: 1.06, flat: 0x20243a, eyes: 0x5ee6ff, show: [], strike: "1H_Melee_Attack_Slice_Horizontal", thrust: "1H_Melee_Attack_Stab" };
 
 /** The hunter's swing for each weapon. */
 const HUNTER_STRIKE: Record<WeaponType, string> = {
@@ -52,18 +56,18 @@ const HUNTER_STRIKE: Record<WeaponType, string> = {
 };
 
 export const MODELS: Partial<Record<EnemyKind, ModelSpec>> = {
-  swarmer: { file: "skeleton_minion", pack: "skeleton", size: 0.82, tint: 0xb9b0a0, right: "dagger", strike: "1H_Melee_Attack_Chop" },
-  shooter: { file: "skeleton_rogue", pack: "skeleton", size: 0.88, tint: 0xb9b0a0, right: "bow", strike: "2H_Ranged_Shoot", thrust: "2H_Ranged_Shoot" },
-  healer: { file: "skeleton_mage", pack: "skeleton", size: 0.9, tint: 0x9dffb8, right: "staff", strike: "Spellcast_Raise", cast: "Spellcast_Raise" },
-  summoner: { file: "skeleton_mage", pack: "skeleton", size: 0.8, tint: 0xc79bff, right: "staff", strike: "Spellcast_Raise", cast: "Spellcast_Raise" },
-  monarch: { file: "skeleton_warrior", pack: "skeleton", size: 0.78, tint: 0xffe9a0, right: "staff", hover: 8, strike: "Spellcast_Shoot", cast: "Spellcast_Raise" },
-  brute: { file: "barbarian", pack: "adventurer", size: 0.74, show: ["1H_Axe", "Barbarian_Round_Shield"], strike: "1H_Melee_Attack_Chop" },
-  knight: { file: "knight", pack: "adventurer", size: 0.78, show: ["1H_Sword", "Rectangle_Shield"], strike: "1H_Melee_Attack_Chop", thrust: "1H_Melee_Attack_Stab" },
-  warder: { file: "knight", pack: "adventurer", size: 0.74, tint: 0x8fc4ff, show: ["Spike_Shield"], idle: "Blocking", strike: "Blocking" },
-  duellist: { file: "rogue", pack: "adventurer", size: 0.98, tint: 0xff9a9a, show: ["Knife", "Knife_Offhand"], strike: "Dualwield_Melee_Attack_Slice", thrust: "1H_Melee_Attack_Stab" },
-  assassin: { file: "rogue_hooded", pack: "adventurer", size: 0.96, tint: 0x8a6cd8, show: ["Knife", "Knife_Offhand"], strike: "Dualwield_Melee_Attack_Slice", thrust: "1H_Melee_Attack_Stab" },
-  pyro: { file: "mage", pack: "adventurer", size: 0.92, tint: 0xffa070, show: ["1H_Wand"], strike: "Spellcast_Shoot", cast: "Spellcast_Shoot" },
-  warper: { file: "mage", pack: "adventurer", size: 0.9, tint: 0x7fe8ff, show: ["Spellbook_open"], hover: 7, strike: "Spellcast_Shoot", cast: "Spellcast_Shoot" },
+  swarmer: { file: "skeleton_minion", pack: "skeleton", size: 0.82, tint: 0x8d8679, right: "dagger", strike: "1H_Melee_Attack_Chop" },
+  shooter: { file: "skeleton_rogue", pack: "skeleton", size: 0.88, tint: 0x8d8679, right: "bow", strike: "2H_Ranged_Shoot", thrust: "2H_Ranged_Shoot" },
+  healer: { file: "skeleton_mage", pack: "skeleton", size: 0.9, tint: 0x5f9a70, right: "staff", strike: "Spellcast_Raise", cast: "Spellcast_Raise" },
+  summoner: { file: "skeleton_mage", pack: "skeleton", size: 0.8, tint: 0x7a5aa8, right: "staff", strike: "Spellcast_Raise", cast: "Spellcast_Raise" },
+  monarch: { file: "skeleton_warrior", pack: "skeleton", size: 0.78, tint: 0xbfae70, right: "staff", hover: 8, strike: "Spellcast_Shoot", cast: "Spellcast_Raise" },
+  brute: { file: "barbarian", pack: "adventurer", size: 0.74, tint: 0x8f6f5f, show: ["1H_Axe", "Barbarian_Round_Shield"], strike: "1H_Melee_Attack_Chop" },
+  knight: { file: "knight", pack: "adventurer", size: 0.78, tint: 0x6a6e7c, show: ["1H_Sword", "Rectangle_Shield"], strike: "1H_Melee_Attack_Chop", thrust: "1H_Melee_Attack_Stab" },
+  warder: { file: "knight", pack: "adventurer", size: 0.74, tint: 0x4a6a8f, show: ["Spike_Shield"], idle: "Blocking", strike: "Blocking" },
+  duellist: { file: "rogue", pack: "adventurer", size: 0.98, tint: 0xa04848, show: ["Knife", "Knife_Offhand"], strike: "Dualwield_Melee_Attack_Slice", thrust: "1H_Melee_Attack_Stab" },
+  assassin: { file: "rogue_hooded", pack: "adventurer", size: 0.96, flat: 0x33244a, eyes: 0xb060ff, show: ["Knife", "Knife_Offhand"], strike: "Dualwield_Melee_Attack_Slice", thrust: "1H_Melee_Attack_Stab" },
+  pyro: { file: "mage", pack: "adventurer", size: 0.92, tint: 0x9a4a30, show: ["1H_Wand"], strike: "Spellcast_Shoot", cast: "Spellcast_Shoot" },
+  warper: { file: "mage", pack: "adventurer", size: 0.9, tint: 0x3a7a8a, show: ["Spellbook_open"], hover: 7, strike: "Spellcast_Shoot", cast: "Spellcast_Shoot" },
 };
 
 /** People who appear only in cutscenes. */
@@ -155,24 +159,40 @@ function build(spec: ModelSpec, radius: number, hunter: boolean): Rig | null {
       else {
         mats.push(mat);
         mat.roughness = 0.75;
-        if (spec.tint !== undefined) mat.color.multiply(new THREE.Color(spec.tint));
+        if (spec.flat !== undefined) {
+          mat.map = null;
+          mat.color.setHex(spec.flat);
+          mat.roughness = 0.6;
+        } else if (spec.tint !== undefined) mat.color.multiply(new THREE.Color(spec.tint));
       }
     }
     m.material = mat;
   });
+
+  // Two points of light where the eyes are, all that shows of the face.
+  const head = bone(body, "head");
+  if (spec.eyes !== undefined && head) {
+    const lit = new THREE.MeshStandardMaterial({ color: spec.eyes, emissive: spec.eyes, emissiveIntensity: 2.4 });
+    eyes.push(lit);
+    for (const side of [-1, 1]) {
+      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.045, 8, 6), lit);
+      eye.position.set(side * 0.13, 0.3, 0.36);
+      head.add(eye);
+    }
+  }
 
   // Hand-held parts that came with the model.
   const slots = [bone(body, "handslot.r"), bone(body, "handslot.l")];
   const arsenal = new Map<WeaponType, THREE.Object3D>();
   for (const slot of slots) for (const part of slot?.children ?? []) part.visible = spec.show?.includes(part.name) ?? false;
 
-  const give = (slot: THREE.Object3D | undefined, kind: Held): THREE.Object3D | null => {
+  const give = (slot: THREE.Object3D | undefined, kind: Held, metal?: number): THREE.Object3D | null => {
     if (!slot) return null;
     const holder = new THREE.Group();
     // Built hanging down from the hand; the model's grip points up.
     holder.rotation.x = Math.PI;
     holder.scale.setScalar(PROP_SCALE);
-    const prop = weaponProp(kind);
+    const prop = weaponProp(kind, metal);
     // A spear is gripped well forward, so its point clears the floor at rest.
     if (kind === "spear") prop.position.y = 16;
     holder.add(prop);
@@ -182,10 +202,9 @@ function build(spec: ModelSpec, radius: number, hunter: boolean): Rig | null {
   if (spec.right) give(slots[0], spec.right);
   if (spec.left) give(slots[1], spec.left);
   if (hunter) {
-    const knife = slots[0]?.children.find((c) => c.name === "Knife");
-    if (knife) arsenal.set("dagger", knife);
-    for (const type of ["sword", "spear", "bow"] as const) {
-      const g = give(slots[0], type);
+    // All four are the game's own, so each blade carries the same cold light.
+    for (const type of ["dagger", "sword", "spear", "bow"] as const) {
+      const g = give(slots[0], type, 0x9fdcff);
       if (g) arsenal.set(type, g);
     }
   }
