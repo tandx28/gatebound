@@ -33,9 +33,13 @@ export interface ModelSpec {
   eyes?: number;
   /** Bare-headed: the head keeps the model's own face while the rest goes flat. */
   face?: boolean;
+  /** Short spikes of hair, in the hair colour, standing off the crown. */
+  spikes?: boolean;
+  /** Parts of the model left out altogether, by name. */
+  hide?: string[];
   /** Hair dyed this colour, in place of the model's own. */
   hair?: number;
-  /** Taller and narrower, with a smaller head: a grown figure rather than a stocky one. */
+  /** Grown proportions: long legs and arms, a longer body and a head a fifth of the height, where the models are half head. */
   lean?: boolean;
   /** A long coat of this colour, hanging from the hips to the shins and open at the front. */
   coat?: number;
@@ -53,7 +57,7 @@ export interface ModelSpec {
   cast?: string;
 }
 
-export const HUNTER_MODEL: ModelSpec = { file: "rogue", pack: "adventurer", size: 1.18, flat: 0x191c2c, face: true, hair: 0x0b0d14, eyes: 0x5ee6ff, lean: true, coat: 0x12141f, show: [], strike: "1H_Melee_Attack_Slice_Horizontal", thrust: "1H_Melee_Attack_Stab" };
+export const HUNTER_MODEL: ModelSpec = { file: "knight", pack: "adventurer", size: 1.2, flat: 0x191c2c, face: true, hair: 0x0b0d14, spikes: true, hide: ["Knight_Helmet"], eyes: 0x5ee6ff, lean: true, coat: 0x12141f, show: [], strike: "1H_Melee_Attack_Slice_Horizontal", thrust: "1H_Melee_Attack_Stab" };
 
 /** The hunter's swing for each weapon. */
 const HUNTER_STRIKE: Record<WeaponType, string> = {
@@ -89,6 +93,22 @@ export const NPC_MODELS: Record<"mara" | "dov" | "rival", ModelSpec> = {
 export const MODEL_FILES = [
   ...new Set([HUNTER_MODEL, ...Object.values(MODELS), ...Object.values(NPC_MODELS)].map((s) => s.file).concat(Object.values(CARRIER))),
 ];
+
+/**
+ * Grown proportions for a model that is built half head: each bone's scale
+ * (across, along, across), how far that lifts the feet's reach, and how tall
+ * the figure then stands. A name ending in a dot means both sides.
+ */
+const LEAN = {
+  bones: [
+    ["upperleg.", 1.05, 2.25, 1.05],
+    ["spine", 1, 1.18, 1],
+    ["upperarm.", 1, 1.45, 1],
+    ["head", 0.52, 0.52, 0.52],
+  ] as [string, number, number, number][],
+  lift: 0.66,
+  height: 2.75,
+};
 
 /** How tall the models stand in their own units. */
 const NATIVE_HEIGHT = 2.2;
@@ -191,7 +211,29 @@ function build(spec: ModelSpec, radius: number, hunter: boolean): Rig | null {
   const inner = new THREE.Group();
   inner.add(body);
   inner.scale.setScalar(k);
-  if (spec.lean) inner.scale.set(k * 0.84, k, k * 0.84);
+  // Grown proportions make the figure taller in its own units: size it by that height.
+  const kLean = height / LEAN.height;
+  if (spec.lean) {
+    inner.scale.set(kLean * 0.9, kLean, kLean * 0.9);
+    // Longer legs reach further down, so the whole body is lifted to keep the feet on the floor.
+    body.position.y = LEAN.lift;
+  }
+  if (spec.hide) for (const name of spec.hide) body.getObjectByName(name)?.removeFromParent();
+  // Bones stretched or shrunk for those proportions. Animation resets a bone's
+  // scale every frame, so these are put back after each update.
+  const reshaped: [THREE.Object3D, number, number, number][] = [];
+  if (spec.lean) {
+    for (const [name, x, y, z] of LEAN.bones) {
+      for (const side of name.endsWith(".") ? ["l", "r"] : [""]) {
+        const b = bone(body, name + side);
+        if (b) reshaped.push([b, x, y, z]);
+      }
+    }
+  }
+  const reshape = () => {
+    for (const [b, x, y, z] of reshaped) b.scale.set(x, y, z);
+  };
+  reshape();
   // The models face +Z; the game's figures face +X.
   inner.rotation.y = Math.PI / 2;
   const root = new THREE.Group();
@@ -211,6 +253,8 @@ function build(spec: ModelSpec, radius: number, hunter: boolean): Rig | null {
     if (spec.face && m.name.endsWith("_Head")) {
       const skin = old.clone();
       skin.roughness = 0.8;
+      // Toned down: bare skin under the hunter's own light burns white otherwise.
+      skin.color.multiplyScalar(0.72);
       if (spec.hair !== undefined && skin.map) skin.map = recolourHair(skin.map, spec.hair);
       mats.push(skin);
       m.material = skin;
@@ -238,14 +282,39 @@ function build(spec: ModelSpec, radius: number, hunter: boolean): Rig | null {
   // face; on a bare face they burn only while the hunter's power is up.
   const burning: THREE.Mesh[] = [];
   const head = bone(body, "head");
-  if (spec.lean && head) head.scale.setScalar(0.74);
+  if (spec.spikes && spec.hair !== undefined && head) {
+    // The skull is a ball about half a unit across, centred a little above the neck.
+    const strands = new THREE.MeshStandardMaterial({ color: spec.hair, roughness: 0.5 });
+    const centre = new THREE.Vector3(0, 0.52, 0);
+    const up = new THREE.Vector3(0, 1, 0);
+    // A close cap of hair, then spikes over the crown, the sides and the back; the face stays clear.
+    const cap = new THREE.Mesh(new THREE.SphereGeometry(0.6, 16, 10, 0, Math.PI * 2, 0, Math.PI * 0.56), strands);
+    cap.position.copy(centre).add(new THREE.Vector3(0, 0.02, -0.08));
+    cap.rotation.x = -0.42;
+    head.add(cap);
+    for (let ring = 0; ring < 3; ring++) {
+      const n = [1, 6, 9][ring];
+      const tilt = [0, 0.6, 1.15][ring];
+      for (let i = 0; i < n; i++) {
+        const turn = (i / n) * Math.PI * 2 + ring * 0.4;
+        const dir = new THREE.Vector3(Math.sin(tilt) * Math.sin(turn), Math.cos(tilt), Math.sin(tilt) * Math.cos(turn));
+        // Nothing over the face.
+        if (dir.z > 0.55 && dir.y < 0.7) continue;
+        const len = 0.5 + 0.14 * ((i * 7 + ring * 3) % 3);
+        const spike = new THREE.Mesh(new THREE.ConeGeometry(0.19, len, 5), strands);
+        spike.position.copy(centre).addScaledVector(dir, 0.54 + len * 0.3);
+        spike.quaternion.setFromUnitVectors(up, dir);
+        head.add(spike);
+      }
+    }
+  }
   if (spec.eyes !== undefined && head) {
     const lit = new THREE.MeshStandardMaterial({ color: spec.eyes, emissive: spec.eyes, emissiveIntensity: 2.4 });
     eyes.push(lit);
     for (const side of [-1, 1]) {
       const eye = new THREE.Mesh(new THREE.SphereGeometry(spec.face ? 0.05 : 0.07, 8, 6), lit);
       burning.push(eye);
-      eye.position.set(side * 0.13, 0.3, 0.36);
+      eye.position.set(side * 0.17, 0.42, 0.49);
       head.add(eye);
     }
   }
@@ -256,8 +325,8 @@ function build(spec: ModelSpec, radius: number, hunter: boolean): Rig | null {
   if (spec.coat !== undefined && hips) {
     const cloth = new THREE.MeshStandardMaterial({ color: spec.coat, roughness: 0.85, side: THREE.DoubleSide });
     // Open over a fifth of the way round, and that gap faces forward (+Z).
-    coat = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.56, 0.95, 14, 1, true, Math.PI * 0.2, Math.PI * 1.6), cloth);
-    coat.position.y = -0.42;
+    coat = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.5, 1.25, 14, 1, true, Math.PI * 0.2, Math.PI * 1.6), cloth);
+    coat.position.y = -0.52;
     coat.castShadow = true;
     hips.add(coat);
   }
@@ -266,10 +335,10 @@ function build(spec: ModelSpec, radius: number, hunter: boolean): Rig | null {
   let aura: THREE.Mesh | null = null;
   if (hunter) {
     aura = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.5, 0.75, 2.6, 16, 1, true),
+      new THREE.CylinderGeometry(0.5, 0.75, 3.1, 16, 1, true),
       new THREE.MeshBasicMaterial({ color: 0x3050ff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }),
     );
-    aura.position.y = 1.2;
+    aura.position.y = 1.45;
     inner.add(aura);
   }
 
@@ -374,6 +443,7 @@ function build(spec: ModelSpec, radius: number, hunter: boolean): Rig | null {
         current.timeScale = name === "Running_A" ? 1.25 : 1;
       }
       mixer.update(dt);
+      reshape();
 
       if (spec.hover) inner.position.y = spec.hover + Math.sin(a.time * 2.4) * 2;
 
