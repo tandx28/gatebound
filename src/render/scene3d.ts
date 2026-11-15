@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
+import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 import {
   ARMY,
@@ -22,11 +23,14 @@ import {
   type Rank,
 } from "../game/config";
 import type { Dungeon, Side } from "../game/dungeon";
-import { WEAPONS, type WeaponType } from "../game/items";
+import { itemDef, perksOf, WEAPONS, type PerkId, type Rarity, type WeaponType } from "../game/items";
+import { ELEMENT } from "./weapons";
 import type { Ally, Corpse, Enemy, Quality, World } from "../game/state";
 import { KINDS, type EnemyKind } from "../game/config";
 import { CUT, CUTSCENES, type ActorKind, type CutActor } from "../game/cutscenes";
-import { TRAPS, trapPhase } from "../game/rooms";
+import { roomTheme, TRAPS, trapPhase } from "../game/rooms";
+import { dress, pillarFor, type Torch } from "./decor";
+import { GRADE, tickFire } from "./fire";
 import { modelRig } from "./models";
 import { buildRig, ghostify, poseFor, type Pose, type Rig } from "./rigs";
 
@@ -71,7 +75,8 @@ function disposeTree(root: THREE.Object3D): void {
     if (m.geometry && !o.userData.shared) m.geometry.dispose();
     const mat = m.material as THREE.Material | THREE.Material[] | undefined;
     if (Array.isArray(mat)) mat.forEach((x) => x.dispose());
-    else if (mat) mat.dispose();
+    // Fire shares one material among every flame of its colour.
+    else if (mat && !mat.userData.shared) mat.dispose();
   });
 }
 
@@ -217,11 +222,16 @@ export class Scene3D {
   private hunter: Rig;
   /** A lantern's worth of warm light, carried high enough that nothing passes through it. */
   private playerLight = new THREE.PointLight(0xc4d8ff, 15000, 620, 2);
-  private sun = new THREE.DirectionalLight(0xffe9d0, 2.4);
+  private sun = new THREE.DirectionalLight(0xffe9d0, 1.9);
   private enemies = new Map<Enemy, Rig>();
   private allies = new Map<Ally, Rig>();
   /** Figures on stage in the cutscene being played. */
   private actors = new Map<CutActor, Rig>();
+  private slashes!: Record<"dagger" | "sword" | "spear", THREE.Mesh>;
+  private wardShell!: THREE.Mesh;
+  /** The fires of the current room, to be made to flicker. */
+  private torches: Torch[] = [];
+  private grade!: ShaderPass;
   /** Enemies that have just fallen, playing out their deaths. */
   private corpses = new Map<Corpse, Rig>();
   private floorTex: THREE.CanvasTexture;
@@ -278,8 +288,11 @@ export class Scene3D {
 
     // A dim cool sky, a warm key light from the camera's side so faces are
     // lit, and a cold rim from behind to pick figures out of the dark.
-    this.scene.add(new THREE.AmbientLight(0xffffff, 0.34));
-    this.scene.add(new THREE.HemisphereLight(0xbcd0ff, 0x2a2018, 1.0));
+    // Dim enough that torches and the hunter's own light do the work, bright enough to read a fight.
+    this.scene.add(new THREE.AmbientLight(0xffffff, 0.4));
+    this.scene.add(new THREE.HemisphereLight(0xbcd0ff, 0x2a2018, 0.95));
+    // The far side of a room sinks into murk.
+    this.scene.fog = new THREE.FogExp2(0x05060a, 0.0002);
     const sun = this.sun;
     sun.position.set(ROOM.w / 2 + 420, 900, ROOM.h / 2 + 560);
     sun.target.position.set(ROOM.w / 2, 0, ROOM.h / 2);
@@ -326,6 +339,20 @@ export class Scene3D {
       return new DecalPool(fx, new THREE.RingGeometry(0.3, 1, 24, 1, -half, half * 2), 1.4);
     };
     this.sectors = { dagger: sector("dagger"), sword: sector("sword"), spear: sector("spear") };
+    // The swing in the air: a thin crescent, lying flat, one for each reach.
+    const slash = (type: WeaponType) => {
+      const half = WEAPONS[type].halfAngle;
+      const geo = new THREE.RingGeometry(0.62, 1, 28, 1, -half, half * 2);
+      geo.rotateX(-Math.PI / 2);
+      const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }));
+      mesh.visible = false;
+      this.scene.add(mesh);
+      return mesh;
+    };
+    this.slashes = { dagger: slash("dagger"), sword: slash("sword"), spear: slash("spear") };
+    this.wardShell = new THREE.Mesh(new THREE.IcosahedronGeometry(38, 1), new THREE.MeshBasicMaterial({ color: 0xffd84a, wireframe: true, transparent: true, opacity: 0.2, depthWrite: false, blending: THREE.AdditiveBlending }));
+    this.wardShell.visible = false;
+    this.scene.add(this.wardShell);
 
     const pGeo = new THREE.BufferGeometry();
     pGeo.setAttribute("position", new THREE.BufferAttribute(this.pPos, 3));
@@ -353,6 +380,9 @@ export class Scene3D {
     this.bloom = new UnrealBloomPass(new THREE.Vector2(VIEW_W, VIEW_H), 0.2, 0.4, 0.9);
     this.composer.addPass(this.bloom);
     this.composer.addPass(new OutputPass());
+    // Last of all, the grade: contrast, split tone and grain over the finished picture.
+    this.grade = new ShaderPass(GRADE);
+    this.composer.addPass(this.grade);
   }
 
   /** True while the browser has taken the graphics context away. */
@@ -397,6 +427,9 @@ export class Scene3D {
     this.renderer.shadowMap.enabled = q === "high";
     this.sun.castShadow = q === "high";
     this.bloom.enabled = q !== "low";
+    this.grade.enabled = q !== "low";
+    // How many torches cast light depends on the level: have the room built again.
+    this.builtRoom = -2;
     // Materials are compiled with or without shadows: have them rebuilt.
     this.scene.traverse((o) => {
       const m = (o as THREE.Mesh).material as THREE.Material | undefined;
@@ -464,17 +497,11 @@ export class Scene3D {
     floor.receiveShadow = true;
     this.roomGroup.add(floor);
 
-    // Pillars: stone drums with a band of the gate's colour, tall enough to hide behind.
-    for (const pillar of w.pillars) {
-      const stone = new THREE.MeshStandardMaterial({ map: this.wallTex, color: RANK_STONE[w.rank], roughness: 0.95 });
-      const drum = new THREE.Mesh(new THREE.CylinderGeometry(pillar.radius * 0.9, pillar.radius, 150, 14), stone);
-      drum.position.set(pillar.x, 75, pillar.y);
-      drum.castShadow = true;
-      drum.receiveShadow = true;
-      const band = new THREE.Mesh(new THREE.CylinderGeometry(pillar.radius * 0.96, pillar.radius * 0.96, 6, 14), glow(tint, 0.5));
-      band.position.set(pillar.x, 112, pillar.y);
-      this.roomGroup.add(drum, band);
-    }
+    // Pillars in the manner of the room, then everything that dresses it.
+    const theme = roomTheme(w.rank, w.gateKind === "normal" || w.gateKind === "key" ? room : null);
+    for (const pillar of w.pillars) this.roomGroup.add(pillarFor(theme, pillar, this.wallTex, tint));
+    const lights = this.quality === "high" ? 6 : this.quality === "medium" ? 2 : 0;
+    this.torches = dress(this.roomGroup, theme, (room?.id ?? 0) + (room?.gx ?? 0) * 31 + (room?.gy ?? 0) * 57, room?.doors ?? {}, tint, lights, WALL_H);
 
     const wallMat = new THREE.MeshStandardMaterial({ map: this.wallTex, color: isBoss ? 0x7a6066 : RANK_STONE[w.rank], roughness: 0.95, metalness: 0 });
     const trimMat = glow(isBoss ? 0xff3355 : tint, 0.55);
@@ -568,6 +595,14 @@ export class Scene3D {
       // A leaper rises and falls through its jump.
       if (e.state === "leap") rig.root.position.y = 70 * Math.sin(Math.PI * Math.min(1, Math.max(0, 1 - e.t / 0.35)));
     }
+  }
+
+  /** How the weapon in hand is made: its rarity, and the first element among its perks. */
+  private gearOf(w: World): { rarity: Rarity | null; element: PerkId | null } {
+    const pr = w.profile;
+    const owned = pr.equipped[pr.activeWeapon === 1 ? "weapon2" : "weapon"];
+    if (!owned) return { rarity: null, element: null };
+    return { rarity: itemDef(owned)?.rarity ?? null, element: perksOf(owned).find((perk) => ELEMENT[perk] !== undefined) ?? null };
   }
 
   /** The fallen lie where they fell, then sink out of sight. */
@@ -786,7 +821,11 @@ export class Scene3D {
     for (const f of w.fx) {
       const k = f.t / f.total;
       const c = this.color(f.color).getHex();
-      if (f.kind === "ring") this.rings.place(f.x, f.y, 0, f.radius * (1.1 - 0.5 * k), f.radius * (1.1 - 0.5 * k), c, k);
+      if (f.kind === "beam") {
+        // A wide wash of colour with a white-hot core, both thinning as it fades.
+        this.lines.place(f.x, f.y, f.angle ?? 0, f.radius, 70 * k, c, 0.55 * k);
+        this.lines.place(f.x, f.y, f.angle ?? 0, f.radius, 18 * k, 0xffffff, 0.95 * k);
+      } else if (f.kind === "ring") this.rings.place(f.x, f.y, 0, f.radius * (1.1 - 0.5 * k), f.radius * (1.1 - 0.5 * k), c, k);
       else this.circles.place(f.x, f.y, 0, f.radius, f.radius, c, 0.5 * k);
     }
 
@@ -794,7 +833,27 @@ export class Scene3D {
       const k = p.attackT / PLAYER.attackActive;
       const type = p.weapon && p.weapon !== "bow" ? p.weapon : "dagger";
       const reach = WEAPONS[type].range;
-      this.sectors[type].place(p.x, p.y, p.attackFacing, reach, reach, 0x5ee6ff, 0.35 + 0.5 * k);
+      // The cut on the floor takes the colour of whatever the blade carries.
+      const gear = this.gearOf(w);
+      const hue = (gear.element && ELEMENT[gear.element]) || 0x5ee6ff;
+      this.sectors[type].place(p.x, p.y, p.attackFacing, reach, reach, hue, 0.35 + 0.5 * k);
+      // And the same cut in the air at blade height, sweeping across as the swing goes.
+      const arc = this.slashes[type];
+      arc.visible = true;
+      arc.position.set(p.x, 30, p.y);
+      arc.rotation.y = -p.attackFacing + (0.5 - k) * 0.9;
+      arc.scale.setScalar(reach);
+      const am = arc.material as THREE.MeshBasicMaterial;
+      am.color.setHex(hue);
+      am.opacity = 0.75 * k;
+    }
+    for (const [type, arc] of Object.entries(this.slashes)) if (p.attackT <= 0 || type !== (p.weapon && p.weapon !== "bow" ? p.weapon : "dagger")) arc.visible = false;
+    // A ward waiting to take a hit shows as a shell of light round the hunter.
+    this.wardShell.visible = w.wardReady && w.mode === "gate";
+    if (this.wardShell.visible) {
+      this.wardShell.position.set(p.x, 34, p.y);
+      this.wardShell.rotation.y = this.clock * 0.8;
+      (this.wardShell.material as THREE.MeshBasicMaterial).opacity = 0.2 + 0.08 * Math.sin(this.clock * 5);
     }
     if (p.surgeT > 0) this.rings.place(p.x, p.y, 0, 26, 26, 0xffd84a, 0.7);
     // Aim marker under the player.
@@ -869,6 +928,9 @@ export class Scene3D {
       swing: Math.min(1, Math.max(0, since / 0.2)),
       flash: p.hurtFlash > 0,
       glow: p.surgeT > 0 || p.furyT > 0 || p.drainT > 0 ? 1 : 0.3,
+      // Blood Price burns red, Fury orange, Surge gold.
+      aura: p.drainT > 0 ? 0xff2040 : p.furyT > 0 ? 0xff5a20 : 0xffc040,
+      gear: this.gearOf(w),
       phase: 1,
       weapon: p.weapon,
     });
@@ -877,6 +939,12 @@ export class Scene3D {
     this.player.visible = !(p.iframes > 0 && !fast && Math.floor(p.iframes * 20) % 2 === 0) && w.mode !== "dead" && w.mode !== "title";
 
     // During a cutscene the hunter is one of the cast, not the player's figure.
+    // Fire wavers, and the light it throws with it.
+    tickFire(this.clock);
+    this.grade.uniforms.time.value = this.clock % 100;
+    for (const t of this.torches) {
+      if (t.light) t.light.intensity = t.base * (0.82 + 0.12 * Math.sin(this.clock * 11 + t.phase) + 0.06 * Math.sin(this.clock * 27 + t.phase * 3));
+    }
     const stage = this.syncActors(w, alpha);
     this.hunter.root.visible = !stage;
     if (stage) this.player.position.set(stage.x, 0, stage.y);

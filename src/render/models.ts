@@ -5,6 +5,7 @@ import type { EnemyKind } from "../game/config";
 import type { ActorKind } from "../game/cutscenes";
 import type { WeaponType } from "../game/items";
 import { weaponProp, type Anim, type Held, type Pose, type Rig } from "./rigs";
+import { lookKey, weaponModel, type WeaponLook } from "./weapons";
 
 /**
  * Modelled, skinned figures for the hunter and the human and undead enemies
@@ -62,7 +63,8 @@ export const HUNTER_MODEL: ModelSpec = { file: "knight", pack: "adventurer", siz
 /** The hunter's swing for each weapon. */
 const HUNTER_STRIKE: Record<WeaponType, string> = {
   dagger: "1H_Melee_Attack_Slice_Horizontal",
-  sword: "1H_Melee_Attack_Chop",
+  // Swung across the body, left to right, not chopped down.
+  sword: "1H_Melee_Attack_Slice_Horizontal",
   spear: "2H_Melee_Attack_Stab",
   bow: "2H_Ranged_Shoot",
 };
@@ -288,10 +290,9 @@ function build(spec: ModelSpec, radius: number, hunter: boolean): Rig | null {
     const centre = new THREE.Vector3(0, 0.52, 0);
     const up = new THREE.Vector3(0, 1, 0);
     // A close cap of hair, then layered locks over it; the face stays clear.
-    const cap = new THREE.Mesh(new THREE.SphereGeometry(0.61, 16, 10, 0, Math.PI * 2, 0, Math.PI * 0.5), strands);
-    cap.position.copy(centre).add(new THREE.Vector3(0, 0.03, -0.05));
-    // Tipped back a little, so the hairline sits above the brow but the crown stays covered.
-    cap.rotation.x = -0.2;
+    // Level, and well clear of the skull all round, so no scalp shows from any side.
+    const cap = new THREE.Mesh(new THREE.SphereGeometry(0.64, 18, 12, 0, Math.PI * 2, 0, Math.PI * 0.47), strands);
+    cap.position.copy(centre).add(new THREE.Vector3(0, 0.02, -0.03));
     head.add(cap);
     const down = new THREE.Vector3(0, -1, 0);
     // A lock of hair lying on the skull: it starts at a point on the head and
@@ -314,6 +315,8 @@ function build(spec: ModelSpec, radius: number, hunter: boolean): Rig | null {
       lock(turn, 0.42, 0.42 + 0.08 * (i % 3), 0.17, i % 2 ? 0.25 : -0.2);
       lock(turn + 0.25, 0.85, 0.36, 0.16, 0.3);
     }
+    // Locks over the top, lying forward from the crown, so the cap never shows bare.
+    for (let i = 0; i < 8; i++) lock((i / 8) * Math.PI * 2 + 0.2, 1.12, 0.5, 0.2, i % 2 ? 0.3 : -0.3, 0.3);
     // A few wisps standing off the crown: tousled, not spiked.
     for (const [turn, rise] of [[2.6, 1.25], [3.6, 1.15], [0.6, 1.3], [4.6, 1.2]]) lock(turn, rise, 0.2, 0.07, 0.9, 1.4);
   }
@@ -372,12 +375,38 @@ function build(spec: ModelSpec, radius: number, hunter: boolean): Rig | null {
   if (spec.right) give(slots[0], spec.right);
   if (spec.left) give(slots[1], spec.left);
   if (hunter) {
-    // All four are the game's own, so each blade carries the same cold light.
+    // One holder for each weapon type; what hangs in it is rebuilt when the gear changes.
     for (const type of ["dagger", "sword", "spear", "bow"] as const) {
-      const g = give(slots[0], type, 0x9fdcff);
-      if (g) arsenal.set(type, g);
+      if (!slots[0]) continue;
+      const holder = new THREE.Group();
+      holder.rotation.x = Math.PI;
+      holder.scale.setScalar(PROP_SCALE);
+      slots[0].add(holder);
+      arsenal.set(type, holder);
     }
   }
+  let made = "";
+  /** Put the weapon in hand into its holder, built for its rarity and element. */
+  const arm = (type: WeaponType, look: WeaponLook) => {
+    const key = lookKey(type, look);
+    if (key === made) return;
+    made = key;
+    const holder = arsenal.get(type);
+    if (!holder) return;
+    for (const old of [...holder.children]) {
+      holder.remove(old);
+      old.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (m.geometry) m.geometry.dispose();
+        const mat = m.material as THREE.Material | undefined;
+        if (mat && !mat.userData.shared) mat.dispose();
+      });
+    }
+    const model = weaponModel(type, look);
+    // A spear is gripped well forward, so its point clears the floor at rest.
+    if (type === "spear") model.position.y = 16;
+    holder.add(model);
+  };
 
   const mixer = new THREE.AnimationMixer(body);
   const actions = new Map<string, THREE.AnimationAction>();
@@ -469,6 +498,7 @@ function build(spec: ModelSpec, radius: number, hunter: boolean): Rig | null {
       if (aura) {
         // Nothing at rest; full when Surge, Fury or Blood Price is running.
         const power = Math.max(0, (a.glow - 0.3) / 0.7);
+        if (a.aura !== undefined) (aura.material as THREE.MeshBasicMaterial).color.setHex(a.aura);
         (aura.material as THREE.MeshBasicMaterial).opacity = power * (0.13 + 0.05 * Math.sin(a.time * 11));
         aura.rotation.y = a.time * 2.5;
         aura.scale.y = 1 + 0.12 * Math.sin(a.time * 7);
@@ -477,6 +507,7 @@ function build(spec: ModelSpec, radius: number, hunter: boolean): Rig | null {
 
       // Bare hands show nothing at all.
       for (const [type, g] of arsenal) g.visible = type === a.weapon;
+      if (hunter && a.weapon) arm(a.weapon, a.gear ?? { rarity: null, element: null });
     },
   };
 }

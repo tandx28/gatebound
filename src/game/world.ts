@@ -724,7 +724,7 @@ function useSkill(w: World, id: SkillId): void {
       const off = Math.abs((e.x - p.x) * dy - (e.y - p.y) * dx);
       if (along > 0 && along < SHOT.range + e.radius && off < SHOT.width + e.radius) strike(w, e, SHOT.mult * p.d.skillPower * power, 240);
     }
-    for (let d = 80; d < SHOT.range; d += 110) w.fx.push({ kind: "ring", x: p.x + dx * d, y: p.y + dy * d, radius: SHOT.width, t: 0.2 + d / 4000, total: 0.2 + d / 4000, color: "#5ee6ff" });
+    w.fx.push({ kind: "beam", x: p.x, y: p.y, angle: p.facing, radius: SHOT.range, t: 0.35, total: 0.35, color: "#5ee6ff" });
     w.shake = Math.max(w.shake, 6);
   } else if (id === "ward") {
     w.wardReady = true;

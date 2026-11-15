@@ -98,6 +98,19 @@ export function furnish(rank: Rank, room: RoomNode | null): { layout: Layout; pi
   return { layout, pillars, traps };
 }
 
+/** What kind of place a room is. It changes only how the room is dressed, never how it plays. */
+export type Theme = "gate" | "hall" | "crypt" | "armoury" | "cavern" | "shrine" | "throne";
+export const THEMES: Theme[] = ["hall", "crypt", "armoury", "cavern", "shrine"];
+
+/** The theme of a room: fixed for the entrance and the boss, otherwise drawn from the room itself. */
+export function roomTheme(rank: Rank, room: RoomNode | null): Theme {
+  if (!room) return "hall";
+  if (room.kind === "start") return "gate";
+  if (room.kind === "boss" || room.kind === "trial") return "throne";
+  const rng = seeded((room.gx + 64) * 104729 + (room.gy + 64) * 7919 + room.id * 53 + RANK_IDS.indexOf(rank) * 211 + 9);
+  return THEMES[Math.floor(rng() * THEMES.length)];
+}
+
 /** Push a body out of any pillar it overlaps. Returns true if it was touching one. */
 export function blockCircle(c: Circle, pillars: Pillar[]): boolean {
   let hit = false;

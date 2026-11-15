@@ -177,7 +177,9 @@ export interface Shockwave {
 
 /** A purely visual ground effect. */
 export interface Fx {
-  kind: "ring" | "blast";
+  /** A beam runs from (x, y) along `angle` for `radius`. */
+  kind: "ring" | "blast" | "beam";
+  angle?: number;
   x: number;
   y: number;
   radius: number;
