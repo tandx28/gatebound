@@ -271,6 +271,9 @@ export interface Profile {
   towerBest: number;
   /** Show the first gate's tips. On for a new game, off once that gate is over. */
   tips: boolean;
+  /** Bosses killed since a hidden door last opened, and gates closed since the last break. */
+  trialPity: number;
+  breakPity: number;
   /** Gates entered since the last sealed one: the sixth in a row is always sealed. */
   sealedPity: number;
   /** Today's sealed gate on the board: its rank, and whether it has been cleared. */

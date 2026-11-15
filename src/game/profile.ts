@@ -117,6 +117,8 @@ export function newProfile(): Profile {
     lastClear: 0,
     breakPending: false,
     ending: null,
+    trialPity: 0,
+    breakPity: 0,
     cycle: 0,
     towerBest: 0,
     tips: true,
@@ -739,6 +741,13 @@ export function settleClear(w: World): void {
   }
   run.summary = bank(w);
   pr.gatesCleared += 1;
+  // Closing gates builds pressure: every so many, one breaks open in the street.
+  pr.breakPity += 1;
+  if (pr.breakPity >= BREAK.afterGates && !pr.breakPending) {
+    pr.breakPity = 0;
+    pr.breakPending = true;
+    w.pendingDialogue.push("break_surge");
+  }
   // Clearing a gate above your rank is the re-evaluation.
   if (RANK_IDS.indexOf(w.rank) > RANK_IDS.indexOf(pr.hunterRank)) {
     pr.hunterRank = w.rank;

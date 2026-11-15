@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Controls } from "../engine/input";
 import { seeded } from "../engine/rng";
-import { BINDABLE, CORPSE, KINDS, NGPLUS, ORDER, PARRY, RANK_IDS, ROOM, SEALED, SEALED_GUARD, SKILL_IDS, SKILLS, STAGGER, STEP, TOWER, towerRank, VIEW_H, VIEW_W, type Rank } from "./config";
+import { BINDABLE, BREAK, CORPSE, HIDDEN, KINDS, NGPLUS, ORDER, PARRY, RANK_IDS, ROOM, SEALED, SEALED_GUARD, SKILL_IDS, SKILLS, STAGGER, STEP, TOWER, towerRank, VIEW_H, VIEW_W, type Rank } from "./config";
 import { generateDungeon } from "./dungeon";
 import { makeEnemy } from "./enemies";
 import { itemDef, TITLES } from "./items";
@@ -126,6 +126,39 @@ describe("sealed gates", () => {
     const p = parseSave(JSON.parse(JSON.stringify(toSave(w))))!.profile;
     expect(p.sealedPity).toBe(4);
     expect(p.redGate).toEqual({ day: 7, rank: "C", done: true });
+  });
+});
+
+describe("rare things come to those who keep playing", () => {
+  it("every eighth gate closed brings a gate break, of the hunter's own rank", () => {
+    const w = createWorld(seeded(11));
+    w.profile.introSeen = true;
+    w.profile.hunterRank = "S";
+    for (let i = 0; i < BREAK.afterGates; i++) {
+      expect(w.profile.breakPending, `after ${i} gates`).toBe(false);
+      enterGate(w, "E", { sealed: false });
+      w.mode = "cleared";
+      settleClear(w);
+    }
+    expect(w.profile.breakPending).toBe(true);
+    expect(w.pendingDialogue).toContain("break_surge");
+    expect(w.profile.breakPity).toBe(0);
+    const p = parseSave(JSON.parse(JSON.stringify(toSave(w))))!.profile;
+    expect(p.breakPending).toBe(true);
+  });
+
+  it("the fifth boss in a row without a hidden door always opens one; with doors switched off, never", () => {
+    for (const [chance, opens] of [[1e-9, true], [0, false]] as const) {
+      const w = createWorld(seeded(12));
+      w.hiddenChance = chance;
+      w.profile.trialPity = HIDDEN.pity - 1;
+      enterGate(w, "S", { sealed: false });
+      enterRoom(w, w.dungeon!.bossId, "s");
+      for (const e of w.enemies) e.hp = 0;
+      step(w, new FakeControls(), STEP);
+      expect(w.bossDead, `chance ${chance}`).toBe(opens);
+      expect(w.profile.trialPity).toBe(opens ? 0 : HIDDEN.pity);
+    }
   });
 });
 

@@ -254,7 +254,8 @@ export const SEALED_GUARD: Record<Rank, EnemyKind> = { E: "charger", D: "brute",
 export const EMERGENCY = { chance: 0.15, base: 10, perEnemy: 7, hpLoss: 0.3, bonus: 0.5 };
 
 /** A hidden door behind the boss, leading to a harder echo of it. */
-export const HIDDEN = { chance: 0.15, hp: 0.7, dmg: 1.3, gold: 400 };
+/** `pity`: luck aside, the fifth boss in a row without a hidden door always opens one. */
+export const HIDDEN = { chance: 0.15, pity: 5, hp: 0.7, dmg: 1.3, gold: 400 };
 
 /** Keys open short solo dungeons with a fixed reward. */
 export const KEYS = { dropChance: 0.03, gold: 150, points: 1 };
@@ -388,7 +389,8 @@ export const RITE: { waves: EnemyKind[][]; points: number } = {
 };
 
 /** A gate break: your rank's gate, left alone too long, spills into the city. */
-export const BREAK = { days: 3, time: 75, every: 10, pack: 4, maxAlive: 10, gold: 100 };
+/** A break comes after `days` of neglect, or after every `afterGates` gates closed: the pressure goes somewhere. */
+export const BREAK = { days: 3, afterGates: 8, time: 75, every: 10, pack: 4, maxAlive: 10, gold: 100 };
 
 /**
  * A boss entering its second phase roars: it throws the player clear without

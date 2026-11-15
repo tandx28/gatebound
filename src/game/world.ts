@@ -1499,8 +1499,12 @@ export function step(w: World, input: Controls, dt: number): void {
     const trial = room?.kind === "trial";
     if (trial) trialReward(w);
     // Rarely, a hidden door opens behind the boss instead of the gate closing.
-    const hidden =
-      !trial && w.gateKind === "normal" && !w.bossDead && w.rng() < w.hiddenChance ? addTrialRoom(w.dungeon!, w.rng) : null;
+    // Luck alone could keep the door shut for ever, so the fifth boss without one always opens it.
+    // (A chance of zero switches hidden doors off altogether: tests and the bot use that.)
+    const mayOpen = !trial && w.gateKind === "normal" && !w.bossDead;
+    const opens = mayOpen && (w.rng() < w.hiddenChance || (w.hiddenChance > 0 && w.profile.trialPity >= HIDDEN.pity - 1));
+    if (mayOpen) w.profile.trialPity = opens ? 0 : w.profile.trialPity + 1;
+    const hidden = opens ? addTrialRoom(w.dungeon!, w.rng) : null;
     if (hidden) {
       w.bossDead = true;
       w.layoutRev += 1;

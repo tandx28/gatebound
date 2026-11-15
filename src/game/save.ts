@@ -249,6 +249,8 @@ export function parseSave(raw: unknown): SaveData | null {
     const old = int(rq.main, 0, OLD_MAIN.length, 0);
     profile.quests.main = old >= OLD_MAIN.length ? MAIN.findIndex((q) => q.id === "m9") + 1 : MAIN.findIndex((q) => q.id === OLD_MAIN[old]);
   }
+  profile.trialPity = int(rf.trialPity, 0, 99, 0);
+  profile.breakPity = int(rf.breakPity, 0, 99, 0);
   profile.towerBest = int(rf.towerBest, 0, 1e6, 0);
   profile.cycle = int(rf.cycle, 0, NGPLUS.max, 0);
   // Tips are for new hunters: a save made before they existed has no need of them.

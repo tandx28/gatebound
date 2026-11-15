@@ -95,6 +95,10 @@ export const DIALOGUES: Record<string, Line[]> = {
     { speaker: MARA, text: "Rank C. That is two re-evaluations in one file. The director asked me whether you were a clerical error." },
     { speaker: DOV, text: "Rank C. I've been E for nine years. Buy me a drink and tell me how." },
   ],
+  break_surge: [
+    { speaker: MARA, text: "You have closed so many that the pressure had to go somewhere. A gate has burst on Tanner Row. They are in the street." },
+    { speaker: LEDGER, text: "Gate break. Hold the line until it closes." },
+  ],
   break: [
     { speaker: MARA, text: "Your gate has been open three days with nobody in it. It broke an hour ago. They are in the street." },
     { speaker: LEDGER, text: "Gate break. Hold the line until it closes." },
