@@ -13,6 +13,8 @@ import {
   KEYS,
   KINDS,
   NGPLUS,
+  NIGHTMARE,
+  rankForLevel,
   RANK_IDS,
   RANKS,
   RESET,
@@ -117,6 +119,8 @@ export function newProfile(): Profile {
     lastClear: 0,
     breakPending: false,
     ending: null,
+    nightmareUnlocked: false,
+    nightmare: false,
     trialPity: 0,
     breakPity: 0,
     cycle: 0,
@@ -180,10 +184,13 @@ function stockFor(w: World): string[] {
   const pr = w.profile;
   const owned = [...pr.inventory, ...EQUIP_SLOTS.map((s) => pr.equipped[s]).filter((id): id is string => !!id)].map(baseOf);
   const rng = seeded(w.today * 7919 + pr.shop.rerolls * 104729 + 17);
-  const bases = rollStock(rng, owned, RANK_WEIGHT[pr.hunterRank]);
+  // The shelf follows the hunter's level as well as their rank: whichever is the higher.
+  const byLevel = rankForLevel(w.player.prog.level);
+  const shelf = RANK_IDS.indexOf(byLevel) > RANK_IDS.indexOf(pr.hunterRank) ? byLevel : pr.hunterRank;
+  const bases = rollStock(rng, owned, RANK_WEIGHT[shelf]);
   // Now and then a Rank A hunter or better finds a legendary on the shelf.
   // In New Game+ there is one every day.
-  const high = RANK_IDS.indexOf(pr.hunterRank) >= RANK_IDS.indexOf("A");
+  const high = RANK_IDS.indexOf(shelf) >= RANK_IDS.indexOf("A");
   if (bases.length > 0 && (pr.cycle > 0 || (high && w.today % DROPS.legendaryDayEvery === 0))) {
     const legends = SHOP_POOL.filter((id) => ITEMS[id].rarity === "legendary" && !owned.includes(id));
     if (legends.length > 0) bases[bases.length - 1] = legends[Math.min(legends.length - 1, Math.floor(rng() * legends.length))];
@@ -423,6 +430,11 @@ export function chooseEnding(w: World, ending: Ending): boolean {
   const pr = w.profile;
   if (pr.ending || MAIN[pr.quests.main]?.id !== "m10") return false;
   pr.ending = ending;
+  // The story told through to the end of its last cycle: Nightmare is open from here on.
+  if (pr.cycle >= NGPLUS.max && !pr.nightmareUnlocked) {
+    pr.nightmareUnlocked = true;
+    w.notices.push({ title: "NIGHTMARE UNLOCKED", body: "Switch it on from the Story tab, if you dare.", life: 7 });
+  }
   // A penalty already owed dies with the Ledger.
   if (ending === "unwritten") pr.penaltyPending = false;
   w.pendingDialogue.push(`end_${ending}`);
@@ -507,7 +519,7 @@ export function onKill(w: World, e: Enemy): void {
     });
   }
   if (!e.boss) {
-    if (e.xp > 0 && field && w.rng() < DROPS.chance) found(w, rollDrop(w.rank, w.rng));
+    if (e.xp > 0 && field && w.rng() < DROPS.chance * (w.profile.nightmare ? NIGHTMARE.drop : 1)) found(w, rollDrop(w.rank, w.rng));
     if (e.xp > 0 && w.gateKind === "normal" && w.rng() < KEYS.dropChance) {
       w.run.keys += 1;
       sfx(w, "chime");
@@ -762,6 +774,7 @@ export function settleClear(w: World): void {
   const high = (rank: Rank) => RANK_IDS.indexOf(w.rank) >= RANK_IDS.indexOf(rank);
   if (w.sealed && high("A")) grantMythic(w, "seal_breaker", false);
   if (!run.tookDamage && high("B")) grantMythic(w, "untouched_mantle", false);
+  if (pr.nightmare && w.rank === "S") earnTitle(w, "nightmare");
   fireQuest(w, { type: "gate", rank: w.rank, noPotion: !run.usedPotion, noDamage: !run.tookDamage });
 }
 
@@ -781,7 +794,8 @@ export function settleDeath(w: World): void {
   const prog = w.player.prog;
   const run = w.run;
   run.settled = true;
-  const gold = Math.floor(pr.gold * DEATH.goldLoss);
+  const worse = pr.nightmare ? NIGHTMARE.deathLoss : 1;
+  const gold = Math.floor(pr.gold * Math.min(1, DEATH.goldLoss * worse));
   const need = xpToNext(prog.level);
   const xp = need === Infinity ? 0 : Math.min(prog.xp, Math.floor(need * DEATH.xpLoss));
   pr.gold -= gold;
@@ -901,6 +915,11 @@ function hubActionInner(w: World, verb: string, arg: string, extra: string | und
     case "set":
       applySetting(w, arg);
       return null;
+    case "nightmare":
+      if (!pr.nightmareUnlocked) return null;
+      pr.nightmare = !pr.nightmare;
+      w.notices.push({ title: pr.nightmare ? "NIGHTMARE" : "NIGHTMARE ENDS", body: pr.nightmare ? "Everything is stronger. Bosses begin wounded and angry. Death costs double; kills pay double." : "The gates are as they were.", life: 5 });
+      break;
     case "ngplus":
       newGamePlus(w);
       return null;

@@ -26,8 +26,10 @@ Play it: https://tandx28.github.io/gatebound/
   and called back.
 - A story in six chapters with in-engine cutscenes and two endings. Hold Esc
   for two seconds to skip a scene; replay any of them from the Story tab.
+- Bosses pass through stages as they weaken, gaining new attacks: quakes,
+  rings of bolts, crossing lines of blasts, falling fire, called guards.
 - After the story: New Game+ (three cycles, everything kept, stronger
-  gates) and the Tower, an endless climb with a floor record.
+  gates), then Nightmare, and the Tower, an endless climb with a floor record.
 - Every key can be moved (System, or the pause menu: Controls).
 - Generated music with its own song per gate, and synthesised sound effects.
 - Progress saves in the browser. Saving inside a gate resumes at the room.

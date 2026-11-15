@@ -812,6 +812,12 @@ function drawAlerts(ctx: Ctx, w: World): void {
   if (w.breakT > 0) banner(`GATE BREAK   ·   hold the line   ${clock(w.breakT)}`, w.breakT / BREAK.time, "#ff8a3c");
   if (w.penaltyT > 0) banner(`PENALTY ZONE   ·   survive   ${clock(w.penaltyT)}`, w.penaltyT / PENALTY.time, "#ff5a60");
   if (w.emergency) banner(`EMERGENCY QUEST   ·   kill them all   ${clock(w.emergency.t)}`, w.emergency.t / w.emergency.total, GOLD);
+  if (w.profile.nightmare) {
+    ctx.textAlign = "right";
+    ctx.font = `bold 12px ${FONT}`;
+    ctx.fillStyle = "#c070ff";
+    ctx.fillText("NIGHTMARE", VIEW_W - 20, VIEW_H - 58);
+  }
   if (w.sealed) {
     // The whole screen is edged in red for as long as the gate holds you.
     const pulse = 0.2 + 0.06 * Math.sin(performance.now() / 400);

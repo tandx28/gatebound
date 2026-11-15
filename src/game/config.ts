@@ -302,6 +302,13 @@ export const STAGGER = { maxRadius: 18, time: 0.45 };
 /** How long a fallen enemy lies where it fell. */
 export const CORPSE = { time: 1.6, sink: 0.5 };
 
+/**
+ * Nightmare: offered once New Game+ has been finished to its last cycle.
+ * Everything is tougher still, bosses fight as if already wounded and act
+ * sooner, death costs double, and kills pay and drop twice as much.
+ */
+export const NIGHTMARE = { hp: 2, dmg: 1.5, reward: 2, drop: 2, deathLoss: 2, bossPace: 0.7 };
+
 /** New Game+: the story again with everything kept, against stronger enemies that pay more. */
 export const NGPLUS = { max: 3, harder: 0.6, reward: 0.5 };
 

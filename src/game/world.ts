@@ -2,6 +2,7 @@ import type { Controls } from "../engine/input";
 import { clamp, norm } from "../engine/vec";
 import { makeAlly, stepAlly, stepAllyShots } from "./allies";
 import { circlesOverlap, inArc, rollDamage, separate } from "./combat";
+import { stepBossExtras } from "./bosses";
 import { stepCutscene } from "./cutscenes";
 import { blockCircle, furnish, insidePillar, PILLAR, stepTraps } from "./rooms";
 import {
@@ -1402,6 +1403,7 @@ export function step(w: World, input: Controls, dt: number): void {
     // Domain halves its pace; a frost perk takes a further bite.
     const pace = (e.slowT > 0 ? DOMAIN.slow : 1) * (e.chillT > 0 ? PERK.frost.speed : 1);
     stepEnemy(w, e, dt * pace);
+    if (e.boss) stepBossExtras(w, e, dt * pace);
     e.slowT = Math.max(0, e.slowT - dt);
     stepEnemyPerks(e, dt);
   }

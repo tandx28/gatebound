@@ -309,6 +309,17 @@ function storyButtons(w: World): Button[] {
       textX: STORY.sceneX,
     });
   });
+  if (pr.nightmareUnlocked) {
+    const y = STORY.top + CHAPTERS.length * STORY.rowH + 36;
+    out.push({
+      rect: { x: STORY.chapterX, y, w: 480, h: 36 },
+      id: "nightmare",
+      label: pr.nightmare ? "NIGHTMARE IS ON   ·   click to end it" : "NIGHTMARE   ·   stronger enemies, angrier bosses, double pay",
+      enabled: true,
+      kind: "plain",
+      danger: true,
+    });
+  }
   if (canNewGamePlus(pr)) {
     const y = STORY.top + CHAPTERS.length * STORY.rowH + 36;
     out.push({

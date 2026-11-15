@@ -295,6 +295,7 @@ export const TITLES: TitleDef[] = [
   { id: "overreacher", name: "Overreacher", how: "Clear a gate above your level", bonus: { crit: 0.03 } },
   { id: "tower_25", name: "Twenty-Five Floors Up", how: "Clear floor 25 of the tower", bonus: { speedPct: 0.05, hp: 15 } },
   { id: "tower_50", name: "Above the Gates", how: "Clear floor 50 of the tower", bonus: { damagePct: 0.08, crit: 0.04 } },
+  { id: "nightmare", name: "Nightmare Walker", how: "Clear a Rank S gate in Nightmare", bonus: { damagePct: 0.12, hp: 30 } },
   { id: "keeper", name: "Keeper of the Ledger", how: "Sign the last page", bonus: { hp: 40 } },
   { id: "unwritten", name: "The Unwritten", how: "Burn the last page", bonus: { damagePct: 0.1 } },
 ];

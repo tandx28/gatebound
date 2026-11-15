@@ -251,6 +251,8 @@ export function parseSave(raw: unknown): SaveData | null {
   }
   profile.trialPity = int(rf.trialPity, 0, 99, 0);
   profile.breakPity = int(rf.breakPity, 0, 99, 0);
+  profile.nightmareUnlocked = rf.nightmareUnlocked === true;
+  profile.nightmare = profile.nightmareUnlocked && rf.nightmare === true;
   profile.towerBest = int(rf.towerBest, 0, 1e6, 0);
   profile.cycle = int(rf.cycle, 0, NGPLUS.max, 0);
   // Tips are for new hunters: a save made before they existed has no need of them.

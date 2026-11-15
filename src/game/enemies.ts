@@ -20,6 +20,7 @@ import {
   ROAR,
   ROOM,
   NGPLUS,
+  NIGHTMARE,
   SEALED_SCALE,
   SHOOTER,
   SWARMER,
@@ -56,6 +57,8 @@ export function makeEnemy(kind: EnemyKind, x: number, y: number, rank: Rank, boo
     dmg: def.damage * (def.boss ? 1 : r.dmgMult) * boost.dmg,
     xp: Math.round(def.xp * (def.boss ? 1 : r.xpMult) * boost.reward),
     boss: def.boss,
+    stage: 0,
+    extraCd: 0,
     phase: 1,
     state: "recover",
     t: 0.5,
@@ -205,6 +208,12 @@ export function spawnEnemy(w: World, kind: EnemyKind, x: number, y: number): Ene
     e.hp = e.maxHp;
     e.dmg *= m;
     e.xp = Math.round(e.xp * (1 + NGPLUS.reward * cycle));
+  }
+  if (w.profile.nightmare) {
+    e.maxHp = Math.round(e.maxHp * NIGHTMARE.hp);
+    e.hp = e.maxHp;
+    e.dmg *= NIGHTMARE.dmg;
+    e.xp = Math.round(e.xp * NIGHTMARE.reward);
   }
   return e;
 }

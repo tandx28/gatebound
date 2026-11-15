@@ -89,6 +89,9 @@ export interface Enemy extends Circle {
   dmg: number;
   xp: number;
   boss: boolean;
+  /** A boss's stage (0 fresh, 1 hurt, 2 nearly dead), and seconds until its next extra move. */
+  stage: number;
+  extraCd: number;
   phase: number;
   state: string;
   /** Time left in the current state. */
@@ -267,6 +270,9 @@ export interface Profile {
   breakPending: boolean;
   /** Which skill sits in each of the four slots. */
   loadout: (SkillId | null)[];
+  /** Nightmare can be switched on, and whether it is. */
+  nightmareUnlocked: boolean;
+  nightmare: boolean;
   /** How many times the story has been begun again with everything kept. */
   cycle: number;
   /** The highest tower floor ever cleared. */
