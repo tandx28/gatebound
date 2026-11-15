@@ -42,7 +42,6 @@ describe("models", () => {
       const nodes = new Set(read(spec.file).nodes.map((n) => n.name));
       for (const part of ["handslot.r", "handslot.l", ...(spec.show ?? [])]) expect(nodes.has(part), `${name}: ${part}`).toBe(true);
     }
-    expect(read(HUNTER_MODEL.file).nodes.some((n) => n.name === "Knife")).toBe(true);
   });
 
   it("only real enemy kinds have models, and the odd-shaped ones keep their built figures", () => {

@@ -33,7 +33,7 @@ export interface ModelSpec {
   eyes?: number;
   /** Bare-headed: the head keeps the model's own face while the rest goes flat. */
   face?: boolean;
-  /** Short spikes of hair, in the hair colour, standing off the crown. */
+  /** Short tousled hair in the hair colour: a fringe over the brow, layers behind. */
   spikes?: boolean;
   /** Parts of the model left out altogether, by name. */
   hide?: string[];
@@ -287,26 +287,35 @@ function build(spec: ModelSpec, radius: number, hunter: boolean): Rig | null {
     const strands = new THREE.MeshStandardMaterial({ color: spec.hair, roughness: 0.5 });
     const centre = new THREE.Vector3(0, 0.52, 0);
     const up = new THREE.Vector3(0, 1, 0);
-    // A close cap of hair, then spikes over the crown, the sides and the back; the face stays clear.
-    const cap = new THREE.Mesh(new THREE.SphereGeometry(0.6, 16, 10, 0, Math.PI * 2, 0, Math.PI * 0.56), strands);
-    cap.position.copy(centre).add(new THREE.Vector3(0, 0.02, -0.08));
-    cap.rotation.x = -0.42;
+    // A close cap of hair, then layered locks over it; the face stays clear.
+    const cap = new THREE.Mesh(new THREE.SphereGeometry(0.61, 16, 10, 0, Math.PI * 2, 0, Math.PI * 0.5), strands);
+    cap.position.copy(centre).add(new THREE.Vector3(0, 0.03, -0.05));
+    // Tipped back a little, so the hairline sits above the brow but the crown stays covered.
+    cap.rotation.x = -0.2;
     head.add(cap);
-    for (let ring = 0; ring < 3; ring++) {
-      const n = [1, 6, 9][ring];
-      const tilt = [0, 0.6, 1.15][ring];
-      for (let i = 0; i < n; i++) {
-        const turn = (i / n) * Math.PI * 2 + ring * 0.4;
-        const dir = new THREE.Vector3(Math.sin(tilt) * Math.sin(turn), Math.cos(tilt), Math.sin(tilt) * Math.cos(turn));
-        // Nothing over the face.
-        if (dir.z > 0.55 && dir.y < 0.7) continue;
-        const len = 0.5 + 0.14 * ((i * 7 + ring * 3) % 3);
-        const spike = new THREE.Mesh(new THREE.ConeGeometry(0.19, len, 5), strands);
-        spike.position.copy(centre).addScaledVector(dir, 0.54 + len * 0.3);
-        spike.quaternion.setFromUnitVectors(up, dir);
-        head.add(spike);
-      }
+    const down = new THREE.Vector3(0, -1, 0);
+    // A lock of hair lying on the skull: it starts at a point on the head and
+    // falls along the surface, a little outward, swept to one side.
+    const lock = (turn: number, rise: number, len: number, width: number, sweep: number, lift = 0.22) => {
+      const dir = new THREE.Vector3(Math.cos(rise) * Math.sin(turn), Math.sin(rise), Math.cos(rise) * Math.cos(turn));
+      const fall = down.clone().addScaledVector(dir, -down.dot(dir)).normalize();
+      const side = new THREE.Vector3().crossVectors(dir, fall);
+      const tip = fall.addScaledVector(side, sweep).addScaledVector(dir, lift).normalize();
+      const strand = new THREE.Mesh(new THREE.ConeGeometry(width, len, 5), strands);
+      strand.position.copy(centre).addScaledVector(dir, 0.6).addScaledVector(tip, len * 0.42);
+      strand.quaternion.setFromUnitVectors(up, tip);
+      head.add(strand);
+    };
+    // The fringe: uneven locks over the brow, swept across, stopping short of the eyes.
+    [-0.62, -0.38, -0.14, 0.08, 0.3, 0.52].forEach((turn, i) => lock(turn, 0.62, 0.34 + 0.07 * ((i * 5) % 3), 0.15, 0.45));
+    // Layers round the sides and the back, longer behind.
+    for (let i = 0; i < 11; i++) {
+      const turn = 0.85 + (i / 10) * (Math.PI * 2 - 1.7);
+      lock(turn, 0.42, 0.42 + 0.08 * (i % 3), 0.17, i % 2 ? 0.25 : -0.2);
+      lock(turn + 0.25, 0.85, 0.36, 0.16, 0.3);
     }
+    // A few wisps standing off the crown: tousled, not spiked.
+    for (const [turn, rise] of [[2.6, 1.25], [3.6, 1.15], [0.6, 1.3], [4.6, 1.2]]) lock(turn, rise, 0.2, 0.07, 0.9, 1.4);
   }
   if (spec.eyes !== undefined && head) {
     const lit = new THREE.MeshStandardMaterial({ color: spec.eyes, emissive: spec.eyes, emissiveIntensity: 2.4 });
