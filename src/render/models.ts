@@ -31,6 +31,10 @@ export interface ModelSpec {
   flat?: number;
   /** Eyes that burn this colour under the hood. */
   eyes?: number;
+  /** Bare-headed: the head keeps the model's own face while the rest goes flat. */
+  face?: boolean;
+  /** Hair dyed this colour, in place of the model's own. */
+  hair?: number;
   /** Taller and narrower, with a smaller head: a grown figure rather than a stocky one. */
   lean?: boolean;
   /** A long coat of this colour, hanging from the hips to the shins and open at the front. */
@@ -49,7 +53,7 @@ export interface ModelSpec {
   cast?: string;
 }
 
-export const HUNTER_MODEL: ModelSpec = { file: "rogue_hooded", pack: "adventurer", size: 1.18, flat: 0x191c2c, eyes: 0x5ee6ff, lean: true, coat: 0x12141f, show: [], strike: "1H_Melee_Attack_Slice_Horizontal", thrust: "1H_Melee_Attack_Stab" };
+export const HUNTER_MODEL: ModelSpec = { file: "rogue", pack: "adventurer", size: 1.18, flat: 0x191c2c, face: true, hair: 0x0b0d14, eyes: 0x5ee6ff, lean: true, coat: 0x12141f, show: [], strike: "1H_Melee_Attack_Slice_Horizontal", thrust: "1H_Melee_Attack_Stab" };
 
 /** The hunter's swing for each weapon. */
 const HUNTER_STRIKE: Record<WeaponType, string> = {
@@ -129,6 +133,53 @@ export async function loadModels(base: string): Promise<void> {
 /** three.js strips dots from node names when it loads a file. */
 const bone = (root: THREE.Object3D, name: string): THREE.Object3D | undefined => root.getObjectByName(name.replace(/\./g, ""));
 
+/** Hair-coloured textures already made, by the texture they came from and the colour. */
+const dyed = new Map<string, THREE.Texture>();
+
+/**
+ * A copy of a face texture with its hair dyed. The models paint hair in a
+ * strong orange-brown and skin in a pale one, so strongly coloured warm
+ * pixels are hair and are replaced, keeping their shading.
+ */
+function recolourHair(map: THREE.Texture, colour: number): THREE.Texture {
+  const key = `${map.uuid}:${colour}`;
+  const done = dyed.get(key);
+  if (done) return done;
+  const img = map.image as CanvasImageSource & { width: number; height: number };
+  const canvas = document.createElement("canvas");
+  canvas.width = img.width;
+  canvas.height = img.height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return map;
+  ctx.drawImage(img, 0, 0);
+  const data = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const d = data.data;
+  const dye = new THREE.Color(colour).convertLinearToSRGB();
+  for (let i = 0; i < d.length; i += 4) {
+    const r = d[i];
+    const g = d[i + 1];
+    const b = d[i + 2];
+    const max = Math.max(r, g, b);
+    const sat = max === 0 ? 0 : (max - Math.min(r, g, b)) / max;
+    // Warm (red over green over blue) and strongly coloured: hair, not skin.
+    if (!(r > g && g > b && sat > 0.5)) continue;
+    const shade = max / 255;
+    d[i] = dye.r * 255 * (0.6 + shade);
+    d[i + 1] = dye.g * 255 * (0.6 + shade);
+    d[i + 2] = dye.b * 255 * (0.6 + shade);
+  }
+  ctx.putImageData(data, 0, 0);
+  const out = new THREE.CanvasTexture(canvas);
+  out.flipY = map.flipY;
+  out.colorSpace = map.colorSpace;
+  out.wrapS = map.wrapS;
+  out.wrapT = map.wrapT;
+  out.magFilter = map.magFilter;
+  out.minFilter = map.minFilter;
+  dyed.set(key, out);
+  return out;
+}
+
 function build(spec: ModelSpec, radius: number, hunter: boolean): Rig | null {
   const src = loaded.get(spec.file);
   const clips = loaded.get(CARRIER[spec.pack])?.clips;
@@ -156,6 +207,15 @@ function build(spec: ModelSpec, radius: number, hunter: boolean): Rig | null {
     const m = o as THREE.Mesh;
     if (!m.isMesh) return;
     const old = m.material as THREE.MeshStandardMaterial;
+    // A bare head keeps its face: its own copy of the material, texture and all.
+    if (spec.face && m.name.endsWith("_Head")) {
+      const skin = old.clone();
+      skin.roughness = 0.8;
+      if (spec.hair !== undefined && skin.map) skin.map = recolourHair(skin.map, spec.hair);
+      mats.push(skin);
+      m.material = skin;
+      return;
+    }
     let mat = copies.get(old);
     if (!mat) {
       mat = old.clone();
@@ -174,14 +234,17 @@ function build(spec: ModelSpec, radius: number, hunter: boolean): Rig | null {
     m.material = mat;
   });
 
-  // Two points of light where the eyes are, all that shows of the face.
+  // Two points of light where the eyes are. Under a hood they are all that shows of the
+  // face; on a bare face they burn only while the hunter's power is up.
+  const burning: THREE.Mesh[] = [];
   const head = bone(body, "head");
   if (spec.lean && head) head.scale.setScalar(0.74);
   if (spec.eyes !== undefined && head) {
     const lit = new THREE.MeshStandardMaterial({ color: spec.eyes, emissive: spec.eyes, emissiveIntensity: 2.4 });
     eyes.push(lit);
     for (const side of [-1, 1]) {
-      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 6), lit);
+      const eye = new THREE.Mesh(new THREE.SphereGeometry(spec.face ? 0.05 : 0.07, 8, 6), lit);
+      burning.push(eye);
       eye.position.set(side * 0.13, 0.3, 0.36);
       head.add(eye);
     }
@@ -322,6 +385,7 @@ function build(spec: ModelSpec, radius: number, hunter: boolean): Rig | null {
         }
       }
       for (const m of eyes) m.emissiveIntensity = (hunter ? 2.2 : 0.6) + a.glow * 2.4;
+      if (spec.face) for (const eye of burning) eye.visible = a.glow > 0.31;
       if (coat) coat.rotation.x = a.moving ? -0.22 + Math.sin(a.time * 9) * 0.06 : Math.sin(a.time * 1.4) * 0.02;
       if (aura) {
         // Nothing at rest; full when Surge, Fury or Blood Price is running.
