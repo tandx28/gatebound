@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { SOUND_IDS } from "../audio/sfx";
 import type { Controls } from "../engine/input";
 import { ARMY, KINDS, ROOM, STEP, VIEW_W } from "./config";
-import { CUTSCENES, MAX_SCENE, sceneLength, seenScenes, SKIP_HOLD, startCutscene } from "./cutscenes";
+import { CUTSCENES, MAX_SCENE, SPECIAL_SCENES, sceneLength, seenScenes, SKIP_HOLD, startCutscene } from "./cutscenes";
 import { makeEnemy } from "./enemies";
 import { TITLES } from "./items";
 import { beginStory, chooseEnding, fireQuest, hubAction, syncDay } from "./profile";
@@ -481,7 +481,8 @@ describe("the board with a ninth tab", () => {
     w.profile.ending = "keeper";
     w.tab = "story";
     const replay = hubButtons(w).filter((b) => b.id.startsWith("scene:"));
-    expect(replay.length).toBe(Object.keys(CUTSCENES).length - 1);
+    // Every story scene but the intro (not marked seen here); special gates' scenes only once played.
+    expect(replay.length).toBe(Object.keys(CUTSCENES).length - 1 - SPECIAL_SCENES.length);
     for (const b of replay) {
       expect(b.rect.x + b.rect.w).toBeLessThanOrEqual(VIEW_W - 20);
       expect(b.rect.y + b.rect.h).toBeLessThanOrEqual(640);

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Controls } from "../engine/input";
 import { seeded } from "../engine/rng";
-import { CLASSES, CLOCK, KINDS, MARK, METEOR, RANGER, RANK_IDS, ROOM, RUSH, SKILL_GROUPS, SKILL_SLOTS, STEP, VANGUARD, VIEW_H, VIEW_W, type Rank, type SkillId } from "./config";
+import { CLASSES, CLOCK, KINDS, MARK, METEOR, RANGER, ROOM, RUSH, SKILL_GROUPS, SKILL_SLOTS, STEP, VANGUARD, VIEW_H, VIEW_W, type Rank, type SkillId } from "./config";
 import { makeEnemy } from "./enemies";
 import { TITLES } from "./items";
 import { classOpen, hubAction, newGamePlus, refreshDerived, rushOpen, slotOpen } from "./profile";
@@ -289,7 +289,7 @@ describe("boss rush", () => {
     expect(w.enemies.some((e) => e.boss)).toBe(true);
     const c = new FakeControls();
     const gold = w.profile.gold;
-    for (let i = 0; i < RANK_IDS.length; i++) {
+    for (let i = 0; i < RUSH.rounds.length; i++) {
       expect(w.rushIdx).toBe(i);
       w.enemies = [];
       w.spawnQueue = [];

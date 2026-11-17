@@ -27,7 +27,19 @@ Play it: https://tandx28.github.io/gatebound/
 - Four classes, chosen on the Hunter tab once the rite is done, each with its
   own power on H: Echo Caller (the army), Vanguard (Bulwark), Ranger (Arrow
   Storm) and Arcanist (Overflow, from New Game+ 1).
-- Twenty skills on four pages of the Skills tab: blade, guard, arcane, echo.
+- Twenty skills on four pages of the Skills tab: blade, guard, arcane, echo,
+  each with its own effect (a falling star, rock spikes, chain lightning...).
+- Five weapon types: dagger, sword, spear, bow (hold to draw; a full draw
+  looses a piercing charged shot) and staff (bolts that burst, shaped by the
+  staff's element: fireball, ice shard, lightning, plain light).
+- Every mythic has an ultimate on Y that recharges over 90 s, faster with kills.
+  Legendary and mythic gear wears an aura by its perks.
+- A Bestiary tab: kills per enemy kind, lore at 10 kills, and +10/20/30%
+  damage against that kind at 50, 150 and 500 (bosses need a tenth).
+- Special gates (sealed, gate break, emergency, hidden door, the trials) open
+  with a short scene the first time, then a title card.
+- A secret, for those who finish the story: five struck lines, a riddle, and
+  something waiting in the margin.
 - A story in six chapters with in-engine cutscenes and two endings. Hold Esc
   for two seconds to skip a scene; replay any of them from the Story tab.
 - Bosses pass through stages as they weaken, gaining new attacks: quakes,
@@ -56,6 +68,7 @@ Play it: https://tandx28.github.io/gatebound/
 | T | Return Stone: leave the gate |
 | G | Bind a remnant (after the rite) |
 | H | Class power: send echoes away or call them back (Echo Caller), Bulwark, Arrow Storm, Overflow |
+| Y | Mythic ultimate |
 | J | Army orders: hunt, guard, hold |
 | C | Status and stat points |
 | Esc | Pause, save, settings |

@@ -13,6 +13,8 @@ import {
   SKILL_SLOTS,
   VANGUARD,
   type ClassId,
+  type EnemyKind,
+  LINES,
   BREAK,
   dailyGoals,
   DEFAULT_LOADOUT,
@@ -68,6 +70,7 @@ import {
   TITLES,
   TRIAL_DROP,
   WEAPONS,
+  wornSlots,
   type BagId,
   type EquipSlot,
   type PowerId,
@@ -92,6 +95,7 @@ import {
 } from "./state";
 import { BASE_STAT, CRIT_CAP, derive, STAT_KEYS, xpToNext } from "./stats";
 import { DIALOGUES } from "./story";
+import { BEAST_ORDER, BEAST_PAGE, huntBonus, huntTier, tierKills } from "./bestiary";
 
 /** Everything that outlives a gate: gold, gear, titles, quests, dialogue. */
 
@@ -142,6 +146,11 @@ export function newProfile(): Profile {
     cls: "echo",
     clockBest: 0,
     rushBest: 0,
+    kills: {},
+    lines: [],
+    replayed: [],
+    marginFound: false,
+    scenesSeen: [],
   };
 }
 
@@ -157,6 +166,7 @@ export function newRun(): Run {
     retreated: false,
     settled: false,
     summary: [],
+    swings: 0,
   };
 }
 
@@ -225,10 +235,14 @@ function stockFor(w: World): string[] {
 }
 
 /** An item found in a gate: it joins the run's loot, kept only if the hunter gets out. */
-function found(w: World, owned: string): void {
+/** The colour of each rarity's beam of light where an item drops. */
+const LOOT_HUE: Record<string, string> = { common: "#cfd6e0", uncommon: "#6dff9c", rare: "#5ea8ff", epic: "#c070ff", legendary: "#ffb040", mythic: "#ff5a7a" };
+
+function found(w: World, owned: string, at: { x: number; y: number } = w.player): void {
   w.run.items.push(owned);
   sfx(w, "chime");
   const def = itemDef(owned)!;
+  w.fx.push({ kind: "loot", x: at.x, y: at.y, radius: def.rarity === "mythic" || def.rarity === "legendary" ? 34 : 20, t: 2.2, total: 2.2, color: LOOT_HUE[def.rarity] ?? "#cfd6e0" });
   w.notices.push({ title: def.rarity === "mythic" ? "MYTHIC FOUND" : "ITEM FOUND", body: `${itemName(owned)}  ·  ${def.unique ? "unique" : def.rarity}`, life: 4 });
 }
 
@@ -280,6 +294,7 @@ export function towerFloorCleared(w: World): void {
     w.notices.push({ title: `FLOOR ${floor} CLEARED`, body: `+${gold} gold  ·  ${itemName(item)}`, life: 4 });
     sfx(w, "quest");
   }
+  if (floor >= LINES.towerFloor) earnLine(w, 2);
   if (floor >= 25) earnTitle(w, "tower_25");
   if (floor >= 50) earnTitle(w, "tower_50");
   w.dirty = true;
@@ -293,6 +308,99 @@ export function slotOpen(profile: Profile, i: number): boolean {
 /** Whether a class can be taken up: the rite must be done, and some need a New Game+. */
 export function classOpen(profile: Profile, id: ClassId): boolean {
   return profile.classUnlocked && profile.cycle >= CLASSES[id].cycle;
+}
+
+/** A kill, for the bestiary. Crossing a tier says so once. */
+export function recordKill(w: World, kind: EnemyKind): void {
+  const pr = w.profile;
+  const before = huntTier(pr, kind);
+  const n = (pr.kills[kind] ?? 0) + 1;
+  pr.kills[kind] = n;
+  if (n === tierKills(kind).lore) w.notices.push({ title: "BESTIARY", body: `${KINDS[kind].name}: lore written.`, life: 3 });
+  const after = huntTier(pr, kind);
+  if (after > before) w.notices.push({ title: "BESTIARY", body: `${KINDS[kind].name}: +${Math.round(huntBonus(pr, kind) * 100)}% damage against it.`, life: 4 });
+}
+
+/** The five struck lines: the riddle each carries, and the glyph drawn beside it. */
+export const STRUCK_LINES: { text: string; glyph: string; how: string }[] = [
+  { text: "Where the Tower forgets its luck, on the thirteenth floor, four stones wait.", glyph: "?", how: "Clear a gate without one basic attack" },
+  { text: "First strike the stone that has four corners and no point.", glyph: "□", how: "Watch every story scene again" },
+  { text: "Then the one that has no corners at all.", glyph: "○", how: "Reach floor 30 of the tower" },
+  { text: "Then the two lines that cross out a name.", glyph: "✕", how: "Clear a sealed gate in Nightmare" },
+  { text: "Last, the three-cornered stone. Then the margin opens.", glyph: "△", how: "Stand quite still for a minute in an empty room" },
+];
+
+/** Story scenes that count for the replay line: the chapters and both endings. */
+export const STORY_SCENES = ["intro", "m6", "m7", "m8", "m9", "end_keeper", "end_unwritten"];
+
+/** One of the five lines found. All five tell the way to the margin. */
+export function earnLine(w: World, i: number): void {
+  const pr = w.profile;
+  if (pr.lines.includes(i) || i < 0 || i >= LINES.count) return;
+  pr.lines.push(i);
+  pr.lines.sort((a, b) => a - b);
+  w.dirty = true;
+  sfx(w, "chime");
+  w.notices.push({
+    title: `A STRUCK LINE  ·  ${pr.lines.length} OF ${LINES.count}`,
+    body: pr.lines.length >= LINES.count ? "All five lines. Read them together on the Story tab." : STRUCK_LINES[i].text,
+    life: 7,
+  });
+}
+
+/**
+ * Special gates and their scenes. The first time, the full scene; after
+ * that, only a short title card.
+ */
+export const SPECIALS: Record<string, { title: string; sub: string }> = {
+  sealed: { title: "SEALED GATE", sub: "No way out. Its master is awake." },
+  gatebreak: { title: "GATE BREAK", sub: "Hold the line until it closes." },
+  emergency: { title: "EMERGENCY QUEST", sub: "Kill them all before the clock runs out." },
+  hidden: { title: "A HIDDEN DOOR", sub: "Something waits behind it." },
+  tower: { title: "THE TOWER", sub: "Climb until you fall." },
+  clock: { title: "TIME TRIAL", sub: "The tower against a clock." },
+  rush: { title: "BOSS RUSH", sub: "Every master. One after another." },
+  margin: { title: "THE MARGIN", sub: "Where struck lines go." },
+};
+
+export function playSpecial(w: World, id: string): void {
+  const pr = w.profile;
+  const def = SPECIALS[id];
+  if (!def) return;
+  if (w.specialScenes && !pr.scenesSeen.includes(id) && startCutscene(w, id)) {
+    pr.scenesSeen.push(id);
+    w.dirty = true;
+    return;
+  }
+  w.sting = { title: def.title, sub: def.sub, t: STING };
+}
+
+/** Seconds a special gate's title card stays up. */
+export const STING = 2.6;
+
+/** The mythic whose ultimate Y uses: the one in the weapon hand first, then armour, then accessory. */
+export function ultimateOf(pr: Profile): PowerId | null {
+  for (const slot of wornSlots(pr.activeWeapon)) {
+    const owned = pr.equipped[slot];
+    const power = owned ? itemDef(owned)?.power : undefined;
+    if (power) return power;
+  }
+  return null;
+}
+
+/** The Redactor is struck out: its quill, its title, and the way back stays open. */
+export function marginCleared(w: World): void {
+  if (w.run.settled) return;
+  const pr = w.profile;
+  w.run.settled = true;
+  w.run.gold += RUSH.gold * 2;
+  w.run.items.push(rollDrop("S", w.rng));
+  w.run.summary = ["The Redactor is struck out. The margin is quiet.", ...bank(w)];
+  grantMythic(w, "blank_quill", false);
+  earnTitle(w, "unstruck");
+  pr.marginFound = true;
+  startCutscene(w, "margin_end");
+  w.dirty = true;
 }
 
 /** The boss rush opens once the story has been told to its end at least once. */
@@ -589,6 +697,7 @@ export function onKill(w: World, e: Enemy): void {
   const gilded = 1 + 0.25 * w.player.perks.gilded;
   if (e.xp > 0) w.run.gold += Math.round(e.xp * (e.boss ? 0.5 : 0.6) * gilded);
   fireQuest(w, { type: "kill", kind: e.kind });
+  recordKill(w, e.kind);
   // An Echo Caller can bind what falls. Summoned minions leave nothing.
   const field = w.gateKind === "normal" || w.gateKind === "key" || w.gateKind === "break";
   if (isCaller(w.profile) && field && (e.xp > 0 || e.boss)) {
@@ -602,7 +711,7 @@ export function onKill(w: World, e: Enemy): void {
     });
   }
   if (!e.boss) {
-    if (e.xp > 0 && field && w.rng() < DROPS.chance * (w.profile.nightmare ? NIGHTMARE.drop : 1)) found(w, rollDrop(w.rank, w.rng));
+    if (e.xp > 0 && field && w.rng() < DROPS.chance * (w.profile.nightmare ? NIGHTMARE.drop : 1)) found(w, rollDrop(w.rank, w.rng), e);
     if (e.xp > 0 && w.gateKind === "normal" && w.rng() < KEYS.dropChance) {
       w.run.keys += 1;
       sfx(w, "chime");
@@ -614,10 +723,10 @@ export function onKill(w: World, e: Enemy): void {
   if (e.kind === "warden") earnTitle(w, "giant_feller");
   if (w.rng() < SKILL_RANK.bossDrop) findBook(w);
   const drop = BOSS_DROP[e.kind];
-  if (drop && !owns(w.profile, drop) && !w.run.items.includes(drop)) found(w, drop);
+  if (drop && !owns(w.profile, drop) && !w.run.items.includes(drop)) found(w, drop, e);
   // A boss always leaves one piece of gear, a tier better than its gate's commoners drop.
   const up = RANK_IDS[Math.min(RANK_IDS.length - 1, RANK_IDS.indexOf(w.rank) + 1)];
-  found(w, rollDrop(w.rank, w.rng, DROP_WEIGHT[up]));
+  found(w, rollDrop(w.rank, w.rng, DROP_WEIGHT[up]), e);
   // The three late bosses each guard a mythic: a chance per kill, certain by the fifth.
   const myth = BOSS_MYTHIC[e.kind];
   if (myth) {
@@ -858,6 +967,9 @@ export function settleClear(w: World): void {
   if (w.sealed && high("A")) grantMythic(w, "seal_breaker", false);
   if (!run.tookDamage && high("B")) grantMythic(w, "untouched_mantle", false);
   if (pr.nightmare && w.rank === "S") earnTitle(w, "nightmare");
+  // Two of the struck lines: a gate cleared with skills alone, and a sealed one in Nightmare.
+  if (w.gateKind === "normal" && run.swings === 0) earnLine(w, 0);
+  if (w.sealed && pr.nightmare) earnLine(w, 3);
   fireQuest(w, { type: "gate", rank: w.rank, noPotion: !run.usedPotion, noDamage: !run.tookDamage });
 }
 
@@ -977,7 +1089,7 @@ export function tutorialTip(w: World): string | null {
 }
 
 /** What a gate-board action asks the caller to start, if anything. */
-export type Enter = Rank | "key" | "rite" | "sealed" | "tower" | "clock" | "rush" | null;
+export type Enter = Rank | "key" | "rite" | "sealed" | "tower" | "clock" | "rush" | "margin" | null;
 
 /** Perform a gate-board action by id. */
 export function hubAction(w: World, id: string): Enter {
@@ -1013,7 +1125,12 @@ function hubActionInner(w: World, verb: string, arg: string, extra: string | und
       return null;
     case "scene":
       // Replay a scene already reached, from the Story tab.
-      if (seenScenes(pr).includes(arg) && startCutscene(w, arg)) w.dirty = true;
+      if (seenScenes(pr).includes(arg) && startCutscene(w, arg)) {
+        w.dirty = true;
+        if (!pr.replayed.includes(arg)) pr.replayed.push(arg);
+        // Every story scene watched again: one of the struck lines.
+        if (STORY_SCENES.every((id) => pr.replayed.includes(id))) earnLine(w, 1);
+      }
       return null;
     case "tab":
       if (visibleTabs(w).includes(arg as HubTab)) w.tab = arg as HubTab;
@@ -1025,6 +1142,7 @@ function hubActionInner(w: World, verb: string, arg: string, extra: string | und
       if (arg === "tower") return towerOpen(pr) ? "tower" : null;
       if (arg === "clock") return towerOpen(pr) ? "clock" : null;
       if (arg === "rush") return rushOpen(pr) ? "rush" : null;
+      if (arg === "margin") return pr.marginFound ? "margin" : null;
       return RANK_IDS.includes(arg as Rank) ? (arg as Rank) : null;
     case "buy":
       if (arg === "potion") {
@@ -1103,6 +1221,12 @@ function hubActionInner(w: World, verb: string, arg: string, extra: string | und
       const i = Number(arg);
       if (!slotOpen(pr, i)) return null;
       w.slotPick = i;
+      break;
+    }
+    case "beast": {
+      // Turn the bestiary's page.
+      const pages = Math.ceil(BEAST_ORDER.length / BEAST_PAGE);
+      w.beastPage = Math.max(0, Math.min(pages - 1, w.beastPage + (arg === "+" ? 1 : -1)));
       break;
     }
     case "skillpage": {

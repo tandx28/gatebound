@@ -266,11 +266,15 @@ describe("weapon types", () => {
     const { w, c } = arena(["short_bow"]);
     const first = add(w, "swarmer", 300, 0);
     const behind = add(w, "swarmer", 420, 0);
+    // Held, the string is drawn; let go, the arrow flies.
     c.attackHeld = true;
     run(w, c, 0.02);
+    expect(w.allyShots.length).toBe(0);
+    expect(w.player.drawT).toBeGreaterThan(0);
+    c.attackHeld = false;
+    run(w, c, 0.01);
     expect(w.allyShots.length).toBe(1);
     expect(w.allyShots[0].mine).toBe(true);
-    c.attackHeld = false;
     run(w, c, 0.5);
     expect(dealt(first)).toBe(Math.round((PLAYER.attackDamage + 3) * WEAPONS.bow.damage));
     expect(dealt(behind)).toBe(0);
@@ -580,8 +584,8 @@ describe("mythic powers", () => {
 });
 
 describe("earning mythics", () => {
-  it("there are eight, each a real item with a power", () => {
-    expect(MYTHICS.length).toBe(8);
+  it("there are nine, each a real item with a power", () => {
+    expect(MYTHICS.length).toBe(9);
     for (const m of MYTHICS) {
       expect(ITEMS[m.id].rarity).toBe("mythic");
       expect(ITEMS[m.id].power).toBe(m.id);

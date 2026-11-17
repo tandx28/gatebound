@@ -60,6 +60,16 @@ Conventions that everything relies on:
   Echoes tab) checks `isCaller(profile)`, not `classUnlocked`. H runs
   `classPower` in `world.ts`; `armyCd` is the cooldown for every class.
   Skill slots 5 to 7 open with New Game+ cycles: check `slotOpen`.
+- Effects: the simulation pushes `w.fx` entries (kinds in `FxShow`) and
+  `w.blasts` with a `show`; `src/render/effects.ts` draws them from pooled
+  meshes and its own motes. Visual-only randomness (sparks, ash, auras) lives
+  there and uses `Math.random`, never `w.rng`: drawing must not change the
+  game's dice, or the balance bot's results shift.
+- Special-gate scenes play in full only when `w.specialScenes` is on (the
+  shell sets it); tests and the bot see the title card (`w.sting`).
+- The secret: five struck lines (`earnLine`, `STRUCK_LINES` in profile.ts),
+  glyph stones on tower floor 13 (`GLYPH_ORDER`), the margin gate and the
+  Redactor (`redactor.ts`). Do not print the answer in the README.
 - Saves: `localStorage["gatebound.save"]`, versioned (`SAVE_VERSION` in
   `save.ts`). `parseSave` rebuilds a profile field by field from untrusted
   input and is the only way a save gets in. Device settings live separately
@@ -90,12 +100,17 @@ src/game/
                         Hunter and Trials tabs), pause and status menus
   classes.test.ts       classes, extra skill slots, new skills, time trial, boss rush,
                         and a check that every tab's buttons fit at 1280 × 720
+  bestiary.ts           kills per kind, lore, damage bonus tiers
+  redactor.ts           the hidden boss: its moves and its hazards on the floor
+  secret.test.ts        staff, charged bow, ultimates, bestiary, multi-boss floors,
+                        the struck lines, the margin and the Redactor
   balance/              bot.ts (scripted player), balance.test.ts (locked
                         difficulty targets), report.test.ts, stuck.test.ts
   *.test.ts             unit tests beside the code they cover
 src/render/
   scene3d.ts            the 3D view; reads World, owns all GPU objects
   hud.ts                the 2D overlay: bars, board, menus, captions
+  effects.ts            3D skill and ultimate effects, auras, ash, dust, hazards
   rigs.ts               built figures and poses for every kind
   models.ts             KayKit model specs, loading, animation
 src/audio/              sfx.ts (effects), compose.ts + director.ts + music.ts

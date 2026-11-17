@@ -27,7 +27,7 @@ export interface Bonus {
   damagePct?: number;
 }
 
-export type WeaponType = "dagger" | "sword" | "spear" | "bow";
+export type WeaponType = "dagger" | "sword" | "spear" | "bow" | "staff";
 
 export interface WeaponDef {
   name: string;
@@ -50,8 +50,21 @@ export const WEAPONS: Record<WeaponType, WeaponDef> = {
   sword: { name: "Sword", cooldown: 0.55, damage: 1.6, range: 80, halfAngle: Math.PI * 0.46, crit: 0, ranged: false },
   spear: { name: "Spear", cooldown: 0.7, damage: 2, range: 150, halfAngle: Math.PI * 0.08, crit: 0, ranged: false },
   bow: { name: "Bow", cooldown: 0.6, damage: 1.2, range: 900, halfAngle: 0, crit: 0, ranged: true },
+  staff: { name: "Staff", cooldown: 0.55, damage: 1.3, range: 700, halfAngle: 0, crit: 0, ranged: true },
 };
-export const BOW = { arrowSpeed: 900, drawSpeed: 0.7 };
+
+/**
+ * A staff's bolt: slower than an arrow, and it bursts where it lands,
+ * catching whatever stands close at a share of the blow. What it looks like
+ * (fireball, ice shard, lightning, plain light) follows the staff's element.
+ */
+export const STAFF = { speed: 640, radius: 10, splash: 60, share: 0.5 };
+/**
+ * The bow: a tap looses an arrow; holding draws the string, and letting go
+ * after a full draw (`charge` seconds) looses a charged shot that passes
+ * through everything in its path.
+ */
+export const BOW = { arrowSpeed: 900, drawSpeed: 0.7, charge: 0.8, chargeMult: 2.5, chargeSpeed: 1400 };
 
 export type Rarity = "common" | "uncommon" | "rare" | "epic" | "legendary" | "mythic";
 /** The four tiers the shop always carries. */
@@ -132,7 +145,8 @@ export type PowerId =
   | "seal_breaker"
   | "untouched_mantle"
   | "breakwater"
-  | "ledgers_favour";
+  | "ledgers_favour"
+  | "blank_quill";
 
 export const POWERS: Record<PowerId, string> = {
   ashen_wake: "Your dash cuts every enemy it passes through",
@@ -143,6 +157,7 @@ export const POWERS: Record<PowerId, string> = {
   untouched_mantle: "The first hit in each room does nothing",
   breakwater: "Below 30% health you deal double damage, but cannot be healed",
   ledgers_favour: "Your flask regains a charge whenever a room is cleared",
+  blank_quill: "Your bolts strike out a little of what they touch: +15% damage to bosses",
 };
 
 export interface ItemDef {
@@ -167,6 +182,7 @@ const dagger = (id: string, name: string, r: Rarity, b: Bonus) => item(id, name,
 const sword = (id: string, name: string, r: Rarity, b: Bonus) => item(id, name, "weapon", r, b, "sword");
 const spear = (id: string, name: string, r: Rarity, b: Bonus) => item(id, name, "weapon", r, b, "spear");
 const bow = (id: string, name: string, r: Rarity, b: Bonus) => item(id, name, "weapon", r, b, "bow");
+const staff = (id: string, name: string, r: Rarity, b: Bonus) => item(id, name, "weapon", r, b, "staff");
 const mythic = (id: string, name: string, slot: Slot, bonus: Bonus, power: PowerId, weapon?: WeaponType): ItemDef => ({
   ...item(id, name, slot, "mythic", bonus, weapon),
   power,
@@ -195,6 +211,11 @@ const list: ItemDef[] = [
   bow("recurve", "Recurve", "rare", { damage: 13, crit: 0.04 }),
   bow("gale_bow", "Gale Bow", "epic", { damage: 20, crit: 0.06 }),
   bow("last_light", "Last Light", "legendary", { damage: 30, crit: 0.1 }),
+  staff("oak_staff", "Oak Staff", "common", { damage: 3, mana: 4 }),
+  staff("acolyte_rod", "Acolyte's Rod", "uncommon", { damage: 7, mana: 8 }),
+  staff("ember_staff", "Ember Staff", "rare", { damage: 13, mana: 12 }),
+  staff("starwell", "Starwell", "epic", { damage: 20, mana: 18 }),
+  staff("veyra_lantern", "Lantern of Veyra", "legendary", { damage: 30, mana: 26 }),
   item("padded_coat", "Padded Coat", "armour", "common", { hp: 20 }),
   item("leather_wraps", "Leather Wraps", "armour", "common", { hp: 12, speedPct: 0.02 }),
   item("scale_vest", "Scale Vest", "armour", "uncommon", { hp: 50 }),
@@ -221,6 +242,7 @@ const list: ItemDef[] = [
   mythic("untouched_mantle", "Untouched Mantle", "armour", { hp: 260, speedPct: 0.08 }, "untouched_mantle"),
   mythic("breakwater", "Breakwater", "accessory", { crit: 0.1, hp: 60 }, "breakwater"),
   mythic("ledgers_favour", "The Ledger's Favour", "accessory", { mana: 40, hp: 60 }, "ledgers_favour"),
+  mythic("blank_quill", "The Blank Quill", "weapon", { damage: 44, mana: 40, crit: 0.06 }, "blank_quill", "staff"),
 ];
 
 export const ITEMS: Record<string, ItemDef> = Object.fromEntries(list.map((i) => [i.id, i]));
@@ -244,6 +266,7 @@ export const MYTHICS: { id: PowerId; how: string }[] = [
   { id: "untouched_mantle", how: "Clear a gate of Rank B or higher without being hit" },
   { id: "breakwater", how: "Hold a gate break at Rank S" },
   { id: "ledgers_favour", how: "Complete 30 daily quests" },
+  { id: "blank_quill", how: "Find the margin, and strike out what waits there" },
 ];
 /** Which mythic each of the three late bosses can drop. */
 export const BOSS_MYTHIC: Partial<Record<EnemyKind, PowerId>> = { queen: "ashen_wake", commander: "twin_fang", monarch: "hollow_crown" };
@@ -301,6 +324,7 @@ export const TITLES: TitleDef[] = [
   { id: "ng1", name: "Twice-Told", how: "Begin New Game+ 1", bonus: { damagePct: 0.04, hp: 10 } },
   { id: "ng2", name: "Thrice-Told", how: "Begin New Game+ 2", bonus: { damagePct: 0.07, hp: 20 } },
   { id: "ng3", name: "The Endless Reader", how: "Begin New Game+ 3", bonus: { damagePct: 0.1, hp: 30, crit: 0.03 } },
+  { id: "unstruck", name: "The Unstruck", how: "Defeat the Redactor", bonus: { damagePct: 0.15, hp: 50, crit: 0.04 } },
   { id: "keeper", name: "Keeper of the Ledger", how: "Sign the last page", bonus: { hp: 40 } },
   { id: "unwritten", name: "The Unwritten", how: "Burn the last page", bonus: { damagePct: 0.1 } },
 ];

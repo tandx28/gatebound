@@ -1,4 +1,6 @@
 import { angleDiff, clamp, norm } from "../engine/vec";
+import { stepRedactor } from "./redactor";
+import { huntBonus } from "./bestiary";
 import { applyDamage, circlesOverlap, clampToRoom } from "./combat";
 import {
   ASSASSIN,
@@ -140,6 +142,9 @@ export function damageEnemy(
   if (shielded) scaled *= WARDER.shield;
   if (w.domainT > 0) scaled *= DOMAIN.vulnerable;
   if (e.markT > 0) scaled *= MARK.vulnerable;
+  // What the hunter has learnt of this kind, and the Blank Quill's edge against masters.
+  scaled *= 1 + huntBonus(w.profile, e.kind);
+  if (e.boss && w.player.powers.includes("blank_quill")) scaled *= 1.15;
 
   const dmg = Math.round(scaled);
   e.hp = applyDamage(e.hp, dmg);
@@ -1304,6 +1309,9 @@ export function stepEnemy(w: World, e: Enemy, dt: number): void {
       break;
     case "monarch":
       stepMonarch(w, e, dt, dx, dy, dist);
+      break;
+    case "redactor":
+      stepRedactor(w, e, dt, dx, dy, dist);
       break;
   }
   clampToRoom(e, ROOM.w, ROOM.h);

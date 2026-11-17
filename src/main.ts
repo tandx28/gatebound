@@ -19,6 +19,8 @@ const ctx = hud.getContext("2d")!;
 const input = new Input(hud);
 let scene = new Scene3D(view);
 const world = createWorld();
+// The player sees special gates' scenes in full the first time (tests do not).
+world.specialScenes = true;
 
 // The game starts with built figures and swaps to the models when they arrive;
 // if they never do, it carries on as it is.

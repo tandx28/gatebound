@@ -87,13 +87,61 @@ export function weaponModel(type: WeaponType, look: WeaponLook): THREE.Group {
     if (tier >= 4) for (const z of [-1, 1]) g.add(box(0.8, 6, 2.4, steel, -40, 0, z * 3.2));
     from = -37;
     to = -49;
+  } else if (type === "staff") {
+    // A long shaft with a glowing head the colour of what it throws.
+    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.85, 1.1, 50, 7), grip);
+    shaft.position.y = -10;
+    shaft.castShadow = true;
+    g.add(shaft);
+    if (tier >= 1) g.add(box(2.6, 2, 2.6, fitting, -33));
+    const orb = new THREE.Mesh(new THREE.IcosahedronGeometry(3 + tier * 0.35, 1), edge);
+    orb.position.y = -38;
+    orb.userData.orb = true;
+    g.add(orb);
+    // Prongs that hold the orb, more of them the finer the staff.
+    for (let i = 0; i < 2 + Math.min(3, tier); i++) {
+      const a = (i / (2 + Math.min(3, tier))) * Math.PI * 2;
+      const prong = box(0.7, 7, 0.7, tier >= 2 ? steel : grip, -36, Math.cos(a) * 3, Math.sin(a) * 3);
+      prong.rotation.z = Math.cos(a) * 0.35;
+      prong.rotation.x = -Math.sin(a) * 0.35;
+      g.add(prong);
+    }
+    from = -34;
+    to = -42;
   } else {
-    const limbs = new THREE.Mesh(new THREE.TorusGeometry(11 * size, 0.75 + tier * 0.08, 6, 16, Math.PI), tier >= 2 ? steel : grip);
-    limbs.rotation.z = -Math.PI / 2;
-    limbs.castShadow = true;
+    // Each limb is its own piece, so the bow can bend as it is drawn.
+    const limbs = new THREE.Group();
+    for (const side of [1, -1]) {
+      const limb = new THREE.Mesh(new THREE.TorusGeometry(11 * size, 0.75 + tier * 0.08, 6, 8, Math.PI / 2), tier >= 2 ? steel : grip);
+      limb.rotation.z = side > 0 ? -Math.PI / 2 : 0;
+      limb.castShadow = true;
+      limbs.add(limb);
+    }
+    limbs.userData.limbs = true;
     g.add(limbs);
-    const string = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 22 * size, 4), edge);
-    g.add(string);
+    // The string: two halves meeting at the nock, pulled back as the bow is drawn.
+    const nock = new THREE.Group();
+    nock.userData.nock = true;
+    for (const side of [1, -1]) {
+      const half = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 11 * size, 4), edge);
+      half.position.y = (side * 11 * size) / 2;
+      half.userData.half = side;
+      nock.add(half);
+    }
+    g.add(nock);
+    // The arrow on the string, seen only while drawing.
+    const arrow = new THREE.Group();
+    const shaftMat = new THREE.MeshStandardMaterial({ color: 0xd8c8a8, roughness: 0.7 });
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 24, 5), shaftMat);
+    body.rotation.z = Math.PI / 2;
+    body.position.x = 12;
+    const head = new THREE.Mesh(new THREE.ConeGeometry(0.9, 3, 4), edge);
+    head.rotation.z = -Math.PI / 2;
+    head.position.x = 25;
+    arrow.add(body, head);
+    arrow.userData.arrow = true;
+    arrow.visible = false;
+    g.add(arrow);
     if (tier >= 1) g.add(box(1.8, 5, 1.8, fitting, 0, 11 * size));
     if (tier >= 3) for (const y of [-1, 1]) g.add(box(1.4, 2.4, 1.4, edge, y * 11 * size));
     from = 8;

@@ -6,7 +6,7 @@ import { derive, newProgress } from "./stats";
 
 describe("items", () => {
   it("the shop pool holds every rarity and never a unique drop", () => {
-    expect(SHOP_POOL.length).toBe(36);
+    expect(SHOP_POOL.length).toBe(41);
     for (const id of SHOP_POOL) expect(ITEMS[id].rarity).not.toBe("mythic");
     for (const id of SHOP_POOL) expect(ITEMS[id].unique).toBeFalsy();
     for (const r of RARITIES) expect(SHOP_POOL.some((id) => ITEMS[id].rarity === r)).toBe(true);

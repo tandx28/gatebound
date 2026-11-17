@@ -17,6 +17,7 @@ import {
   type SupplyId,
 } from "./items";
 import { CUTSCENES, seenScenes } from "./cutscenes";
+import { BEAST_ORDER, BEAST_PAGE } from "./bestiary";
 import { activeEchoes, boundKey, canActivate, canNewGamePlus, classOpen, keyName, owns, redGateOpen, riteOpen, rushOpen, slotOpen, towerOpen } from "./profile";
 import { MAIN } from "./quests";
 import { CHAPTERS } from "./story";
@@ -203,7 +204,7 @@ export function settingsButtons(w: World, labelX: number, ctlX: number, top: num
   return out;
 }
 
-export const KEYS_PANEL: Rect = { x: VIEW_W / 2 - 380, y: 90, w: 760, h: 540 };
+export const KEYS_PANEL: Rect = { x: VIEW_W / 2 - 380, y: 50, w: 760, h: 620 };
 
 /** The controls window: every action that can be moved, in two columns. */
 export function keysButtons(w: World): Button[] {
@@ -289,6 +290,10 @@ export function hubHeadings(w: World): { x: number; y: number; text: string }[] 
     ];
   }
   if (w.tab === "trials") return [{ x: LEFT, y, text: "TRIALS   ·   ways to keep climbing once the gates are behind you" }];
+  if (w.tab === "bestiary") {
+    const known = BEAST_ORDER.filter((k) => (w.profile.kills[k] ?? 0) > 0).length;
+    return [{ x: BEAST.x, y, text: `BESTIARY   ·   ${known} of ${BEAST_ORDER.length} kinds met   ·   lore at 10 kills; +10%, +20%, +30% damage at 50, 150, 500 (bosses: a tenth)` }];
+  }
   return [];
 }
 
@@ -304,21 +309,26 @@ export function fileButtonAt(w: World, x: number, y: number): "export" | "import
 }
 
 /** Where the Story tab draws: chapters on the left, scenes on the right. */
-export const STORY = { chapterX: 150, sceneX: 700, top: TOP + 10, rowH: 58 };
+export const STORY = { chapterX: 150, sceneX: 660, top: TOP + 10, rowH: 58, sceneRow: 34, perColumn: 9, columnW: 310 };
+
+/** Where the struck lines are listed on the Story tab, under the scenes. */
+export const LINES_AT = { x: 660, y: 590 };
 
 /** Buttons on the Story tab: replay each scene reached, and the last choice. */
 function storyButtons(w: World): Button[] {
   const pr = w.profile;
   const out: Button[] = [];
   seenScenes(pr).forEach((id, i) => {
+    const col = Math.floor(i / STORY.perColumn);
+    const x = STORY.sceneX + col * STORY.columnW;
     out.push({
-      rect: { x: STORY.sceneX + 330, y: STORY.top + i * 40, w: 90, h: 28 },
+      rect: { x: x + 206, y: STORY.top + (i % STORY.perColumn) * STORY.sceneRow, w: 86, h: 26 },
       id: `scene:${id}`,
       label: "REPLAY",
       enabled: true,
       kind: "setting",
       text: CUTSCENES[id].title,
-      textX: STORY.sceneX,
+      textX: x,
     });
   });
   if (pr.nightmareUnlocked) {
@@ -404,7 +414,7 @@ function skillButtons(w: World): Button[] {
 }
 
 /** Where the Hunter tab draws: classes on the left, titles on the right. */
-export const HUNTER = { classX: 60, classH: 66, titleX: 660, titleH: 30 };
+export const HUNTER = { classX: 60, classH: 66, titleX: 660, titleH: 28 };
 
 function hunterButtons(w: World): Button[] {
   const pr = w.profile;
@@ -436,6 +446,20 @@ function hunterButtons(w: World): Button[] {
   return out;
 }
 
+/** Where the bestiary draws: two columns of six kinds a page, with page buttons. */
+export const BEAST = { x: 60, colW: 600, top: TOP + 6, rowH: 66 };
+
+/** The kinds on the bestiary's current page, each with its spot. */
+export function beastRows(w: World): { kind: (typeof BEAST_ORDER)[number]; x: number; y: number }[] {
+  const pages = Math.ceil(BEAST_ORDER.length / BEAST_PAGE);
+  const page = Math.min(w.beastPage, pages - 1);
+  return BEAST_ORDER.slice(page * BEAST_PAGE, (page + 1) * BEAST_PAGE).map((kind, i) => ({
+    kind,
+    x: BEAST.x + Math.floor(i / (BEAST_PAGE / 2)) * BEAST.colW,
+    y: BEAST.top + (i % (BEAST_PAGE / 2)) * BEAST.rowH,
+  }));
+}
+
 /** The Trials tab: the tower, the time trial and the boss rush. */
 export const TRIALS = { top: TOP + 6, rowH: 96 };
 
@@ -445,8 +469,11 @@ function trialButtons(w: World): Button[] {
   const rows: [string, string, boolean, string, string, string, string][] = [
     ["gate:tower", "THE TOWER", towerOpen(pr), "RANK C", "Climb floor after floor until you fall or leave. Every fifth floor a master holds, and pays.", "Nothing is restocked on the way up. A Return Stone takes you out with what you found.", `Best floor ${pr.towerBest}`],
     ["gate:clock", "TIME TRIAL", towerOpen(pr), "RANK C", `The tower against a clock: ${CLOCK.start} s to start, +${CLOCK.perFloor} s a floor, +${CLOCK.perBoss} s a master's floor.`, "When the clock runs out the climb ends, and everything found is kept.", `Best floor ${pr.clockBest}   ·   floor ${CLOCK.title} earns a title`],
-    ["gate:rush", "BOSS RUSH", rushOpen(pr), "END THE STORY", "Every rank's master, one after another, all at Rank S strength.", `A breath and ${RUSH.heal * 100}% health between them. ${RUSH.gold} gold and a Rank S prize at the end.`, `Best time ${rush}`],
+    ["gate:rush", "BOSS RUSH", rushOpen(pr), "END THE STORY", `Every rank's master in turn, then two at once, then three: ${RUSH.rounds.length} rounds.`, `A breath and ${RUSH.heal * 100}% health between them. ${RUSH.gold} gold and a Rank S prize at the end.`, `Best time ${rush}`],
   ];
+  if (pr.marginFound) {
+    rows.push(["gate:margin", "THE MARGIN", true, "", "The Redactor waits where struck lines go. The hardest fight there is.", "Stand in the circles when the page is erased; cross the line before it crosses you.", pr.titles.includes("unstruck") ? "Struck out" : "Not yet beaten"]);
+  }
   return rows.map(([id, name, open, need, sub, sub2, record], i) => ({
     rect: { x: 980, y: TRIALS.top + i * TRIALS.rowH + 6, w: 150, h: 36 },
     id,
@@ -560,6 +587,10 @@ export function hubButtons(w: World): Button[] {
     out.push(...hunterButtons(w));
   } else if (w.tab === "trials") {
     out.push(...trialButtons(w));
+  } else if (w.tab === "bestiary") {
+    const pages = Math.ceil(BEAST_ORDER.length / BEAST_PAGE);
+    out.push({ rect: { x: BEAST.x, y: BEAST.top + 6 * BEAST.rowH + 4, w: 110, h: 28 }, id: "beast:-", label: "< PREV", enabled: w.beastPage > 0, kind: "plain" });
+    out.push({ rect: { x: VIEW_W - BEAST.x - 110, y: BEAST.top + 6 * BEAST.rowH + 4, w: 110, h: 28 }, id: "beast:+", label: "NEXT >", enabled: w.beastPage < pages - 1, kind: "plain" });
   } else if (w.tab === "echoes") {
     // Two columns of ten.
     pr.echoes.forEach((e, i) => {

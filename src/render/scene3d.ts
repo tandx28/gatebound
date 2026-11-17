@@ -23,9 +23,11 @@ import {
   type Rank,
 } from "../game/config";
 import type { Dungeon, Side } from "../game/dungeon";
-import { itemDef, perksOf, WEAPONS, type PerkId, type Rarity, type WeaponType } from "../game/items";
+import { BOW, itemDef, perksOf, WEAPONS, type PerkId, type Rarity, type WeaponType } from "../game/items";
 import { ELEMENT } from "./weapons";
-import type { Ally, Corpse, Enemy, Quality, World } from "../game/state";
+import type { Ally, Corpse, Enemy, Quality, ShotLook, World } from "../game/state";
+import { SHOT_HUE } from "../game/allies";
+import { Effects } from "./effects";
 import { KINDS, type EnemyKind } from "../game/config";
 import { CUT, CUTSCENES, type ActorKind, type CutActor } from "../game/cutscenes";
 import { roomTheme, TRAPS, trapPhase } from "../game/rooms";
@@ -255,7 +257,11 @@ export class Scene3D {
   private rings: DecalPool;
   private lines: DecalPool;
   /** One swing shape per melee weapon type. */
-  private sectors: Record<Exclude<WeaponType, "bow">, DecalPool>;
+  private sectors: Record<Exclude<WeaponType, "bow" | "staff">, DecalPool>;
+  private effects!: Effects;
+  /** A material for each look of the player's own shots: arrows, charged arrows, staff bolts. */
+  private shotLooks = new Map<ShotLook, THREE.MeshBasicMaterial>();
+  private arrowGeo = new THREE.CylinderGeometry(0.35, 0.35, 1, 6).rotateZ(Math.PI / 2);
 
   private points: THREE.Points;
   private pPos = new Float32Array(MAX_PARTICLES * 3);
@@ -364,6 +370,7 @@ export class Scene3D {
       return mesh;
     };
     this.slashes = { dagger: slash("dagger"), sword: slash("sword"), spear: slash("spear") };
+    this.effects = new Effects(this.scene);
     this.wardShell = new THREE.Mesh(new THREE.IcosahedronGeometry(38, 1), new THREE.MeshBasicMaterial({ color: 0xffd84a, wireframe: true, transparent: true, opacity: 0.2, depthWrite: false, blending: THREE.AdditiveBlending }));
     this.wardShell.visible = false;
     this.scene.add(this.wardShell);
@@ -675,10 +682,17 @@ export class Scene3D {
       const up = a.anim <= 0 ? 1 : a.out ? a.anim / CUT.sink : 1 - a.anim / CUT.rise;
       rig.root.position.set(at.x, -(rig.height + 12) * (1 - up) * (1 - up), at.y);
       rig.root.rotation.y = -a.facing;
-      rig.animate({ time: this.clock + at.x, moving: a.moving, pose: a.pose, swing: 0.7, flash: false, glow: a.ghost || a.pose === "cast" ? 1 : 0.3, phase: 1, weapon: a.kind === "player" ? "dagger" : undefined });
+      // Actors that attack or cast play the move through, over and over, rather than holding one frame.
+      const acting = a.pose === "attack" || a.pose === "cast";
+      rig.animate({ time: this.clock + at.x, moving: a.moving, pose: a.pose, swing: acting ? (this.clock * 1.4) % 1 : 0.7, flash: false, glow: a.ghost || a.pose === "cast" ? 1 : 0.3, phase: 1, weapon: a.kind === "player" ? "sword" : undefined });
     }
     const beat = CUTSCENES[cs.id].beats[cs.beat];
-    return { x: beat.focus[0], y: beat.focus[1], zoom: beat.zoom };
+    // The camera drifts over the beat: to its pan point if it has one, and always a little closer.
+    const k = Math.min(1, cs.t / beat.dur);
+    const ease = k * k * (3 - 2 * k);
+    const to = beat.pan ?? beat.focus;
+    const zoomTo = beat.zoomTo ?? beat.zoom * 1.06;
+    return { x: beat.focus[0] + (to[0] - beat.focus[0]) * ease, y: beat.focus[1] + (to[1] - beat.focus[1]) * ease, zoom: beat.zoom + (zoomTo - beat.zoom) * ease };
   }
 
   /** Echoes wear the shape they had in life, as violet shades. */
@@ -718,6 +732,17 @@ export class Scene3D {
     }
   }
 
+  /** The material for a look of shot, made once and kept. */
+  private lookMat(look: ShotLook): THREE.MeshBasicMaterial {
+    let m = this.shotLooks.get(look);
+    if (!m) {
+      m = new THREE.MeshBasicMaterial({ color: this.color(SHOT_HUE[look]), transparent: true, opacity: 0.95, blending: look === "quill" ? THREE.NormalBlending : THREE.AdditiveBlending, depthWrite: false });
+      if (look === "quill") m.color.setHex(0x0a0a10);
+      this.shotLooks.set(look, m);
+    }
+    return m;
+  }
+
   private syncShots(w: World, alpha: number): void {
     const all = [...w.projectiles, ...w.allyShots];
     while (this.shots.length < all.length) {
@@ -734,7 +759,22 @@ export class Scene3D {
       if (s) {
         const at = between(s, alpha);
         m.position.set(at.x, 26, at.y);
+        m.rotation.set(0, 0, 0);
+        m.geometry = this.shotGeo;
         m.scale.setScalar(s.radius);
+        if (s.look) {
+          m.material = this.lookMat(s.look);
+          const angle = Math.atan2(s.vy, s.vx);
+          if (s.look === "arrow" || s.look === "charged" || s.look === "quill") {
+            // Arrows and quills are long and thin, pointing the way they fly.
+            m.geometry = this.arrowGeo;
+            m.rotation.y = -angle;
+            m.scale.set(s.look === "charged" ? 46 : 26, s.look === "charged" ? 5 : 3, s.look === "charged" ? 5 : 3);
+          } else {
+            // A staff's bolt pulses as it flies.
+            m.scale.setScalar(s.radius * (1 + 0.2 * Math.sin(this.clock * 30 + s.x * 0.01)));
+          }
+        }
       }
     });
   }
@@ -850,12 +890,13 @@ export class Scene3D {
         this.lines.place(f.x, f.y, f.angle ?? 0, f.radius, 70 * k, c, 0.55 * k);
         this.lines.place(f.x, f.y, f.angle ?? 0, f.radius, 18 * k, 0xffffff, 0.95 * k);
       } else if (f.kind === "ring") this.rings.place(f.x, f.y, 0, f.radius * (1.1 - 0.5 * k), f.radius * (1.1 - 0.5 * k), c, k);
-      else this.circles.place(f.x, f.y, 0, f.radius, f.radius, c, 0.5 * k);
+      else if (f.kind === "blast") this.circles.place(f.x, f.y, 0, f.radius, f.radius, c, 0.5 * k);
+      // Every other kind is a 3D effect, drawn by the effects module.
     }
 
     if (p.attackT > 0) {
       const k = p.attackT / PLAYER.attackActive;
-      const type = p.weapon && p.weapon !== "bow" ? p.weapon : "dagger";
+      const type = p.weapon && p.weapon !== "bow" && p.weapon !== "staff" ? p.weapon : "dagger";
       const reach = WEAPONS[type].range;
       // The cut on the floor takes the colour of whatever the blade carries.
       const gear = this.gearOf(w);
@@ -871,7 +912,7 @@ export class Scene3D {
       am.color.setHex(hue);
       am.opacity = 0.75 * k;
     }
-    for (const [type, arc] of Object.entries(this.slashes)) if (p.attackT <= 0 || type !== (p.weapon && p.weapon !== "bow" ? p.weapon : "dagger")) arc.visible = false;
+    for (const [type, arc] of Object.entries(this.slashes)) if (p.attackT <= 0 || type !== (p.weapon && p.weapon !== "bow" && p.weapon !== "staff" ? p.weapon : "dagger")) arc.visible = false;
     // A ward waiting to take a hit shows as a shell of light round the hunter.
     this.wardShell.visible = w.wardReady && w.mode === "gate";
     if (this.wardShell.visible) {
@@ -943,13 +984,16 @@ export class Scene3D {
     const since = p.d.attackCooldown - p.attackCd;
     const swinging = p.attackCd > 0 && since < 0.2;
     const type = p.weapon ?? "dagger";
+    const drawing = type === "bow" && p.drawT > 0;
     const pose: Pose =
-      p.lungeT > 0 ? "thrust" : p.dashT > 0 ? "leap" : !swinging ? "idle" : type === "bow" ? "bow" : type === "spear" ? "thrust" : "attack";
+      p.lungeT > 0 ? "thrust" : p.dashT > 0 ? "leap" : drawing ? "bow" : !swinging ? "idle" : type === "bow" || type === "staff" ? "bow" : type === "spear" ? "thrust" : "attack";
     this.hunter.animate({
       time: this.clock,
       moving: p.moving && w.mode === "gate",
       pose,
-      swing: Math.min(1, Math.max(0, since / 0.2)),
+      // While the string is drawn, the shot is held at its drawn-back moment.
+      swing: drawing ? 0 : Math.min(1, Math.max(0, since / 0.2)),
+      draw: drawing ? Math.min(1, p.drawT / BOW.charge) : 0,
       flash: p.hurtFlash > 0,
       glow: p.surgeT > 0 || p.furyT > 0 || p.drainT > 0 ? 1 : 0.3,
       // Blood Price burns red, Fury orange, Surge gold.
@@ -981,6 +1025,7 @@ export class Scene3D {
     this.syncAllies(w, alpha);
     this.syncShots(w, alpha);
     this.syncDecals(w);
+    this.effects.sync(w, dt, this.clock);
     this.syncParticles(w);
 
     // Follow the player, but stop before showing much beyond the walls.

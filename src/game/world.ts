@@ -3,11 +3,15 @@ import { clamp, norm } from "../engine/vec";
 import { makeAlly, stepAlly, stepAllyShots } from "./allies";
 import { circlesOverlap, inArc, rollDamage, separate } from "./combat";
 import { stepBossExtras } from "./bosses";
+import { stepRedactorHazards } from "./redactor";
 import { stepCutscene } from "./cutscenes";
 import { blockCircle, furnish, insidePillar, PILLAR, stepTraps } from "./rooms";
 import {
   ARCANIST,
   ARMY,
+  LINES,
+  MULTI,
+  ULT,
   BLINK,
   CHAIN,
   CLASSES,
@@ -66,7 +70,7 @@ import {
 } from "./config";
 import { addTrialRoom, generateDungeon, keyDungeon, OPPOSITE, type Dungeon, type RoomNode, type Side } from "./dungeon";
 import { damageEnemy, isCommitted, spawnEnemy, spawnPoint, stepEnemy } from "./enemies";
-import { BOW, FURY, PERK, WEAPONS } from "./items";
+import { BOW, FURY, itemDef, PERK, perksOf, STAFF, WEAPONS } from "./items";
 import { playerHit, stepEnemyPerks } from "./perks";
 import {
   healPlayer,
@@ -84,6 +88,7 @@ import {
   type Enemy,
   type GateKind,
   type GateSnapshot,
+  type ShotLook,
   type Player,
   type World,
 } from "./state";
@@ -93,6 +98,10 @@ import {
   settleClock,
   settleRush,
   slotOpen,
+  earnLine,
+  marginCleared,
+  playSpecial,
+  ultimateOf,
   advanceDialogue,
   applySetting,
   bossBindChance,
@@ -162,6 +171,17 @@ export function createWorld(rng: () => number = Math.random): World {
     rushTime: 0,
     skillPage: 0,
     slotPick: 0,
+    beastPage: 0,
+    bossLull: 0,
+    lastSkill: null,
+    glyphs: [],
+    glyphNext: 0,
+    stillT: 0,
+    erasure: null,
+    sweeps: [],
+    bars: [],
+    arenaR: 0,
+    sting: null,
     allyShots: [],
     remnants: [],
     corpses: [],
@@ -177,6 +197,7 @@ export function createWorld(rng: () => number = Math.random): World {
     belt: 0,
     wardReady: false,
     hiddenChance: HIDDEN.chance,
+    specialScenes: false,
     afterTitle: "select",
     mode: "select",
     menu: "none",
@@ -221,6 +242,9 @@ export function createWorld(rng: () => number = Math.random): World {
       drainT: 0,
       bulwarkT: 0,
       overflowT: 0,
+      drawT: 0,
+      ultCd: 0,
+      mantleT: 0,
       moving: false,
       kx: 0,
       ky: 0,
@@ -265,6 +289,14 @@ function clearField(w: World): void {
   w.turnedT = 0;
   w.blasts = [];
   w.legionT = 0;
+  w.bossLull = 0;
+  w.glyphs = [];
+  w.glyphNext = 0;
+  w.stillT = 0;
+  w.erasure = null;
+  w.sweeps = [];
+  w.bars = [];
+  w.arenaR = 0;
 }
 
 function noCooldowns(): Record<SkillId, number> {
@@ -306,6 +338,9 @@ function resetPlayer(p: Player): void {
   p.drainT = 0;
   p.bulwarkT = 0;
   p.overflowT = 0;
+  p.drawT = 0;
+  p.mantleT = 0;
+  // The ultimate's wait is carried from gate to gate; only the hold on the string lets go.
   p.ail = noAilments();
   p.furyT = 0;
   p.swapCd = 0;
@@ -360,6 +395,7 @@ export function enterGate(w: World, rank: Rank, opts: { sealed?: boolean } = {})
   w.run.overLevel = w.player.prog.level < RANKS[rank].minLevel;
   enterRoom(w, dungeon.startId, null);
   if (sealed) {
+    playSpecial(w, "sealed");
     w.notices.push({ title: "SEALED GATE", body: "No way out. Its master is awake. Double reward, and a prize.", life: 6 });
     floatText(w, w.player.x, w.player.y, "SEALED", "#ff3355", true);
     sfx(w, "alarm");
@@ -424,13 +460,26 @@ export function enterRite(w: World): void {
   w.notices.push({ title: "RITE OF ECHOES", body: `Wave 1 of ${RITE.waves.length}. You enter alone.`, life: 4 });
 }
 
+/**
+ * The masters of a boss floor: the rank's own, and on every tenth floor from
+ * floor 20 one or two more from the ranks below.
+ */
+function floorBosses(w: World, floor: number): EnemyKind[] {
+  const rank = towerRank(floor);
+  const out: EnemyKind[] = [RANKS[rank].boss];
+  const extra = floor % MULTI.every !== 0 ? 0 : floor >= MULTI.trioFrom ? 2 : floor >= MULTI.pairFrom ? 1 : 0;
+  const below = RANK_IDS.slice(0, RANK_IDS.indexOf(rank)).map((r) => RANKS[r].boss);
+  for (let i = 0; i < extra && below.length > 0; i++) out.push(below.splice(Math.floor(w.rng() * below.length), 1)[0]);
+  return out;
+}
+
 /** Begin a tower floor: a pack, or on every fifth floor the rank's boss. */
 function startFloor(w: World, floor: number): void {
   w.towerFloor = floor;
   w.towerRest = 0;
   w.rank = towerRank(floor);
   const def = RANKS[w.rank];
-  if (floor % TOWER.bossEvery === 0) spawnPack(w, [def.boss]);
+  if (floor % TOWER.bossEvery === 0) spawnPack(w, floorBosses(w, floor));
   else {
     const size = Math.min(TOWER.maxPack, Math.floor(TOWER.pack + floor * TOWER.packGrow));
     const kinds = def.kinds.filter((k) => k !== "totem");
@@ -451,6 +500,7 @@ function startFloor(w: World, floor: number): void {
 export function enterTower(w: World): void {
   beginArena(w, "E", "tower", false);
   startFloor(w, 1);
+  playSpecial(w, "tower");
 }
 
 /** The time trial: the tower's floors against a clock. */
@@ -458,6 +508,7 @@ export function enterClock(w: World): void {
   beginArena(w, "E", "clock", false);
   w.clockT = CLOCK.start;
   startFloor(w, 1);
+  playSpecial(w, "clock");
 }
 
 /** Bring on the boss rush's next master, at Rank S strength. */
@@ -465,15 +516,100 @@ function startRush(w: World, i: number): void {
   w.rushIdx = i;
   w.towerRest = 0;
   w.rank = "S";
-  spawnPack(w, [RANKS[RANK_IDS[i]].boss]);
+  const kinds = RUSH.rounds[i].map((r) => RANKS[r].boss);
+  spawnPack(w, kinds);
   sfx(w, "alarm");
-  w.notices.push({ title: `BOSS RUSH  ·  ${i + 1} OF ${RANK_IDS.length}`, body: KINDS[RANKS[RANK_IDS[i]].boss].name, life: 2.5 });
+  w.notices.push({ title: `BOSS RUSH  ·  ${i + 1} OF ${RUSH.rounds.length}`, body: kinds.map((k) => KINDS[k].name).join("  ·  "), life: 2.5 });
 }
 
 /** The boss rush: every rank's master, one after another. */
 export function enterRush(w: World): void {
   beginArena(w, "S", "rush", false);
   startRush(w, 0);
+  playSpecial(w, "rush");
+}
+
+/** The glyph stones' order: square, circle, cross, triangle. The struck lines tell it. */
+export const GLYPH_ORDER = [2, 0, 3, 1];
+
+/** Floor 13 cleared with all five lines held: four faint stones wake in the corners. */
+function wakeGlyphs(w: World): void {
+  const pr = w.profile;
+  if (pr.lines.length < LINES.count) return;
+  if (w.player.prog.level < LINES.level) {
+    w.notices.push({ title: "FAINT MARKS", body: "Something is scratched into the floor here, but it does not wake for you yet.", life: 5 });
+    return;
+  }
+  const spots = [
+    [260, 220],
+    [ROOM.w - 260, 220],
+    [260, ROOM.h - 220],
+    [ROOM.w - 260, ROOM.h - 220],
+  ];
+  // The corners are shuffled: the order is in the glyphs, not in where they stand.
+  const glyphs = [0, 1, 2, 3];
+  for (let i = glyphs.length - 1; i > 0; i--) {
+    const j = Math.floor(w.rng() * (i + 1));
+    [glyphs[i], glyphs[j]] = [glyphs[j], glyphs[i]];
+  }
+  w.glyphs = spots.map(([x, y], i) => ({ x, y, glyph: glyphs[i], lit: false }));
+  w.glyphNext = 0;
+  w.towerRest = LINES.rest;
+  sfx(w, "chime");
+  w.notices.push({ title: "THE FLOOR REMEMBERS", body: "Four stones, faintly marked. The lines you carry know their order.", life: 6 });
+}
+
+/** Walking onto a stone strikes it. The right order opens the margin; a wrong one puts them all out. */
+function stepGlyphs(w: World): void {
+  if (w.glyphs.length === 0) return;
+  const p = w.player;
+  for (const g of w.glyphs) {
+    if (g.lit || Math.hypot(g.x - p.x, g.y - p.y) > LINES.stoneRadius + p.radius) continue;
+    if (g.glyph !== GLYPH_ORDER[w.glyphNext]) {
+      for (const o of w.glyphs) o.lit = false;
+      w.glyphNext = 0;
+      sfx(w, "deny");
+      floatText(w, g.x, g.y, "THE LINE BREAKS", "#ff5a60", true);
+      // Step off before it counts again.
+      p.x += (p.x - g.x) * 0.6 + 1;
+      return;
+    }
+    g.lit = true;
+    w.glyphNext += 1;
+    sfx(w, "chime");
+    w.fx.push({ kind: "column", x: g.x, y: g.y, radius: 40, t: 0.8, total: 0.8, color: "#e8e8f0" });
+    if (w.glyphNext >= GLYPH_ORDER.length) {
+      w.profile.marginFound = true;
+      w.dirty = true;
+      enterMargin(w);
+    }
+    return;
+  }
+}
+
+/** Standing quite still in an empty room of a gate, for one of the lines. */
+function stepStill(w: World, dt: number): void {
+  const p = w.player;
+  const quiet = (w.gateKind === "normal" || w.gateKind === "key") && w.enemies.length === 0 && w.spawnQueue.length === 0;
+  if (!quiet || p.moving || p.attackCd > 0 || p.dashT > 0 || p.drawT > 0) {
+    w.stillT = 0;
+    return;
+  }
+  w.stillT += dt;
+  if (w.stillT >= LINES.stillFor) {
+    w.stillT = 0;
+    earnLine(w, 4);
+  }
+}
+
+/** The margin: a bare white room and the Redactor. Rank S, no echoes but what you bring. */
+export function enterMargin(w: World): void {
+  beginArena(w, "S", "margin", false);
+  const e = spawnEnemy(w, "redactor", ROOM.w / 2, 220);
+  e.t = 2;
+  w.enemies.push(e);
+  w.arenaR = 0;
+  playSpecial(w, "margin");
 }
 
 /** A gate break: hold out against packs of your own rank until it closes. */
@@ -482,6 +618,7 @@ export function enterBreak(w: World): void {
   w.breakT = BREAK.time;
   w.breakSpawn = 0;
   w.notices.push({ title: "GATE BREAK", body: `Hold for ${BREAK.time} seconds. They keep coming.`, life: 5 });
+  playSpecial(w, "gatebreak");
 }
 
 /** The penalty zone: survive a set time against enemies that cannot be killed. */
@@ -638,6 +775,7 @@ export function enterRoom(w: World, id: number, from: Side | null): void {
     w.emergency = { t, total: t, bonus: Math.round(reward * EMERGENCY.bonus) };
     sfx(w, "alarm");
     w.notices.push({ title: "EMERGENCY QUEST", body: `Kill every enemy within ${t} seconds, or be punished.`, life: 4 });
+    playSpecial(w, "emergency");
   }
 }
 
@@ -664,6 +802,7 @@ export function grantXp(w: World, amount: number): void {
     }
   }
   burst(w, p.x, p.y, "#ffd84a", 26, 320);
+  w.fx.push({ kind: "column", x: p.x, y: p.y, radius: 60, t: 1.4, total: 1.4, color: "#ffd84a" });
 }
 
 /** Damage, speed and attack rate after temporary effects. */
@@ -751,6 +890,7 @@ function useSkill(w: World, id: SkillId): void {
     sfx(w, "deny");
     floatText(w, p.x, p.y, "NO ECHO", "#b9a4ff");
   };
+  w.lastSkill = id;
   if (useNewSkill(w, id, power, extra)) return;
   if (id === "legion" && w.allies.length === 0) return refund();
   if (id === "swap") {
@@ -808,6 +948,7 @@ function useSkill(w: World, id: SkillId): void {
       }
     }
     w.fx.push({ kind: "ring", x: p.x, y: p.y, radius: WHIRL.radius, t: 0.25, total: 0.25, color: "#5ee6ff" });
+    w.fx.push({ kind: "swirl", x: p.x, y: p.y, radius: WHIRL.radius, t: 0.35, total: 0.35, color: "#9ff6ff" });
     w.shake = Math.max(w.shake, 5);
   } else if (id === "surge") {
     p.surgeT = SURGE.time + SKILL_RANK.surgeTime * extra;
@@ -900,12 +1041,13 @@ function useNewSkill(w: World, id: SkillId, power: number, extra: number): boole
         mult: QUAKE.mult * sp,
         color: "#ff9a4a",
         stun: QUAKE.stun,
+        show: "spikes",
       });
     }
   } else if (id === "mend") {
     healPlayer(w, Math.round(p.d.maxHp * MEND.heal * power));
     burst(w, p.x, p.y, "#7dffb0", 22, 220);
-    w.fx.push({ kind: "ring", x: p.x, y: p.y, radius: 70, t: 0.4, total: 0.4, color: "#7dffb0" });
+    w.fx.push({ kind: "column", x: p.x, y: p.y, radius: 46, t: 0.9, total: 0.9, color: "#7dffb0" });
   } else if (id === "frost") {
     for (const e of w.enemies) {
       if (Math.hypot(e.x - p.x, e.y - p.y) > FROST.radius + e.radius) continue;
@@ -913,6 +1055,7 @@ function useNewSkill(w: World, id: SkillId, power: number, extra: number): boole
       e.chillT = Math.max(e.chillT, FROST.chill + extra);
     }
     w.fx.push({ kind: "ring", x: p.x, y: p.y, radius: FROST.radius, t: 0.35, total: 0.35, color: "#9fe8ff" });
+    w.fx.push({ kind: "frost", x: p.x, y: p.y, radius: FROST.radius, t: 0.8, total: 0.8, color: "#bff2ff" });
     burst(w, p.x, p.y, "#9fe8ff", 30, 320);
   } else if (id === "chain") {
     const hit = new Set<Enemy>();
@@ -920,9 +1063,7 @@ function useNewSkill(w: World, id: SkillId, power: number, extra: number): boole
     let target = enemyNear(w, p.aimX, p.aimY, CHAIN.reach);
     for (let i = 0; i < CHAIN.jumps + extra && target; i++) {
       hit.add(target);
-      const dx = target.x - from.x;
-      const dy = target.y - from.y;
-      w.fx.push({ kind: "beam", x: from.x, y: from.y, angle: Math.atan2(dy, dx), radius: Math.hypot(dx, dy), t: 0.25, total: 0.25, color: "#9fc8ff" });
+      w.fx.push({ kind: "bolt", x: from.x, y: from.y, x2: target.x, y2: target.y, radius: 6, t: 0.35, total: 0.35, color: "#bfe0ff" });
       strike(w, target, CHAIN.mult * sp, 80, false);
       from = { x: target.x, y: target.y };
       target = enemyNear(w, from.x, from.y, CHAIN.leap, hit);
@@ -943,16 +1084,17 @@ function useNewSkill(w: World, id: SkillId, power: number, extra: number): boole
     }
     e.markT = MARK.time + 2 * extra;
     floatText(w, e.x, e.y, "MARKED", "#ff5a60", true);
-    w.fx.push({ kind: "ring", x: e.x, y: e.y, radius: e.radius + 24, t: 0.5, total: 0.5, color: "#ff5a60" });
+    w.fx.push({ kind: "sigil", x: e.x, y: e.y, radius: e.radius + 24, t: 0.6, total: 0.6, color: "#ff5a60" });
   } else if (id === "meteor") {
     const x = clamp(p.aimX, 30, ROOM.w - 30);
     const y = clamp(p.aimY, 30, ROOM.h - 30);
-    w.blasts.push({ x, y, radius: METEOR.radius, t: METEOR.delay, mult: METEOR.mult * sp, color: "#ffb04a" });
+    w.blasts.push({ x, y, radius: METEOR.radius, t: METEOR.delay, mult: METEOR.mult * sp, color: "#ffb04a", show: "star" });
     w.fx.push({ kind: "ring", x, y, radius: METEOR.radius, t: METEOR.delay, total: METEOR.delay, color: "#ffb04a" });
   } else if (id === "legion") {
     if (w.allies.length === 0) return false;
     w.legionT = LEGION.time + 2 * extra;
     for (const a of w.allies) burst(w, a.x, a.y, "#b9a4ff", 10, 200);
+    w.fx.push({ kind: "spiral", x: p.x, y: p.y, radius: 140, t: 1, total: 1, color: "#b9a4ff" });
     floatText(w, p.x, p.y, "ECHO FURY", "#b9a4ff", true);
   } else return false;
   return true;
@@ -980,6 +1122,7 @@ function classPower(w: World): void {
       e.ky = n.y * VANGUARD.knock;
     }
     w.fx.push({ kind: "ring", x: p.x, y: p.y, radius: VANGUARD.radius, t: 0.4, total: 0.4, color: "#ffd84a" });
+    w.fx.push({ kind: "dome", x: p.x, y: p.y, radius: 48, t: VANGUARD.time, total: VANGUARD.time, color: "#ffd84a" });
     floatText(w, p.x, p.y, "BULWARK", "#ffd84a", true);
     w.shake = Math.max(w.shake, 7);
     sfx(w, "block");
@@ -989,7 +1132,7 @@ function classPower(w: World): void {
     for (let i = 0; i < RANGER.arrows; i++) {
       const a = w.rng() * Math.PI * 2;
       const r = Math.sqrt(w.rng()) * RANGER.spread;
-      w.blasts.push({ x: x + Math.cos(a) * r, y: y + Math.sin(a) * r, radius: RANGER.radius, t: RANGER.delay + RANGER.gap * i, mult: RANGER.mult * p.d.skillPower, color: "#7dffb0" });
+      w.blasts.push({ x: x + Math.cos(a) * r, y: y + Math.sin(a) * r, radius: RANGER.radius, t: RANGER.delay + RANGER.gap * i, mult: RANGER.mult * p.d.skillPower, color: "#7dffb0", show: "arrow" });
     }
     w.fx.push({ kind: "ring", x, y, radius: RANGER.spread + RANGER.radius, t: RANGER.delay, total: RANGER.delay, color: "#7dffb0" });
     sfx(w, "pierce");
@@ -997,7 +1140,7 @@ function classPower(w: World): void {
     p.overflowT = ARCANIST.time;
     p.mana = p.d.maxMana;
     for (const id of SKILL_IDS) p.skillCd[id] = 0;
-    w.fx.push({ kind: "ring", x: p.x, y: p.y, radius: 90, t: 0.5, total: 0.5, color: "#4f7bff" });
+    w.fx.push({ kind: "spiral", x: p.x, y: p.y, radius: 110, t: 1.2, total: 1.2, color: "#6f9bff" });
     burst(w, p.x, p.y, "#4f7bff", 30, 300);
     floatText(w, p.x, p.y, "OVERFLOW", "#9fc8ff", true);
     sfx(w, "surge");
@@ -1020,6 +1163,9 @@ function stepBlasts(w: World, dt: number): void {
       damageEnemy(w, e, roll.amount, roll.crit, b.x, b.y, 160);
       if (b.stun) stun(w, e, b.stun);
     }
+    if (b.show === "spikes") w.fx.push({ kind: "spikes", x: b.x, y: b.y, radius: b.radius, t: 0.6, total: 0.6, color: b.color });
+    if (b.show === "star") w.fx.push({ kind: "column", x: b.x, y: b.y, radius: b.radius * 0.7, t: 0.5, total: 0.5, color: "#ffd890" });
+    if (b.quiet) continue;
     w.fx.push({ kind: "blast", x: b.x, y: b.y, radius: b.radius, t: 0.3, total: 0.3, color: b.color });
     burst(w, b.x, b.y, b.color, 10, 220);
     w.shake = Math.max(w.shake, 4);
@@ -1066,8 +1212,194 @@ function constrainPlayer(w: World): void {
  * T: leave the gate. Free once the boss is dead; otherwise it costs a
  * Return Stone, which does nothing in a sealed gate or the penalty zone.
  */
+/** The look of a staff's bolt: the element of the staff in hand. */
+function boltLook(w: World): ShotLook {
+  const held = w.profile.equipped[w.profile.activeWeapon === 1 ? "weapon2" : "weapon"];
+  if (!held) return "orb";
+  if (itemDef(held)?.power === "blank_quill") return "quill";
+  const looks: [string, ShotLook][] = [
+    ["burn", "fire"],
+    ["frost", "ice"],
+    ["chain", "bolt"],
+    ["poison", "venom"],
+    ["bleed", "blood"],
+    ["lifesteal", "blood"],
+  ];
+  const perks = perksOf(held);
+  return looks.find(([perk]) => perks.includes(perk as never))?.[1] ?? "orb";
+}
+
+/** A staff's bolt: slower than an arrow, and it bursts where it lands. */
+function fireBolt(w: World): void {
+  const p = w.player;
+  const wd = WEAPONS.staff;
+  const roll = rollDamage(effective(p).damage * wd.damage, p.d.critChance, PLAYER.critMult, w.rng);
+  w.allyShots.push({
+    x: p.x + Math.cos(p.facing) * p.radius,
+    y: p.y + Math.sin(p.facing) * p.radius,
+    radius: STAFF.radius,
+    vx: Math.cos(p.facing) * STAFF.speed,
+    vy: Math.sin(p.facing) * STAFF.speed,
+    damage: roll.amount,
+    life: wd.range / STAFF.speed,
+    mine: true,
+    crit: roll.crit,
+    look: boltLook(w),
+    splash: STAFF.splash,
+  });
+  sfx(w, "surge");
+}
+
+/**
+ * The bow. Holding the attack draws the string; letting go looses the arrow.
+ * A draw held to the full looses a charged shot that pierces everything in
+ * line. A tap is a quick, ordinary arrow.
+ */
+function stepBow(w: World, input: Controls, dt: number): void {
+  const p = w.player;
+  const held = input.consume("Mouse0") || input.attackHeld;
+  const busy = p.dashT > 0 || p.lungeT > 0;
+  if (held && !busy && (p.drawT > 0 || p.attackCd <= 0)) {
+    p.drawT += dt;
+    return;
+  }
+  if (p.drawT <= 0 || busy) return;
+  const charged = p.drawT >= BOW.charge;
+  p.drawT = 0;
+  p.attackCd = effective(p).attackCooldown;
+  p.attackFacing = p.facing;
+  p.swingId += 1;
+  w.run.swings += 1;
+  const wd = WEAPONS.bow;
+  const roll = rollDamage(effective(p).damage * wd.damage * (charged ? BOW.chargeMult : 1), p.d.critChance, PLAYER.critMult, w.rng);
+  const speed = charged ? BOW.chargeSpeed : BOW.arrowSpeed;
+  w.allyShots.push({
+    x: p.x + Math.cos(p.facing) * p.radius,
+    y: p.y + Math.sin(p.facing) * p.radius,
+    radius: charged ? 10 : 6,
+    vx: Math.cos(p.facing) * speed,
+    vy: Math.sin(p.facing) * speed,
+    damage: roll.amount,
+    life: wd.range / speed,
+    mine: true,
+    crit: roll.crit,
+    look: charged ? "charged" : "arrow",
+    pierce: charged,
+    hits: [],
+  });
+  if (charged) {
+    w.fx.push({ kind: "ring", x: p.x, y: p.y, radius: 46, t: 0.25, total: 0.25, color: "#5ee6ff" });
+    w.shake = Math.max(w.shake, 4);
+  }
+  sfx(w, charged ? "pierce" : "shot");
+}
+
+/** Line blasts of the ultimates: a slash from one point to another that lands after a delay. */
+function slashLine(w: World, x1: number, y1: number, x2: number, y2: number, width: number, mult: number, delay: number, color: string): void {
+  const len = Math.hypot(x2 - x1, y2 - y1);
+  const steps = Math.max(1, Math.ceil(len / width));
+  for (let i = 0; i <= steps; i++) {
+    const k = i / steps;
+    w.blasts.push({ x: x1 + (x2 - x1) * k, y: y1 + (y2 - y1) * k, radius: width, t: delay, mult: mult / (steps + 1), color, quiet: true });
+  }
+  w.fx.push({ kind: "slash", x: x1, y: y1, x2, y2, radius: width, t: delay + 0.35, total: delay + 0.35, color });
+}
+
+/** Y: the ultimate of the mythic in use. Nothing without one, or while it recharges. */
+function useUltimate(w: World): void {
+  const p = w.player;
+  const power = ultimateOf(w.profile);
+  if (!power) return;
+  if (p.ultCd > 0) {
+    sfx(w, "deny");
+    floatText(w, p.x, p.y, `ULTIMATE ${Math.ceil(p.ultCd)} s`, "#ff8fa3");
+    return;
+  }
+  const sp = p.d.skillPower;
+  const cx = ROOM.w / 2;
+  const cy = ROOM.h / 2;
+  const alive = w.enemies.filter((e) => e.hp > 0 && !e.immortal);
+  if (power === "ashen_wake") {
+    // Five burning cuts across the room, each through an enemy if there is one.
+    p.iframes = Math.max(p.iframes, ULT.ashen.iframes);
+    for (let i = 0; i < ULT.ashen.slashes; i++) {
+      const e = alive[i % Math.max(1, alive.length)];
+      const at = e ? { x: e.x, y: e.y } : { x: cx, y: cy };
+      const a = w.rng() * Math.PI;
+      const dx = Math.cos(a) * 900;
+      const dy = Math.sin(a) * 900;
+      slashLine(w, clamp(at.x - dx, 0, ROOM.w), clamp(at.y - dy, 0, ROOM.h), clamp(at.x + dx, 0, ROOM.w), clamp(at.y + dy, 0, ROOM.h), ULT.ashen.width, ULT.ashen.mult * sp * 6, 0.15 + i * ULT.ashen.gap, "#ff6a20");
+    }
+  } else if (power === "twin_fang") {
+    const near = alive.filter((e) => Math.hypot(e.x - p.x, e.y - p.y) < ULT.twin.reach);
+    for (let i = 0; i < ULT.twin.strikes; i++) {
+      const e = near[i % Math.max(1, near.length)];
+      if (!e) break;
+      w.blasts.push({ x: e.x, y: e.y, radius: ULT.twin.radius, t: 0.1 + i * ULT.twin.gap, mult: ULT.twin.mult * sp, color: "#ffd84a" });
+    }
+    w.fx.push({ kind: "swirl", x: p.x, y: p.y, radius: ULT.twin.reach, t: 0.9, total: 0.9, color: "#ffd84a" });
+  } else if (power === "trials_end") {
+    const dx = Math.cos(p.facing);
+    const dy = Math.sin(p.facing);
+    slashLine(w, p.x, p.y, clamp(p.x + dx * 1700, 0, ROOM.w), clamp(p.y + dy * 1700, 0, ROOM.h), ULT.trial.width, ULT.trial.mult * sp * 12, ULT.trial.delay, "#cfe4ff");
+  } else if (power === "hollow_crown") {
+    if (w.profile.echoes.length === 0) {
+      sfx(w, "deny");
+      floatText(w, p.x, p.y, "NO ECHOES", "#b9a4ff");
+      return;
+    }
+    const on = new Set(w.allies.map((a) => a.kind));
+    w.profile.echoes.forEach((echo, i) => {
+      if (echo.active && on.has(echo.kind) && isCaller(w.profile)) return;
+      const a = (i / w.profile.echoes.length) * Math.PI * 2;
+      const ally = makeAlly(echo, clamp(p.x + Math.cos(a) * 90, 30, ROOM.w - 30), clamp(p.y + Math.sin(a) * 90, 30, ROOM.h - 30), p.d.damage);
+      ally.anim = ARMY.rise;
+      ally.temp = ULT.crown.time;
+      w.allies.push(ally);
+    });
+    w.fx.push({ kind: "spiral", x: p.x, y: p.y, radius: 220, t: 1.2, total: 1.2, color: "#8a6cff" });
+  } else if (power === "seal_breaker") {
+    for (const e of alive) {
+      e.guard = 0;
+      e.slowT = 0;
+      if (e.boss) e.extraCd += ULT.seal.delay;
+      else stun(w, e, ULT.seal.stun);
+      w.fx.push({ kind: "shatter", x: e.x, y: e.y, radius: e.radius + 30, t: 0.6, total: 0.6, color: "#ffd84a" });
+    }
+  } else if (power === "untouched_mantle") {
+    p.mantleT = ULT.mantle.time;
+    for (const e of alive) {
+      if (e.boss || Math.hypot(e.x - p.x, e.y - p.y) > ULT.mantle.radius) continue;
+      const n = norm(e.x - p.x, e.y - p.y);
+      e.kx = (n.x || 1) * ULT.mantle.knock;
+      e.ky = n.y * ULT.mantle.knock;
+    }
+    w.fx.push({ kind: "dome", x: p.x, y: p.y, radius: 60, t: ULT.mantle.time, total: ULT.mantle.time, color: "#cfe4ff" });
+  } else if (power === "breakwater") {
+    const low = 1 - p.hp / p.d.maxHp;
+    const mult = (ULT.wave.base + ULT.wave.low * low) * sp;
+    for (const e of alive) w.blasts.push({ x: e.x, y: e.y, radius: e.radius + 4, t: ULT.wave.delay + (e.x / ROOM.w) * 0.3, mult, color: "#5ec8ff", quiet: true });
+    w.fx.push({ kind: "wave", x: 0, y: cy, radius: ROOM.h, t: ULT.wave.delay + 0.5, total: ULT.wave.delay + 0.5, color: "#5ec8ff" });
+  } else if (power === "ledgers_favour") {
+    p.hp = p.d.maxHp;
+    w.profile.flask.charges = w.profile.flask.size;
+    p.mana = p.d.maxMana;
+    for (const e of alive) e.markT = Math.max(e.markT, ULT.favour.mark);
+    w.fx.push({ kind: "column", x: p.x, y: p.y, radius: 70, t: 1.2, total: 1.2, color: "#ffd84a" });
+    for (const e of alive) w.fx.push({ kind: "sigil", x: e.x, y: e.y, radius: e.radius + 20, t: 1.2, total: 1.2, color: "#ff5a60" });
+  } else {
+    // The Blank Quill: the Redactor's own Erasure, turned on the enemy.
+    for (const e of alive) w.blasts.push({ x: e.x, y: e.y, radius: e.radius + 4, t: ULT.quill.delay, mult: ULT.quill.mult * sp, color: "#e8e8f0", quiet: true });
+    w.fx.push({ kind: "ink", x: cx, y: cy, radius: 900, t: ULT.quill.delay + 0.4, total: ULT.quill.delay + 0.4, color: "#101018" });
+  }
+  p.ultCd = ULT.charge;
+  w.shake = Math.max(w.shake, 10);
+  floatText(w, p.x, p.y, "ULTIMATE", "#ff8fa3", true);
+  sfx(w, "phase");
+}
+
 /** Gates a Return Stone can leave. */
-export const LEAVABLE = new Set<GateKind>(["normal", "key", "tower", "clock", "rush"]);
+export const LEAVABLE = new Set<GateKind>(["normal", "key", "tower", "clock", "rush", "margin"]);
 
 function tryLeave(w: World): void {
   if (!LEAVABLE.has(w.gateKind) || w.clearT > 0) return;
@@ -1223,6 +1555,7 @@ function stepPlayer(w: World, input: Controls, dt: number): void {
   }
   if (input.consume("KeyG")) tryBind(w);
   if (input.consume("KeyH")) classPower(w);
+  if (input.consume("KeyY")) useUltimate(w);
   if (input.consume("KeyJ") && isCaller(w.profile)) {
     w.armyOrder = ORDERS[(ORDERS.indexOf(w.armyOrder) + 1) % ORDERS.length];
     floatText(w, p.x, p.y, ORDER_TEXT[w.armyOrder], "#b9a4ff", true);
@@ -1286,12 +1619,15 @@ function stepPlayer(w: World, input: Controls, dt: number): void {
   constrainPlayer(w);
   if (w.roomId !== roomBefore) return;
 
-  if (p.attackCd <= 0 && p.dashT <= 0 && p.lungeT <= 0 && (input.attackHeld || input.consume("Mouse0"))) {
+  if (p.weapon === "bow") stepBow(w, input, dt);
+  else if (p.attackCd <= 0 && p.dashT <= 0 && p.lungeT <= 0 && (input.attackHeld || input.consume("Mouse0"))) {
     p.attackCd = eff.attackCooldown;
     p.attackFacing = p.facing;
     p.swingId += 1;
+    w.run.swings += 1;
     const wd = weaponOf(p);
-    if (wd.ranged) {
+    if (p.weapon === "staff") fireBolt(w);
+    else if (wd.ranged) {
       // An arrow: rolled now, landed by whatever it reaches first.
       const roll = rollDamage(eff.damage * wd.damage, p.d.critChance, PLAYER.critMult, w.rng);
       w.allyShots.push({
@@ -1340,6 +1676,8 @@ function stepPlayer(w: World, input: Controls, dt: number): void {
   p.drainT = Math.max(0, p.drainT - dt);
   p.bulwarkT = Math.max(0, p.bulwarkT - dt);
   p.overflowT = Math.max(0, p.overflowT - dt);
+  p.mantleT = Math.max(0, p.mantleT - dt);
+  p.ultCd = Math.max(0, p.ultCd - dt);
 }
 
 /**
@@ -1381,6 +1719,18 @@ function stepHazards(w: World, dt: number): void {
   const p = w.player;
 
   for (const s of w.projectiles) {
+    if (s.home) {
+      // A homing quill turns toward the hunter, but only so fast: it can be outrun sideways.
+      const want = Math.atan2(p.y - s.y, p.x - s.x);
+      const now = Math.atan2(s.vy, s.vx);
+      let d = want - now;
+      while (d > Math.PI) d -= Math.PI * 2;
+      while (d < -Math.PI) d += Math.PI * 2;
+      const a = now + clamp(d, -s.home * dt, s.home * dt);
+      const v = Math.hypot(s.vx, s.vy);
+      s.vx = Math.cos(a) * v;
+      s.vy = Math.sin(a) * v;
+    }
     s.x += s.vx * dt;
     s.y += s.vy * dt;
     s.life -= dt;
@@ -1482,6 +1832,7 @@ function stepSelect(w: World, input: Controls): void {
   else if (enter === "tower") enterTower(w);
   else if (enter === "clock") enterClock(w);
   else if (enter === "rush") enterRush(w);
+  else if (enter === "margin") enterMargin(w);
   else if (enter === "sealed") enterGate(w, w.profile.redGate.rank, { sealed: true });
   else if (enter) enterGate(w, enter);
 }
@@ -1602,6 +1953,10 @@ export function step(w: World, input: Controls, dt: number): void {
   w.notices = w.notices.filter((n) => n.life > 0);
 
   if (w.mode === "title") return stepTitle(w, input);
+  if (w.sting) {
+    w.sting.t -= dt;
+    if (w.sting.t <= 0) w.sting = null;
+  }
   // A cutscene holds the stage until it ends or is skipped.
   if (w.cutscene) return stepCutscene(w, input, dt);
 
@@ -1697,7 +2052,27 @@ export function step(w: World, input: Controls, dt: number): void {
       sfx(w, "block");
     }
   }
-  for (const a of w.allies) stepAlly(w, a, dt);
+  for (const a of w.allies) {
+    stepAlly(w, a, dt);
+    // An echo raised by the Crown for a while sinks again when its time is up.
+    if (a.temp !== undefined && !a.out) {
+      a.temp -= dt;
+      if (a.temp <= 0) {
+        a.out = true;
+        a.anim = ARMY.leave;
+      }
+    }
+  }
+  stepRedactorHazards(w, dt);
+  stepGlyphs(w);
+  stepStill(w, dt);
+  w.bossLull = Math.max(0, w.bossLull - dt);
+  if (w.gateKind === "margin" && (w.mode as string) === "gate" && w.enemies.length === 0 && w.spawnQueue.length === 0) {
+    clearField(w);
+    marginCleared(w);
+    w.mode = "cleared";
+    return;
+  }
   if (w.pillars.length > 0) {
     for (const a of w.allies) blockCircle(a, w.pillars);
     for (const s of [...w.projectiles, ...w.allyShots]) if (insidePillar(s.x, s.y, w.pillars)) s.life = 0;
@@ -1729,6 +2104,7 @@ export function step(w: World, input: Controls, dt: number): void {
     if (p.perks.siphon > 0) p.mana = Math.min(p.d.maxMana, p.mana + PERK.siphon * p.perks.siphon);
     if (p.powers.includes("trials_end")) p.skillCd.pierce = 0;
     if (e.xp > 0) grantXp(w, e.xp);
+    p.ultCd = Math.max(0, p.ultCd - ULT.perKill);
     if (e.boss) bossDied = true;
   }
   w.enemies = alive;
@@ -1756,6 +2132,7 @@ export function step(w: World, input: Controls, dt: number): void {
       w.bossDead = true;
       w.layoutRev += 1;
       w.notices.push({ title: "A HIDDEN DOOR", body: "Something waits behind it. Enter, or press T to leave with what you have.", life: 6 });
+      playSpecial(w, "hidden");
     } else if (left.length > 0) {
       // Hold the gate open until the remnant is bound, lost, or left behind.
       w.remnantHold = true;
@@ -1843,7 +2220,7 @@ export function step(w: World, input: Controls, dt: number): void {
       w.towerRest -= dt;
       if (w.towerRest <= 0) startRush(w, w.rushIdx + 1);
     } else if (w.enemies.length === 0 && w.spawnQueue.length === 0) {
-      if (w.rushIdx + 1 >= RANK_IDS.length) {
+      if (w.rushIdx + 1 >= RUSH.rounds.length) {
         clearField(w);
         settleRush(w);
         w.mode = "cleared";
@@ -1866,6 +2243,7 @@ export function step(w: World, input: Controls, dt: number): void {
       if (w.gateKind === "clock") clockFloorCleared(w);
       else towerFloorCleared(w);
       w.towerRest = TOWER.rest;
+      if (w.gateKind === "tower" && w.towerFloor === LINES.floor) wakeGlyphs(w);
       floatText(w, p.x, p.y, `FLOOR ${w.towerFloor} CLEARED`, "#ffd84a", true);
       sfx(w, "roomclear");
     }

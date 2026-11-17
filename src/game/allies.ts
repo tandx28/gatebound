@@ -3,7 +3,21 @@ import { circlesOverlap, clampToRoom } from "./combat";
 import { DOMINION, ECHO, KINDS, LEGION, ORDER, RALLY, ROOM, type EnemyKind } from "./config";
 import { damageEnemy } from "./enemies";
 import { playerHit } from "./perks";
-import { floatText, hurtPlayer, sfx, type Ally, type Echo, type Enemy, type World } from "./state";
+import { STAFF } from "./items";
+import { floatText, hurtPlayer, sfx, type Ally, type Echo, type Enemy, type ShotLook, type World } from "./state";
+
+/** The colour of each kind of shot's burst, for the view's splash mark. */
+export const SHOT_HUE: Record<ShotLook, string> = {
+  arrow: "#5ee6ff",
+  charged: "#9ff6ff",
+  orb: "#8fb4ff",
+  fire: "#ff7a2a",
+  ice: "#9fe8ff",
+  bolt: "#fff27a",
+  venom: "#6dff5a",
+  blood: "#ff3a6a",
+  quill: "#e8e8f0",
+};
 
 /**
  * Echoes on the field. They hunt the nearest enemy on their own. Enemies
@@ -34,6 +48,7 @@ const STYLE: Record<EnemyKind, Style> = {
   warper: "ranged",
   monarch: "ranged",
   totem: "support",
+  redactor: "sweep",
 };
 
 /** A sweep hits many, a shot is safe: both deal less per hit than a blade. */
@@ -199,13 +214,25 @@ export function stepAllyShots(w: World, dt: number): void {
     if (s.x < 0 || s.x > ROOM.w || s.y < 0 || s.y > ROOM.h) s.life = 0;
     if (s.life <= 0) continue;
     for (const e of w.enemies) {
-      if (e.hp > 0 && circlesOverlap(s, e)) {
-        // The player's own arrows carry their perks; an echo's shot does not.
-        if (s.mine) playerHit(w, e, s.damage, s.crit === true, s.x - s.vx * 0.01, s.y - s.vy * 0.01, 120);
-        else damageEnemy(w, e, s.damage, false, s.x - s.vx * 0.01, s.y - s.vy * 0.01, 80);
-        s.life = 0;
-        break;
+      if (e.hp <= 0 || !circlesOverlap(s, e) || s.hits?.includes(e)) continue;
+      // The player's own arrows carry their perks; an echo's shot does not.
+      if (s.mine) playerHit(w, e, s.damage, s.crit === true, s.x - s.vx * 0.01, s.y - s.vy * 0.01, 120);
+      else damageEnemy(w, e, s.damage, false, s.x - s.vx * 0.01, s.y - s.vy * 0.01, 80);
+      // A staff's bolt bursts and catches what stands close.
+      if (s.splash) {
+        for (const o of w.enemies) {
+          if (o === e || o.hp <= 0 || Math.hypot(o.x - s.x, o.y - s.y) > s.splash + o.radius) continue;
+          damageEnemy(w, o, Math.round(s.damage * STAFF.share), false, s.x, s.y, 60);
+        }
+        w.fx.push({ kind: "blast", x: s.x, y: s.y, radius: s.splash, t: 0.25, total: 0.25, color: SHOT_HUE[s.look ?? "orb"] });
       }
+      // A charged arrow keeps going, striking each enemy once.
+      if (s.pierce) {
+        s.hits?.push(e);
+        continue;
+      }
+      s.life = 0;
+      break;
     }
   }
   w.allyShots = w.allyShots.filter((s) => s.life > 0);

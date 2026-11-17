@@ -1,4 +1,5 @@
-import { CLASSES, CLASS_IDS, NGPLUS, ECHO, KINDS, RANK_IDS, SKILL_IDS, SKILL_RANK, type ClassId, type EnemyKind, type Rank, type SkillId } from "./config";
+import { CLASSES, CLASS_IDS, LINES, NGPLUS, ECHO, KINDS, RANK_IDS, SKILL_IDS, SKILL_RANK, type ClassId, type EnemyKind, type Rank, type SkillId } from "./config";
+import { CUTSCENES } from "./cutscenes";
 import { SIDES, type Dungeon, type RoomNode } from "./dungeon";
 import {
   BAG,
@@ -19,7 +20,7 @@ import {
   TITLES,
   type PowerId,
 } from "./items";
-import { newProfile, newRun, refreshDerived } from "./profile";
+import { newProfile, newRun, refreshDerived, SPECIALS } from "./profile";
 import { MAIN, OLD_MAIN, SIDE } from "./quests";
 import type { GateSnapshot, Profile, World } from "./state";
 import { BASE_STAT, LEVEL_CAP, newProgress, STAT_KEYS, type Progress } from "./stats";
@@ -256,6 +257,15 @@ export function parseSave(raw: unknown): SaveData | null {
   profile.towerBest = int(rf.towerBest, 0, 1e6, 0);
   profile.clockBest = int(rf.clockBest, 0, 1e6, 0);
   profile.rushBest = int(rf.rushBest, 0, 1e7, 0);
+  // The bestiary: a count per known kind. Unknown kinds are dropped.
+  const rkills = isObj(rf.kills) ? rf.kills : {};
+  for (const kind of Object.keys(rkills)) {
+    if (KINDS[kind as EnemyKind]) profile.kills[kind as EnemyKind] = int(rkills[kind], 0, 1e9, 0);
+  }
+  profile.lines = [...new Set(Array.isArray(rf.lines) ? (rf.lines as unknown[]).filter((n): n is number => Number.isInteger(n) && (n as number) >= 0 && (n as number) < LINES.count) : [])].sort((a, b) => a - b);
+  profile.replayed = [...new Set(strings(rf.replayed))].filter((id) => id in CUTSCENES);
+  profile.marginFound = rf.marginFound === true;
+  profile.scenesSeen = [...new Set(strings(rf.scenesSeen))].filter((id) => id in SPECIALS);
   profile.cycle = int(rf.cycle, 0, NGPLUS.max, 0);
   // Tips are for new hunters: a save made before they existed has no need of them.
   profile.tips = rf.tips === true;

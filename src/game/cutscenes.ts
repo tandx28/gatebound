@@ -1,7 +1,7 @@
 import type { Controls } from "../engine/input";
 import type { EnemyKind } from "./config";
 import { MAIN } from "./quests";
-import { sfx, type Profile, type World } from "./state";
+import { sfx, type FxShow, type Profile, type World } from "./state";
 
 /**
  * Cutscenes: short scripted scenes played on an empty stage with the game's
@@ -48,6 +48,21 @@ export interface Beat {
   /** A white flash as the beat begins. */
   flash?: boolean;
   shake?: number;
+  /** Where the camera drifts to over the beat, and the zoom it ends at. */
+  pan?: Point;
+  zoomTo?: number;
+  /** Effects that play as the beat begins: the same ones the fight uses. */
+  fx?: CutFx[];
+}
+
+/** An effect cued by a beat: what, where, how big, for how long. */
+export interface CutFx {
+  kind: FxShow | "ring" | "blast" | "beam";
+  at: Point;
+  to?: Point;
+  radius: number;
+  color: string;
+  dur: number;
 }
 
 export interface Cutscene {
@@ -544,6 +559,310 @@ export const CUTSCENES: Record<string, Cutscene> = {
   },
 };
 
+/** Scenes of special gates and the margin, apart from the story chapters. */
+export const SPECIAL_SCENES = ["sealed", "gatebreak", "emergency", "hidden", "tower", "clock", "rush", "margin", "margin_end"];
+
+const H = "hunter";
+const SYS = "SYSTEM";
+
+Object.assign(CUTSCENES, {
+  sealed: {
+    id: "sealed",
+    title: "The Sealed Gate",
+    chapter: 6,
+    beats: [
+      {
+        dur: 3.5,
+        speaker: "",
+        text: "The gate shuts behind you with a sound like a book closing.",
+        focus: [700, 450],
+        zoom: 1.6,
+        zoomTo: 1.9,
+        cues: [{ a: H, kind: "player", at: [700, 470], face: [700, 200] }],
+        fx: [{ kind: "ring", at: [700, 470], radius: 260, color: "#ff3355", dur: 1.2 }],
+        sound: "door",
+        shake: 10,
+      },
+      {
+        dur: 4,
+        speaker: SYS,
+        text: "SEALED. No stone will answer here. Its master is already awake.",
+        focus: [700, 300],
+        zoom: 1.2,
+        pan: [700, 420],
+        cues: [{ a: "m", kind: "brute", at: [700, 200], face: [700, 470], pose: "guard" }],
+        fx: [{ kind: "sigil", at: [700, 200], radius: 70, color: "#ff3355", dur: 2 }],
+        sound: "alarm",
+      },
+      {
+        dur: 3,
+        speaker: "",
+        text: "Double reward. And no way out but through.",
+        focus: [700, 450],
+        zoom: 1.3,
+        cues: [{ a: H, pose: "guard" }],
+        flash: true,
+      },
+    ],
+  },
+  gatebreak: {
+    id: "gatebreak",
+    title: "Gate Break",
+    chapter: 6,
+    beats: [
+      {
+        dur: 4,
+        speaker: SYS,
+        text: "A gate left too long has broken open in the street. They are pouring out.",
+        focus: [700, 450],
+        zoom: 1.1,
+        pan: [900, 430],
+        cues: [
+          { a: H, kind: "player", at: [560, 450], face: [1100, 450] },
+          { a: "a", kind: "swarmer", at: [1150, 360], to: [880, 400] },
+          { a: "b", kind: "swarmer", at: [1180, 520], to: [900, 500] },
+          { a: "c", kind: "charger", at: [1220, 450], to: [960, 450] },
+        ],
+        fx: [{ kind: "column", at: [1150, 450], radius: 90, color: "#ff8a3c", dur: 2.5 }],
+        sound: "alarm",
+        shake: 8,
+      },
+      {
+        dur: 3.5,
+        speaker: "",
+        text: "Hold the line until it closes. Nothing gets past you.",
+        focus: [600, 450],
+        zoom: 1.5,
+        cues: [{ a: H, pose: "attack" }],
+        fx: [{ kind: "ring", at: [560, 450], radius: 120, color: "#5ee6ff", dur: 0.8 }],
+      },
+    ],
+  },
+  emergency: {
+    id: "emergency",
+    title: "Emergency Quest",
+    chapter: 6,
+    beats: [
+      {
+        dur: 3.2,
+        speaker: SYS,
+        text: "EMERGENCY QUEST. Kill every enemy in this room before the clock runs out.",
+        focus: [700, 450],
+        zoom: 1.4,
+        zoomTo: 1.7,
+        cues: [{ a: H, kind: "player", at: [700, 450], face: [900, 450] }],
+        fx: [{ kind: "sigil", at: [700, 450], radius: 60, color: "#ffd84a", dur: 2.5 }],
+        sound: "alarm",
+      },
+      {
+        dur: 2.8,
+        speaker: SYS,
+        text: "Failure will be punished.",
+        focus: [700, 450],
+        zoom: 1.7,
+        flash: true,
+        shake: 6,
+      },
+    ],
+  },
+  hidden: {
+    id: "hidden",
+    title: "A Hidden Door",
+    chapter: 6,
+    beats: [
+      {
+        dur: 3.6,
+        speaker: "",
+        text: "Where the master fell, the wall is no longer a wall.",
+        focus: [700, 300],
+        zoom: 1.3,
+        pan: [700, 200],
+        cues: [{ a: H, kind: "player", at: [700, 460], face: [700, 150] }],
+        fx: [{ kind: "column", at: [700, 160], radius: 80, color: "#ffd84a", dur: 3 }],
+        sound: "chime",
+      },
+      {
+        dur: 3.4,
+        speaker: SYS,
+        text: "A trial waits behind it. Enter, or leave with what you have.",
+        focus: [700, 300],
+        zoom: 1.5,
+        cues: [{ a: H, to: [700, 380] }],
+      },
+    ],
+  },
+  tower: {
+    id: "tower",
+    title: "The Tower",
+    chapter: 6,
+    beats: [
+      {
+        dur: 4,
+        speaker: "",
+        text: "A stair that goes up and does not come down. Every floor remembers who fell on it.",
+        focus: [700, 450],
+        zoom: 1,
+        zoomTo: 1.4,
+        cues: [{ a: H, kind: "player", at: [700, 520], face: [700, 300] }],
+        fx: [{ kind: "spiral", at: [700, 450], radius: 260, color: "#5ee6ff", dur: 3.5 }],
+        sound: "door",
+      },
+      {
+        dur: 3,
+        speaker: SYS,
+        text: "Climb until you fall. Every fifth floor, a master.",
+        focus: [700, 450],
+        zoom: 1.4,
+      },
+    ],
+  },
+  clock: {
+    id: "clock",
+    title: "Against the Clock",
+    chapter: 6,
+    beats: [
+      {
+        dur: 3.5,
+        speaker: SYS,
+        text: "TIME TRIAL. Ninety seconds. Every floor you clear buys a little more.",
+        focus: [700, 450],
+        zoom: 1.5,
+        cues: [{ a: H, kind: "player", at: [700, 450], face: [900, 450] }],
+        fx: [{ kind: "ring", at: [700, 450], radius: 200, color: "#ffd84a", dur: 3 }],
+        sound: "tick",
+      },
+      {
+        dur: 2.5,
+        speaker: "",
+        text: "Run.",
+        focus: [700, 450],
+        zoom: 1.8,
+        flash: true,
+      },
+    ],
+  },
+  rush: {
+    id: "rush",
+    title: "Boss Rush",
+    chapter: 6,
+    beats: [
+      {
+        dur: 4.5,
+        speaker: SYS,
+        text: "Every master you have struck down, written back in. One after another.",
+        focus: [700, 350],
+        zoom: 1,
+        pan: [700, 300],
+        cues: [
+          { a: H, kind: "player", at: [700, 560], face: [700, 250] },
+          { a: "w", kind: "warden", at: [420, 260], ghost: true, rise: true },
+          { a: "q", kind: "queen", at: [700, 220], ghost: true, rise: true },
+          { a: "m", kind: "monarch", at: [980, 260], ghost: true, rise: true },
+        ],
+        sound: "summon",
+        shake: 6,
+      },
+      {
+        dur: 3,
+        speaker: "",
+        text: "Then two at once. Then three.",
+        focus: [700, 400],
+        zoom: 1.3,
+        cues: [{ a: "w", out: true }, { a: "q", out: true }, { a: "m", out: true }, { a: H, pose: "guard" }],
+        flash: true,
+      },
+    ],
+  },
+  margin: {
+    id: "margin",
+    title: "The Margin",
+    chapter: 6,
+    beats: [
+      {
+        dur: 4.5,
+        speaker: "",
+        text: "The four stones go dark at once. The floor turns white, like a page nobody has written on.",
+        focus: [700, 450],
+        zoom: 1,
+        zoomTo: 1.3,
+        cues: [{ a: H, kind: "player", at: [700, 560], face: [700, 220] }],
+        fx: [{ kind: "ink", at: [700, 450], radius: 900, color: "#e8e8f0", dur: 2 }],
+        sound: "chime",
+        flash: true,
+      },
+      {
+        dur: 5,
+        speaker: "???",
+        text: "\"Every name in the Ledger was written by a hand. I am the hand that crosses them out.\"",
+        focus: [700, 260],
+        zoom: 1.5,
+        pan: [700, 300],
+        cues: [{ a: "r", kind: "redactor", at: [700, 220], face: [700, 560], rise: true }],
+        fx: [{ kind: "slash", at: [520, 200], to: [880, 240], radius: 20, color: "#101018", dur: 1.5 }],
+        sound: "phase",
+        shake: 10,
+      },
+      {
+        dur: 5,
+        speaker: "The Redactor",
+        text: "\"You found my lines. Good. A correction should know it is being made.\"",
+        focus: [700, 380],
+        zoom: 1.3,
+        cues: [{ a: "r", pose: "cast" }],
+        fx: [{ kind: "sigil", at: [700, 560], radius: 60, color: "#e8e8f0", dur: 3 }],
+      },
+      {
+        dur: 3.5,
+        speaker: SYS,
+        text: "Stand in the circles when the page is erased. Cross the line before it crosses you.",
+        focus: [700, 450],
+        zoom: 1.1,
+        cues: [{ a: "r", out: true }, { a: H, pose: "guard" }],
+        flash: true,
+      },
+    ],
+  },
+  margin_end: {
+    id: "margin_end",
+    title: "Unstruck",
+    chapter: 6,
+    beats: [
+      {
+        dur: 5,
+        speaker: "The Redactor",
+        text: "\"So. A line I cannot strike.\"",
+        focus: [700, 350],
+        zoom: 1.6,
+        cues: [
+          { a: "r", kind: "redactor", at: [700, 330], face: [700, 520], pose: "slump" },
+          { a: H, kind: "player", at: [700, 520], face: [700, 330] },
+        ],
+        fx: [{ kind: "ink", at: [700, 330], radius: 200, color: "#101018", dur: 3 }],
+        sound: "bosskill",
+      },
+      {
+        dur: 5,
+        speaker: "",
+        text: "It comes apart into words, and the words into nothing. Something is left on the white floor: a quill with no ink in it.",
+        focus: [700, 400],
+        zoom: 1.3,
+        pan: [700, 450],
+        cues: [{ a: "r", out: true }],
+        fx: [{ kind: "column", at: [700, 330], radius: 60, color: "#e8e8f0", dur: 3.5 }],
+        flash: true,
+      },
+      {
+        dur: 4,
+        speaker: SYS,
+        text: "Title earned: THE UNSTRUCK. The margin stays open to you, on the Trials tab.",
+        focus: [700, 450],
+        zoom: 1.2,
+        sound: "quest",
+      },
+    ],
+  },
+} satisfies Record<string, Cutscene>);
+
 /** How long a scene runs if nothing is pressed. */
 export function sceneLength(id: string): number {
   return CUTSCENES[id].beats.reduce((sum, b) => sum + b.dur, 0);
@@ -557,6 +876,8 @@ export function seenScenes(profile: Profile): string[] {
     // An ending once reached leaves its title behind, whatever has been begun again since.
     if (id === "end_keeper") return profile.ending === "keeper" || profile.titles.includes("keeper");
     if (id === "end_unwritten") return profile.ending === "unwritten" || profile.titles.includes("unwritten");
+    // A special gate's scene, once it has played.
+    if (SPECIAL_SCENES.includes(id)) return profile.scenesSeen.includes(id) || (id === "margin_end" && profile.titles.includes("unstruck"));
     return done.has(id) || profile.cycle > 0;
   });
 }
@@ -583,6 +904,9 @@ function applyBeat(w: World, beat: Beat): void {
       actor.out = true;
       actor.anim = CUT.sink;
     }
+  }
+  for (const f of beat.fx ?? []) {
+    w.fx.push({ kind: f.kind, x: f.at[0], y: f.at[1], x2: f.to?.[0], y2: f.to?.[1], radius: f.radius, t: f.dur, total: f.dur, color: f.color, angle: f.to ? Math.atan2(f.to[1] - f.at[1], f.to[0] - f.at[0]) : undefined });
   }
   if (beat.sound) sfx(w, beat.sound);
   if (beat.flash) cs.flash = CUT.flash;
@@ -624,6 +948,9 @@ export function stepCutscene(w: World, input: Controls, dt: number): void {
 
   cs.t += dt;
   cs.flash = Math.max(0, cs.flash - dt);
+  // Effects cued by the scene play out while the game itself stands still.
+  for (const f of w.fx) f.t -= dt;
+  w.fx = w.fx.filter((f) => f.t > 0);
   for (const a of cs.actors) {
     a.px = a.x;
     a.py = a.y;

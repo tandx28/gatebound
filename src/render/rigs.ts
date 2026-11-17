@@ -33,6 +33,8 @@ export interface Anim {
   gear?: { rarity: Rarity | null; element: PerkId | null };
   /** The colour of the hunter's aura while empowered. */
   aura?: number;
+  /** How far the bow is drawn, 0 to 1 (1 = a full, charged draw). */
+  draw?: number;
 }
 
 export interface Rig {
@@ -423,7 +425,7 @@ function hunter(): Rig {
   const pal: Palette = { skin: 0xd9b89a, cloth: 0x3a4a6e, trim: 0x8a9cc4, metal: 0xc9d4e6, accent: 0x7fdcff };
   const rig = humanoid(pal, { hood: true, scale: 1.02 }) as Rig & { arsenal: Map<WeaponType, THREE.Group>; hand: THREE.Group };
   const skin = new Skin();
-  for (const type of ["dagger", "sword", "spear", "bow"] as WeaponType[]) {
+  for (const type of ["dagger", "sword", "spear", "bow", "staff"] as WeaponType[]) {
     const g = held(type, skin, pal);
     rig.hand.add(g);
     rig.arsenal.set(type, g);
@@ -650,6 +652,32 @@ export function buildRig(kind: EnemyKind | "player", radius = 14): Rig {
       return humanoid(P(0x8fd8e6, 0x123a4a, 0x0a2530, 0x8a8f99, 0x40e0ff), { scale: s * 0.9, robe: true, hood: true, hover: 7, right: "flame", left: "flame" });
     case "monarch":
       return humanoid(P(0xe9e2d0, 0x15131c, 0x2a2536, 0xffe9a0, 0xffe9a0), { scale: s * 0.74, robe: true, crown: true, hover: 8, right: "staff", legLen: 14, torsoH: 19 });
+    case "redactor": {
+      // A tall robed shape the colour of ink, ringed by the lines it has struck out.
+      const body = humanoid(P(0x0c0c10, 0x07070a, 0x16161c, 0xe8e8f0, 0xffffff), { scale: s * 0.9, robe: true, hood: true, hover: 2, right: "staff", legLen: 16, torsoH: 22 });
+      const ring = new THREE.Group();
+      ring.position.y = body.height * 0.55;
+      const ink = new THREE.MeshStandardMaterial({ color: 0x050507, roughness: 0.5 });
+      const page = new THREE.MeshBasicMaterial({ color: 0xe8e8f0 });
+      for (let i = 0; i < 9; i++) {
+        const a = (i / 9) * Math.PI * 2;
+        const slab = new THREE.Mesh(box(24, 2, 3.5), i % 3 === 0 ? page : ink);
+        slab.position.set(Math.cos(a) * 34, 0, Math.sin(a) * 34);
+        slab.rotation.y = -a + Math.PI / 2;
+        ring.add(slab);
+      }
+      body.root.add(ring);
+      return {
+        root: body.root,
+        height: body.height + 10,
+        animate(a) {
+          body.animate(a);
+          // The struck lines circle it, faster when it is writing.
+          ring.rotation.y = a.time * (a.pose === "cast" || a.pose === "windup" ? 2.6 : 0.7);
+          ring.children.forEach((c, i) => (c.position.y = Math.sin(a.time * 2 + i) * 7));
+        },
+      };
+    }
     case "leaper":
       return beast(P(0, 0x2b2c33, 0x141519, 0, 0xff3030), { scale: s * 0.8, length: 34, girth: 11, legLen: 9 });
     case "charger":
@@ -737,6 +765,7 @@ export function poseFor(kind: EnemyKind, state: string): Pose {
     case "sweep":
       return "attack";
     case "cast":
+    case "chant":
     case "spit":
     case "dominion":
       return "cast";

@@ -133,10 +133,10 @@ describe("rigs", () => {
       return n;
     };
     rig.animate(anim({ weapon: "bow" }));
-    expect(visible()).toBe(3);
+    expect(visible()).toBe(4);
     // Bare hands: every weapon is put away.
     rig.animate(anim({ weapon: null }));
-    expect(visible()).toBe(4);
+    expect(visible()).toBe(5);
   });
 
   it("the commander rides in phase one and fights on foot in phase two", () => {

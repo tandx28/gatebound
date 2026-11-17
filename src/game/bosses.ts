@@ -1,4 +1,4 @@
-import { KINDS, NIGHTMARE, RANK_IDS, RANKS, ROOM } from "./config";
+import { KINDS, MULTI, NIGHTMARE, RANK_IDS, RANKS, ROOM } from "./config";
 import { spawnEnemy } from "./enemies";
 import { burst, sfx, type Enemy, type World } from "./state";
 
@@ -81,7 +81,8 @@ function perform(w: World, e: Enemy, move: BossMove, tier: number, stage: number
 /** Run a boss's stage and its extra moves. Called once a step for each boss. */
 export function stepBossExtras(w: World, e: Enemy, dt: number): void {
   // The rite is fought alone at a fixed strength; its bosses keep to their own attacks.
-  if (!e.boss || e.hp <= 0 || e.immortal || w.gateKind === "rite") return;
+  // The Redactor writes its own moves (redactor.ts).
+  if (!e.boss || e.hp <= 0 || e.immortal || w.gateKind === "rite" || e.kind === "redactor") return;
   const tier = RANK_IDS.indexOf(w.rank);
   const stage = bossStage(w, e);
   if (stage > e.stage) {
@@ -106,6 +107,12 @@ export function stepBossExtras(w: World, e: Enemy, dt: number): void {
   e.extraCd -= dt;
   // Never in the middle of being broken or hidden.
   if (e.extraCd > 0 || e.state === "broken" || e.state === "vanish") return;
+  // With several masters up, they take turns: one big move at a time, a breath between.
+  if (w.bossLull > 0) {
+    e.extraCd = w.bossLull + 0.4;
+    return;
+  }
   e.extraCd = BOSS_EXTRA.every[stage] * (w.profile.nightmare ? NIGHTMARE.bossPace : 1) * (tier === 0 ? 1.25 : 1);
   perform(w, e, moves[Math.floor(w.rng() * moves.length)], tier, stage);
+  if (w.enemies.filter((o) => o.boss && o.hp > 0).length > 1) w.bossLull = MULTI.lull;
 }

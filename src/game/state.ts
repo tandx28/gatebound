@@ -43,6 +43,12 @@ export interface Player extends Circle {
   /** Seconds left of a Vanguard's Bulwark, and of an Arcanist's Overflow. */
   bulwarkT: number;
   overflowT: number;
+  /** Seconds the bow has been drawn while the attack is held; 0 when not drawing. */
+  drawT: number;
+  /** Seconds until the mythic's ultimate is ready again. Carried from gate to gate. */
+  ultCd: number;
+  /** Seconds left of the Untouched Mantle's ultimate: nothing can hurt the hunter. */
+  mantleT: number;
   moving: boolean;
   /** Velocity from being thrown, decays quickly. */
   kx: number;
@@ -144,7 +150,18 @@ export interface Projectile extends Circle {
   /** An arrow of the player's own: it carries their perks, and may be a crit. */
   mine?: boolean;
   crit?: boolean;
+  /** How it looks: a plain or charged arrow, or a staff bolt of some element. */
+  look?: ShotLook;
+  /** Passes through enemies instead of stopping at the first, striking each once. */
+  pierce?: boolean;
+  hits?: Enemy[];
+  /** Bursts where it lands, catching enemies this close at a share of the blow. */
+  splash?: number;
+  /** Turns toward the hunter at this many radians a second (the Redactor's quills). */
+  home?: number;
 }
+
+export type ShotLook = "arrow" | "charged" | "orb" | "fire" | "ice" | "bolt" | "venom" | "blood" | "quill";
 
 /** Ground that keeps hurting whoever stands on it. */
 export interface Patch {
@@ -182,6 +199,48 @@ export interface Blast {
   color: string;
   /** Seconds it stuns what it hits (not bosses). */
   stun?: number;
+  /** Part of a larger effect drawn on its own: lands without a blast mark of its own. */
+  quiet?: boolean;
+  /** How the view draws it on the way down: a falling star, a falling arrow, or rock spikes when it lands. */
+  show?: "star" | "arrow" | "spikes";
+}
+
+/** A glyph stone of the margin's lock. Walking onto it strikes it. */
+export interface Glyph {
+  x: number;
+  y: number;
+  /** Which glyph it bears: 0 circle, 1 triangle, 2 square, 3 cross. */
+  glyph: number;
+  lit: boolean;
+}
+
+/** The Redactor's Erasure: the whole floor goes, except the safe circles. */
+export interface Erasure {
+  t: number;
+  total: number;
+  safe: { x: number; y: number }[];
+}
+
+/** A wall of ink sweeping across the room: along x if `axis` is "x", else along y. */
+export interface Sweep {
+  axis: "x" | "y";
+  /** Where the wall stands now, and which way it moves (+1 or -1). */
+  at: number;
+  dir: number;
+  /** Seconds of warning left before it moves. */
+  wait: number;
+}
+
+/** A black bar slammed across the floor: warned, then it lands once. */
+export interface Bar {
+  x: number;
+  y: number;
+  angle: number;
+  len: number;
+  width: number;
+  t: number;
+  total: number;
+  damage: number;
 }
 
 /** An expanding ring that must be dashed through. */
@@ -198,9 +257,31 @@ export interface Shockwave {
 }
 
 /** A purely visual ground effect. */
+/**
+ * Effects drawn in 3D by the view, beyond the floor marks: a falling star,
+ * rock spikes, lightning, a dome, raining arrows and so on. The simulation
+ * only says what and where; the view decides how it looks.
+ */
+export type FxShow =
+  | "star"
+  | "spikes"
+  | "bolt"
+  | "dome"
+  | "arrows"
+  | "sigil"
+  | "spiral"
+  | "wave"
+  | "ink"
+  | "column"
+  | "loot"
+  | "frost"
+  | "slash"
+  | "swirl"
+  | "shatter";
+
 export interface Fx {
   /** A beam runs from (x, y) along `angle` for `radius`. */
-  kind: "ring" | "blast" | "beam";
+  kind: "ring" | "blast" | "beam" | FxShow;
   angle?: number;
   x: number;
   y: number;
@@ -208,6 +289,9 @@ export interface Fx {
   t: number;
   total: number;
   color: string;
+  /** Far end, for effects that run from one point to another (lightning, a slash). */
+  x2?: number;
+  y2?: number;
 }
 
 export interface FloatText {
@@ -313,6 +397,16 @@ export interface Profile {
   clockBest: number;
   /** Fastest boss rush, in whole seconds; 0 until one is finished. */
   rushBest: number;
+  /** Kills of each enemy kind, for the bestiary: lore, then extra damage to that kind. */
+  kills: Partial<Record<EnemyKind, number>>;
+  /** Which of the five struck lines (0 to 4) have been found. */
+  lines: number[];
+  /** Story scenes replayed from the Story tab, for one of the lines. */
+  replayed: string[];
+  /** The margin has been opened at least once: the Redactor can be fought again from the Trials tab. */
+  marginFound: boolean;
+  /** Special-gate scenes already seen in full; after that they play as a short title. */
+  scenesSeen: string[];
 }
 
 export type Ending = "keeper" | "unwritten";
@@ -336,6 +430,8 @@ export interface Ally extends Circle {
   anim: number;
   /** Sinking: gone when `anim` runs out. */
   out: boolean;
+  /** Seconds left for an echo raised only for a while (the Crown's ultimate); absent for a lasting one. */
+  temp?: number;
 }
 
 /** A fallen enemy, shown for a moment where it died. Nothing can touch it. */
@@ -374,6 +470,8 @@ export interface Run {
   settled: boolean;
   /** Lines for the result screen. */
   summary: string[];
+  /** Basic attacks made in this gate, for the line earned without any. */
+  swings: number;
 }
 
 /** Player preferences. Kept apart from the save: they belong to the device. */
@@ -394,8 +492,8 @@ export interface Settings {
 export type Quality = "high" | "medium" | "low";
 export const QUALITIES: Quality[] = ["high", "medium", "low"];
 
-export type HubTab = "gates" | "trials" | "shop" | "supplies" | "gear" | "skills" | "hunter" | "quests" | "story" | "echoes" | "system";
-export const HUB_TABS: HubTab[] = ["gates", "trials", "shop", "supplies", "gear", "skills", "hunter", "quests", "story", "echoes", "system"];
+export type HubTab = "gates" | "trials" | "shop" | "supplies" | "gear" | "skills" | "hunter" | "bestiary" | "quests" | "story" | "echoes" | "system";
+export const HUB_TABS: HubTab[] = ["gates", "trials", "shop", "supplies", "gear", "skills", "hunter", "bestiary", "quests", "story", "echoes", "system"];
 
 /** Tabs on show: the Echoes tab appears once the class is earned. */
 export function visibleTabs(w: World): HubTab[] {
@@ -409,7 +507,7 @@ export function isCaller(pr: Profile): boolean {
 
 export type Menu = "none" | "status" | "pause" | "keys";
 export type Mode = "title" | "select" | "gate" | "cleared" | "dead";
-export type GateKind = "normal" | "key" | "penalty" | "rite" | "break" | "tower" | "clock" | "rush";
+export type GateKind = "normal" | "key" | "penalty" | "rite" | "break" | "tower" | "clock" | "rush" | "margin";
 
 /** Enough of a gate in progress to resume it from the current room. */
 export interface GateSnapshot {
@@ -483,6 +581,24 @@ export interface World {
   /** Which master of the boss rush is being fought (0 to 5), and seconds spent so far. */
   rushIdx: number;
   rushTime: number;
+  /** Seconds before any boss may start another big move: bosses take turns. */
+  bossLull: number;
+  /** The last skill the hunter used, for the Redactor's Footnote. */
+  lastSkill: SkillId | null;
+  /** Glyph stones on the thirteenth floor, while the five lines are held. */
+  glyphs: Glyph[];
+  /** Which stone comes next in the order (0 to 3). */
+  glyphNext: number;
+  /** Seconds the hunter has stood still in an empty room, for one of the lines. */
+  stillT: number;
+  /** The Redactor's hazards: the floor about to be erased, walls sweeping across, bars about to fall. */
+  erasure: Erasure | null;
+  sweeps: Sweep[];
+  bars: Bar[];
+  /** The closing floor of the Redactor's last stage: its radius now, 0 when not closing. */
+  arenaR: number;
+  /** A short title card for a special gate already seen in full. */
+  sting: { title: string; sub: string; t: number } | null;
   allyShots: Projectile[];
   remnants: Remnant[];
   corpses: Corpse[];
@@ -505,12 +621,20 @@ export interface World {
   /** Which page of the skills tab is showing, and the slot a skill click fills. */
   skillPage: number;
   slotPick: number;
+  /** Which page of the bestiary is showing. */
+  beastPage: number;
   /** Which belt item the B key uses. */
   belt: number;
   /** The Untouched Mantle's ward: ready to swallow one hit in this room. */
   wardReady: boolean;
   /** Chance of a hidden door after a boss kill. Tests override it. */
   hiddenChance: number;
+  /**
+   * Play special gates' scenes in full the first time. The shell turns this on;
+   * tests and the bot leave it off and see only the title card, so a scene
+   * never stands still in the middle of their play.
+   */
+  specialScenes: boolean;
   /** Where the title screen's Play button leads. */
   afterTitle: "select" | "gate";
   mode: Mode;
@@ -589,7 +713,7 @@ export function afflict(w: World, id: StatusId): void {
 /** Damage the player unless invulnerable. Returns true when the hit landed. */
 export function hurtPlayer(w: World, amount: number, status?: StatusId): boolean {
   const p = w.player;
-  if (p.iframes > 0 || w.mode !== "gate") return false;
+  if (p.iframes > 0 || p.mantleT > 0 || w.mode !== "gate") return false;
   // Parry: the blow is turned, and everything close pays for it.
   if (p.parryT > 0) {
     p.parryT = 0;

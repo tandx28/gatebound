@@ -67,6 +67,7 @@ const HUNTER_STRIKE: Record<WeaponType, string> = {
   sword: "1H_Melee_Attack_Slice_Horizontal",
   spear: "2H_Melee_Attack_Stab",
   bow: "2H_Ranged_Shoot",
+  staff: "Spellcast_Shoot",
 };
 
 export const MODELS: Partial<Record<EnemyKind, ModelSpec>> = {
@@ -376,7 +377,7 @@ function build(spec: ModelSpec, radius: number, hunter: boolean): Rig | null {
   if (spec.left) give(slots[1], spec.left);
   if (hunter) {
     // One holder for each weapon type; what hangs in it is rebuilt when the gear changes.
-    for (const type of ["dagger", "sword", "spear", "bow"] as const) {
+    for (const type of ["dagger", "sword", "spear", "bow", "staff"] as const) {
       if (!slots[0]) continue;
       const holder = new THREE.Group();
       holder.rotation.x = Math.PI;
@@ -508,8 +509,43 @@ function build(spec: ModelSpec, radius: number, hunter: boolean): Rig | null {
       // Bare hands show nothing at all.
       for (const [type, g] of arsenal) g.visible = type === a.weapon;
       if (hunter && a.weapon) arm(a.weapon, a.gear ?? { rarity: null, element: null });
+      if (hunter && a.weapon === "bow") bend(arsenal.get("bow"), a.draw ?? 0);
+      if (hunter && a.weapon === "staff") {
+        // The staff's head turns slowly and swells as a bolt leaves it.
+        arsenal.get("staff")?.traverse((o) => {
+          if (o.userData.orb) {
+            o.rotation.y = a.time * 1.6;
+            o.scale.setScalar(1 + 0.35 * Math.max(0, 1 - a.swing * 2) * (a.pose === "bow" || a.pose === "attack" ? 1 : 0));
+          }
+        });
+      }
     },
   };
+}
+
+/**
+ * Draw the bow: the string's two halves pulled back to the nock, the limbs
+ * bending in, and the arrow on the string while it is drawn.
+ */
+export function bend(holder: THREE.Object3D | undefined, draw: number): void {
+  if (!holder) return;
+  const d = Math.max(0, Math.min(1, draw)) * 9;
+  holder.traverse((o) => {
+    if (o.userData.nock) {
+      for (const half of o.children) {
+        const side = half.userData.half as number;
+        const len = Math.hypot(d, 11);
+        half.position.set(-d / 2, (side * 11) / 2, 0);
+        half.rotation.z = side * Math.atan2(d, 11);
+        half.scale.y = len / 11;
+      }
+    }
+    if (o.userData.limbs) o.scale.x = 1 - d * 0.02;
+    if (o.userData.arrow) {
+      o.visible = d > 0.5;
+      o.position.x = -d;
+    }
+  });
 }
 
 /** A modelled figure for an enemy kind, or null if it has none or they have not loaded. */

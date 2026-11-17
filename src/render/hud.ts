@@ -12,7 +12,8 @@ import {
   RANKS,
   PHASES,
   RITE,
-  RANK_IDS,
+  RUSH,
+  ULT,
   SKILL_SLOTS,
   STATUS,
   SKILLS,
@@ -23,7 +24,8 @@ import type { Rank } from "../game/config";
 import { isCaller, type World } from "../game/state";
 import { LEAVABLE, NOTICES_SHOWN } from "../game/world";
 import { FURY, itemDef, itemName, MYTHICS, POTION, POWERS, STONE, TITLES, WEAPONS, type Rarity } from "../game/items";
-import { BELT, beltCount, boundKey, keyName, slotOpen, tutorialTip } from "../game/profile";
+import { BELT, beltCount, boundKey, keyName, slotOpen, STING, STRUCK_LINES, tutorialTip, ultimateOf } from "../game/profile";
+import { huntBonus, huntTier, LORE, tierKills } from "../game/bestiary";
 import { CUT, CUTSCENES, SKIP_HOLD } from "../game/cutscenes";
 import { activeQuests, MAIN, questProgress } from "../game/quests";
 import { CHAPTERS } from "../game/story";
@@ -31,6 +33,9 @@ import { STAT_KEYS, STAT_NAMES, xpToNext, type StatKey } from "../game/stats";
 import {
   hubButtons,
   hubHeadings,
+  BEAST,
+  beastRows,
+  LINES_AT,
   HUNTER,
   KEYS_PANEL,
   keysButtons,
@@ -115,7 +120,11 @@ function drawWorldLabels(ctx: Ctx, w: World, project: Project): void {
   for (const t of w.texts) {
     const s = project(t.x, t.y, 46);
     ctx.globalAlpha = Math.min(1, t.life * 3);
-    ctx.font = `bold ${t.big ? 22 : 15}px ${FONT}`;
+    // Bigger hits make bigger numbers; a crit pops in large and settles.
+    const n = Number(t.text);
+    const weight = Number.isFinite(n) && n > 0 ? Math.min(12, Math.log10(n) * 3.2) : 0;
+    const pop = t.big ? 1 + Math.max(0, t.life - 0.6) * 1.2 : 1;
+    ctx.font = `bold ${Math.round(((t.big ? 20 : 13) + weight) * pop)}px ${FONT}`;
     ctx.lineWidth = 3;
     ctx.strokeStyle = "rgba(4,6,11,0.8)";
     ctx.strokeText(t.text, s.x, s.y);
@@ -185,7 +194,31 @@ function drawSkills(ctx: Ctx, w: World): void {
   // Only the open slots, then the class power on H once there is a class.
   const open = w.profile.loadout.map((id, i) => ({ id, i })).filter(({ i }) => slotOpen(w.profile, i));
   const power = w.profile.classUnlocked;
-  const count = open.length + (power ? 1 : 0);
+  const ult = ultimateOf(w.profile);
+  const count = open.length + (power ? 1 : 0) + (ult ? 1 : 0);
+  if (ult) {
+    // The mythic's ultimate on Y: rose-red, and burning when ready.
+    const x = VIEW_W / 2 + (size * count + gap * (count - 1)) / 2 - size;
+    const yy = VIEW_H - 96;
+    panel(ctx, x, yy, size, size);
+    const cd = w.player.ultCd;
+    if (cd > 0) {
+      ctx.fillStyle = "rgba(4,6,11,0.7)";
+      const h = size * Math.min(1, cd / ULT.charge);
+      ctx.fillRect(x + 1, yy + size - h, size - 1, h);
+    } else {
+      ctx.strokeStyle = `rgba(255,90,122,${0.5 + 0.5 * Math.sin(performance.now() / 160)})`;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x + 1.5, yy + 1.5, size - 2, size - 2);
+    }
+    ctx.textAlign = "center";
+    ctx.font = `bold 20px ${FONT}`;
+    ctx.fillStyle = cd > 0 ? "#56719c" : "#ff8fa3";
+    ctx.fillText(keyName(boundKey(w, "KeyY")), x + size / 2, yy + 28);
+    ctx.font = `9px ${FONT}`;
+    ctx.fillStyle = "#c07088";
+    ctx.fillText(cd > 0 ? `${Math.ceil(cd)} s` : "ULTIMATE", x + size / 2, yy + 46);
+  }
   const x0 = VIEW_W / 2 - (size * count + gap * (count - 1)) / 2;
   const y = VIEW_H - 96;
   if (power) {
@@ -724,7 +757,11 @@ function drawHub(ctx: Ctx, w: World): void {
 
   ctx.textAlign = "center";
   if (w.tab === "quests") drawQuests(ctx, w);
-  if (w.tab === "story") drawStory(ctx, w);
+  if (w.tab === "story") {
+    drawStory(ctx, w);
+    drawLines(ctx, w);
+  }
+  if (w.tab === "bestiary") drawBestiary(ctx, w);
   if (w.tab === "system") {
     ctx.font = `13px ${FONT}`;
     ctx.fillStyle = "#9fc8ff";
@@ -839,6 +876,72 @@ function drawPurseStrip(ctx: Ctx, w: World): void {
   });
 }
 
+/** A special gate's title card, for a scene already seen: it slides in, holds, and fades. */
+function drawSting(ctx: Ctx, w: World): void {
+  const s = w.sting!;
+  const age = STING - s.t;
+  const a = Math.min(1, age * 4, s.t * 2);
+  const slide = (1 - Math.min(1, age * 4)) * 60;
+  ctx.globalAlpha = a;
+  ctx.fillStyle = "rgba(4,6,11,0.75)";
+  ctx.fillRect(0, 250, VIEW_W, 96);
+  ctx.fillStyle = s.title.includes("SEALED") || s.title.includes("EMERGENCY") ? RED : GOLD;
+  ctx.fillRect(0, 250, VIEW_W, 2);
+  ctx.fillRect(0, 344, VIEW_W, 2);
+  ctx.textAlign = "center";
+  ctx.font = `bold 34px ${FONT}`;
+  ctx.fillText(s.title, VIEW_W / 2 + slide, 300);
+  ctx.font = `14px ${FONT}`;
+  ctx.fillStyle = "#cfe4ff";
+  ctx.fillText(s.sub, VIEW_W / 2 - slide, 328);
+  ctx.globalAlpha = 1;
+}
+
+/** The bestiary: each kind met, its kills, the damage bonus earned, and its lore once known. */
+function drawBestiary(ctx: Ctx, w: World): void {
+  const pr = w.profile;
+  ctx.textAlign = "left";
+  for (const { kind, x, y } of beastRows(w)) {
+    const n = pr.kills[kind] ?? 0;
+    const need = tierKills(kind);
+    const tier = huntTier(pr, kind);
+    panel(ctx, x, y, BEAST.colW - 20, BEAST.rowH - 8);
+    ctx.font = `bold 14px ${FONT}`;
+    ctx.fillStyle = n === 0 ? "#4a5f85" : KINDS[kind].boss ? RARITY_CSS.epic : "#cfe4ff";
+    ctx.fillText(n === 0 ? "· · ·" : KINDS[kind].name, x + 12, y + 20);
+    ctx.textAlign = "right";
+    ctx.font = `12px ${FONT}`;
+    ctx.fillStyle = tier > 0 ? GOLD : "#6f8fbf";
+    const next = need.tiers.find((t) => n < t);
+    ctx.fillText(`${n} kills${tier > 0 ? `   ·   +${Math.round(huntBonus(pr, kind) * 100)}% damage` : ""}${next ? `   ·   next at ${next}` : "   ·   mastered"}`, x + BEAST.colW - 34, y + 20);
+    ctx.textAlign = "left";
+    ctx.font = `11px ${FONT}`;
+    ctx.fillStyle = n >= need.lore ? "#9fc8ff" : "#4a5f85";
+    const lore = n >= need.lore ? LORE[kind] : n > 0 ? `Kill ${need.lore - n} more to learn what it is.` : "Not yet met.";
+    ctx.fillText(wrap(ctx, lore, BEAST.colW - 50)[0], x + 12, y + 40);
+    // A bar toward the next tier.
+    const from = tier > 0 ? need.tiers[tier - 1] : 0;
+    bar(ctx, x + 12, y + 47, BEAST.colW - 46, 3, next ? (n - from) / (next - from) : 1, tier >= 3 ? GOLD : BLUE);
+  }
+}
+
+/** The struck lines on the Story tab: what each found line says, and what is still missing. */
+function drawLines(ctx: Ctx, w: World): void {
+  const pr = w.profile;
+  if (!pr.ending && pr.cycle === 0 && pr.lines.length === 0) return;
+  ctx.textAlign = "left";
+  ctx.font = `bold 12px ${FONT}`;
+  ctx.fillStyle = "#6f8fbf";
+  ctx.fillText(`STRUCK LINES   ·   ${pr.lines.length} of ${STRUCK_LINES.length}   ·   pages of the Ledger someone crossed out`, LINES_AT.x, LINES_AT.y);
+  STRUCK_LINES.forEach((line, i) => {
+    const have = pr.lines.includes(i);
+    ctx.font = `11px ${FONT}`;
+    ctx.fillStyle = have ? "#e8e8f0" : "#4a5f85";
+    const text = have ? `${line.glyph}  ${line.text}` : `?  ${line.how}`;
+    ctx.fillText(wrap(ctx, text, VIEW_W - LINES_AT.x - 30)[0], LINES_AT.x, LINES_AT.y + 20 + i * 18);
+  });
+}
+
 function drawPurse(ctx: Ctx, w: World): void {
   const pr = w.profile;
   const p = w.player;
@@ -916,7 +1019,7 @@ function drawAlerts(ctx: Ctx, w: World): void {
     ctx.textAlign = "center";
     ctx.font = `bold 15px ${FONT}`;
     ctx.fillStyle = GOLD;
-    ctx.fillText(`BOSS RUSH   ·   ${w.rushIdx + 1} OF ${RANK_IDS.length}   ·   ${clock(w.rushTime)}`, VIEW_W / 2, 92);
+    ctx.fillText(`BOSS RUSH   ·   ${w.rushIdx + 1} OF ${RUSH.rounds.length}   ·   ${clock(w.rushTime)}`, VIEW_W / 2, 92);
   }
   if (w.breakT > 0) banner(`GATE BREAK   ·   hold the line   ${clock(w.breakT)}`, w.breakT / BREAK.time, "#ff8a3c");
   if (w.penaltyT > 0) banner(`PENALTY ZONE   ·   survive   ${clock(w.penaltyT)}`, w.penaltyT / PENALTY.time, "#ff5a60");
@@ -1109,13 +1212,15 @@ export function drawHud(ctx: Ctx, w: World, mouseX: number, mouseY: number, proj
           : w.profile.classUnlocked
             ? ` · ${k("KeyH")} ${CLASSES[w.profile.cls].power.toLowerCase()}`
             : "";
-        return `${move} move · CLICK attack · ${k("Space")} dash · ${k("KeyQ")} ${k("KeyE")} ${k("KeyR")} RMB skills · ${k("KeyF")} potion · ${k("KeyV")} mana · ${k("KeyB")} belt · ${k("KeyX")} swap · ${k("KeyT")} stone${army} · ${k("KeyC")} status · ESC pause`;
+        const ult = ultimateOf(w.profile) ? ` · ${k("KeyY")} ultimate` : "";
+        return `${move} move · CLICK attack · ${k("Space")} dash · ${k("KeyQ")} ${k("KeyE")} ${k("KeyR")} RMB skills · ${k("KeyF")} potion · ${k("KeyV")} mana · ${k("KeyB")} belt · ${k("KeyX")} swap · ${k("KeyT")} stone${army}${ult} · ${k("KeyC")} status · ESC pause`;
       })(),
       VIEW_W / 2,
       VIEW_H - 14,
     );
   }
   drawNotices(ctx, w);
+  if (w.sting && !w.cutscene) drawSting(ctx, w);
   if (w.menu === "status") drawStatus(ctx, w);
   if (w.menu === "pause") drawPause(ctx, w);
   if (w.menu === "keys") drawKeys(ctx, w);

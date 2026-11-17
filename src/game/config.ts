@@ -221,7 +221,8 @@ export type EnemyKind =
   | "egg"
   | "queen"
   | "commander"
-  | "monarch";
+  | "monarch"
+  | "redactor";
 
 export interface KindDef {
   name: string;
@@ -276,6 +277,7 @@ export const KINDS: Record<EnemyKind, KindDef> = {
   queen: { name: "The Brood Queen", radius: 36, hp: 14000, speed: 55, damage: 145, xp: 4000, boss: true },
   commander: { name: "Knight Commander", radius: 20, hp: 20000, speed: 170, damage: 120, xp: 9000, boss: true },
   monarch: { name: "The Hollow Monarch", radius: 24, hp: 34000, speed: 140, damage: 125, xp: 20000, boss: true },
+  redactor: { name: "The Redactor", radius: 30, hp: 90000, speed: 150, damage: 150, xp: 40000, boss: true },
 };
 
 export const LEAPER = { range: 330, windup: 0.5, air: 0.35, radius: 85, recover: 0.7, cooldown: 1.6 };
@@ -433,7 +435,63 @@ export const CLOCK = { start: 90, perFloor: 15, perBoss: 30, title: 15 };
  * The boss rush: every rank's master in turn, all at Rank S strength, with a
  * short breath and a little health between. Opens once the story is told.
  */
-export const RUSH = { rest: 3, heal: 0.3, gold: 4000 };
+export const RUSH = {
+  rest: 3,
+  heal: 0.3,
+  gold: 4000,
+  /** Each round's masters, by the rank whose boss they are: six alone, then pairs, then three at once. */
+  rounds: [["E"], ["D"], ["C"], ["B"], ["A"], ["S"], ["D", "C"], ["B", "A"], ["C", "A", "S"]] as Rank[][],
+};
+
+/**
+ * Boss floors of the tower and the time trial: from floor 20 every tenth
+ * floor holds two masters, and from floor 40 three. With more than one boss
+ * up, their big moves take turns, at least `lull` seconds apart.
+ */
+export const MULTI = { pairFrom: 20, trioFrom: 40, every: 10, lull: 2.2 };
+
+/**
+ * A mythic's ultimate, on Y. Seconds to recharge; each kill shortens the
+ * wait. The numbers for each are beside it.
+ */
+export const ULT = {
+  charge: 90,
+  perKill: 1,
+  ashen: { slashes: 5, gap: 0.14, width: 46, mult: 3.2, iframes: 1.1 },
+  twin: { strikes: 12, gap: 0.06, reach: 320, radius: 46, mult: 1.8 },
+  trial: { delay: 0.3, width: 70, mult: 7 },
+  crown: { time: 10 },
+  seal: { stun: 3, delay: 3 },
+  mantle: { time: 5, radius: 240, knock: 600 },
+  wave: { delay: 0.45, base: 3, low: 6 },
+  favour: { mark: 10 },
+  quill: { delay: 1.1, mult: 9 },
+};
+
+/** Kills of a kind that unlock its lore and then each damage bonus. Bosses need a tenth. */
+export const BESTIARY = { lore: 10, tiers: [50, 150, 500], bonus: [0.1, 0.2, 0.3], bossShare: 0.1 };
+
+/**
+ * The struck lines: five hidden pages, then four glyph stones on floor 13 of
+ * the tower, struck in order, open the Redactor's margin.
+ */
+export const LINES = { count: 5, floor: 13, stillFor: 60, towerFloor: 30, stoneRadius: 36, rest: 40, level: 60 };
+
+/** The Redactor's moves. Damage is a share of the hunter's health where it says so; erasure and strikethrough kill outright. */
+export const REDACTOR = {
+  /** Seconds between moves in each stage, and the breath after a stage begins. */
+  every: [3.4, 2.7, 2.0],
+  grace: 3,
+  stages: [0.66, 0.33],
+  erasure: { warn: 2.5, safe: 3, radius: 72 },
+  strike: { warn: 1.5, speed: 1150, thick: 34 },
+  quills: { count: 5, speed: 300, turn: 2.2, life: 5, share: 0.18 },
+  bars: { count: 5, warn: 1, gap: 0.3, width: 70, share: 0.35 },
+  footnote: { warn: 1.1, radius: 130, share: 0.3 },
+  melee: { range: 90, windup: 0.7, radius: 120, share: 0.3 },
+  /** The last stage: the floor closes in to this radius and hurts anyone outside it. */
+  shrink: { from: 760, to: 360, time: 25, share: 0.1 },
+};
 
 export function towerRank(floor: number): Rank {
   return RANK_IDS[Math.min(RANK_IDS.length - 1, Math.floor((floor - 1) / TOWER.floorsPerRank))];
@@ -456,7 +514,8 @@ export const BINDABLE: [string, string][] = [
   ["KeyX", "Swap weapon"],
   ["KeyT", "Return Stone"],
   ["KeyG", "Bind a remnant"],
-  ["KeyH", "Army away / back"],
+  ["KeyH", "Class power"],
+  ["KeyY", "Mythic ultimate"],
   ["KeyJ", "Army orders"],
   ["KeyC", "Status"],
 ];
