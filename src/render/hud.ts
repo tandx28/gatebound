@@ -1,6 +1,9 @@
 import {
   BREAK,
+  CLASSES,
+  CLOCK,
   dailyGoals,
+  NGPLUS,
   ECHO,
   KINDS,
   ORDER_TEXT,
@@ -9,6 +12,7 @@ import {
   RANKS,
   PHASES,
   RITE,
+  RANK_IDS,
   SKILL_SLOTS,
   STATUS,
   SKILLS,
@@ -16,10 +20,10 @@ import {
   VIEW_W,
 } from "../game/config";
 import type { Rank } from "../game/config";
-import type { World } from "../game/state";
-import { NOTICES_SHOWN } from "../game/world";
+import { isCaller, type World } from "../game/state";
+import { LEAVABLE, NOTICES_SHOWN } from "../game/world";
 import { FURY, itemDef, itemName, MYTHICS, POTION, POWERS, STONE, TITLES, WEAPONS, type Rarity } from "../game/items";
-import { BELT, beltCount, boundKey, keyName, tutorialTip } from "../game/profile";
+import { BELT, beltCount, boundKey, keyName, slotOpen, tutorialTip } from "../game/profile";
 import { CUT, CUTSCENES, SKIP_HOLD } from "../game/cutscenes";
 import { activeQuests, MAIN, questProgress } from "../game/quests";
 import { CHAPTERS } from "../game/story";
@@ -27,6 +31,7 @@ import { STAT_KEYS, STAT_NAMES, xpToNext, type StatKey } from "../game/stats";
 import {
   hubButtons,
   hubHeadings,
+  HUNTER,
   KEYS_PANEL,
   keysButtons,
   PAUSE_PANEL,
@@ -177,11 +182,33 @@ function drawSkills(ctx: Ctx, w: World): void {
   const p = w.player;
   const size = 58;
   const gap = 12;
-  const slots = w.profile.loadout;
-  const x0 = VIEW_W / 2 - (size * slots.length + gap * (slots.length - 1)) / 2;
+  // Only the open slots, then the class power on H once there is a class.
+  const open = w.profile.loadout.map((id, i) => ({ id, i })).filter(({ i }) => slotOpen(w.profile, i));
+  const power = w.profile.classUnlocked;
+  const count = open.length + (power ? 1 : 0);
+  const x0 = VIEW_W / 2 - (size * count + gap * (count - 1)) / 2;
   const y = VIEW_H - 96;
-  slots.forEach((id, i) => {
-    const x = x0 + i * (size + gap);
+  if (power) {
+    const x = x0 + open.length * (size + gap);
+    const c = CLASSES[w.profile.cls];
+    panel(ctx, x, y, size, size);
+    const cd = w.armyCd;
+    if (cd > 0) {
+      ctx.fillStyle = "rgba(4,6,11,0.7)";
+      const h = size * Math.min(1, cd / c.cooldown);
+      ctx.fillRect(x + 1, y + size - h, size - 1, h);
+    }
+    const lit = w.player.bulwarkT > 0 || w.player.overflowT > 0 || w.legionT > 0;
+    ctx.textAlign = "center";
+    ctx.font = `bold 20px ${FONT}`;
+    ctx.fillStyle = cd > 0 ? "#56719c" : lit ? GOLD : "#b9a4ff";
+    ctx.fillText(keyName(boundKey(w, "KeyH")), x + size / 2, y + 28);
+    ctx.font = `10px ${FONT}`;
+    ctx.fillStyle = "#8f80c8";
+    ctx.fillText(cd > 0 ? cd.toFixed(1) : c.power.toUpperCase().slice(0, 10), x + size / 2, y + 46);
+  }
+  open.forEach(({ id, i }, n) => {
+    const x = x0 + n * (size + gap);
     panel(ctx, x, y, size, size);
     ctx.textAlign = "center";
     if (!id) {
@@ -222,9 +249,12 @@ function drawSkills(ctx: Ctx, w: World): void {
       ctx.fillText(rank === 2 ? "II" : "III", x + size - 5, y + 13);
       ctx.textAlign = "center";
     }
+    const label = cd > 0 ? cd.toFixed(1) : s.name.toUpperCase();
+    // Long names shrink to fit the box rather than spill into the next one.
     ctx.font = `10px ${FONT}`;
+    if (ctx.measureText(label).width > size - 6) ctx.font = `${Math.max(6, Math.floor((10 * (size - 6)) / ctx.measureText(label).width))}px ${FONT}`;
     ctx.fillStyle = poor ? "#ff5a60" : "#6f8fbf";
-    ctx.fillText(cd > 0 ? cd.toFixed(1) : s.name.toUpperCase(), x + size / 2, y + 46);
+    ctx.fillText(label, x + size / 2, y + 46);
   });
 }
 
@@ -336,11 +366,14 @@ function drawStatus(ctx: Ctx, w: World): void {
   ctx.font = `14px ${FONT}`;
   ctx.textAlign = "left";
   ctx.fillStyle = "#9fc8ff";
+  // Two columns that never meet: who the hunter is on the left, the gauges on the right.
+  const col = s.x + 290;
   ctx.fillText(`LEVEL  ${p.prog.level}`, left, s.y + 92);
-  ctx.fillText(`RANK   ${w.profile.hunterRank}${w.profile.classUnlocked ? "   ·   ECHO CALLER" : ""}`, left, s.y + 116);
-  ctx.fillText(`HP  ${p.hp} / ${p.d.maxHp}`, left + 200, s.y + 92);
-  ctx.fillText(`MP  ${Math.floor(p.mana)} / ${p.d.maxMana}`, left + 200, s.y + 116);
-  ctx.fillText(need === Infinity ? "EXP  MAX" : `EXP  ${p.prog.xp} / ${need}`, left, s.y + 140);
+  ctx.fillText(`RANK   ${w.profile.hunterRank}`, left, s.y + 116);
+  ctx.fillText(`CLASS  ${w.profile.classUnlocked ? CLASSES[w.profile.cls].name.toUpperCase() : "NONE YET"}`, left, s.y + 140);
+  ctx.fillText(`HP   ${p.hp} / ${p.d.maxHp}`, col, s.y + 92);
+  ctx.fillText(`MP   ${Math.floor(p.mana)} / ${p.d.maxMana}`, col, s.y + 116);
+  ctx.fillText(need === Infinity ? "EXP  MAX" : `EXP  ${p.prog.xp} / ${need}`, col, s.y + 140);
 
   const readouts: Record<StatKey, string> = {
     str: `${Math.round(p.d.damage)} damage`,
@@ -473,12 +506,16 @@ function drawButton(ctx: Ctx, w: World, b: Button): void {
     // Long names and descriptions are cut off at the button, never drawn under it.
     ctx.save();
     ctx.beginPath();
-    ctx.rect(b.textX!, r.y - 4, r.x - b.textX! - 10, 40);
+    ctx.rect(b.textX!, r.y - 4, r.x - b.textX! - 10, b.sub2 ? 56 : 40);
     ctx.clip();
     ctx.fillText(b.text, b.textX!, r.y + 13);
     ctx.font = `11px ${FONT}`;
     ctx.fillStyle = "#6f8fbf";
     ctx.fillText(b.sub ?? "", b.textX!, r.y + 27);
+    if (b.sub2) {
+      ctx.fillStyle = "#4f6a94";
+      ctx.fillText(b.sub2, b.textX!, r.y + 42);
+    }
     ctx.restore();
   }
 
@@ -675,16 +712,9 @@ function drawHub(ctx: Ctx, w: World): void {
   ctx.fillStyle = "#cfe4ff";
   ctx.shadowColor = BLUE;
   ctx.shadowBlur = 22;
-  ctx.fillText("GATEBOUND", VIEW_W / 2, 104);
+  ctx.fillText("GATEBOUND", VIEW_W / 2 + 140, 72);
   ctx.shadowBlur = 0;
-  ctx.font = `14px ${FONT}`;
-  ctx.fillStyle = GOLD;
-  const title = TITLES.find((t) => t.id === pr.title);
-  ctx.fillText(
-    `${pr.gold} GOLD   ·   POTIONS ${pr.potions}/${POTION.max}   ·   FLASK ${pr.flask.charges}/${pr.flask.size}   ·   STONES ${pr.stones}/${STONE.max}   ·   KEYS ${pr.keys}${title ? `   ·   ${title.name.toUpperCase()}` : ""}`,
-    VIEW_W / 2,
-    146,
-  );
+  drawPurseStrip(ctx, w);
 
   ctx.textAlign = "left";
   ctx.font = `bold 12px ${FONT}`;
@@ -707,6 +737,27 @@ function drawHub(ctx: Ctx, w: World): void {
     ctx.font = `13px ${FONT}`;
     ctx.fillStyle = "#6f8fbf";
     ctx.fillText(`Gates cleared: ${pr.gatesCleared}   ·   Kills this session: ${w.kills}`, VIEW_W / 2, 590);
+  }
+  if (w.tab === "hunter") {
+    // What New Game+ has opened so far, under the classes.
+    const y = 250 + 4 * HUNTER.classH + 18;
+    const open = SKILL_SLOTS.filter((_, i) => slotOpen(pr, i)).length;
+    const lines = [
+      `NEW GAME+   ·   cycle ${pr.cycle} of ${NGPLUS.max}`,
+      `Skill slots open: ${open} of ${SKILL_SLOTS.length}. Each New Game+ opens one more (keys 1, 2, 3).`,
+      `The Arcanist opens at New Game+ 1. Each cycle grants its own title.`,
+      `Enemies +${Math.round(NGPLUS.harder * pr.cycle * 100)}%   ·   gold and experience +${Math.round(NGPLUS.reward * pr.cycle * 100)}%`,
+    ];
+    ctx.textAlign = "left";
+    lines.forEach((line, i) => {
+      ctx.font = i === 0 ? `bold 12px ${FONT}` : `12px ${FONT}`;
+      ctx.fillStyle = i === 0 ? "#6f8fbf" : "#9fc8ff";
+      ctx.fillText(line, HUNTER.classX, y + i * 20);
+    });
+    if (pr.classUnlocked && pr.cls !== "echo" && pr.echoes.length > 0) {
+      ctx.fillStyle = "#8f80c8";
+      ctx.fillText(`Your ${pr.echoes.length} echoes rest until you are an Echo Caller again.`, HUNTER.classX, y + lines.length * 20);
+    }
   }
   if (w.tab === "echoes" && pr.echoes.length === 0) {
     ctx.textAlign = "left";
@@ -739,6 +790,55 @@ function drawHub(ctx: Ctx, w: World): void {
   ctx.fillText("Q / E  switch tab   ·   C  status and stat points", VIEW_W / 2, VIEW_H - 24);
 }
 
+/**
+ * The board's resource strip: one boxed cell per thing held, label above
+ * value, laid out to the right of the vitals panel so the two never touch.
+ */
+function drawPurseStrip(ctx: Ctx, w: World): void {
+  const pr = w.profile;
+  const title = TITLES.find((t) => t.id === pr.title);
+  const cells: [string, string, number][] = [
+    ["GOLD", pr.gold.toLocaleString("en-US"), 1.3],
+    ["POTIONS", `${pr.potions} / ${POTION.max}`, 1],
+    ["FLASK", `${pr.flask.charges} / ${pr.flask.size}`, 1],
+    ["STONES", `${pr.stones} / ${STONE.max}`, 1],
+    ["KEYS", String(pr.keys), 0.8],
+    ["TITLE", title ? title.name : "none", 1.9],
+  ];
+  const x0 = 320;
+  const y = 96;
+  const h = 44;
+  const total = VIEW_W - 20 - x0;
+  const weight = cells.reduce((n, c) => n + c[2], 0);
+  panel(ctx, x0, y, total, h);
+  let x = x0;
+  cells.forEach(([label, value, share], i) => {
+    const cw = (total * share) / weight;
+    if (i > 0) {
+      ctx.strokeStyle = "rgba(58,160,255,0.25)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(x + 0.5, y + 8);
+      ctx.lineTo(x + 0.5, y + h - 8);
+      ctx.stroke();
+    }
+    ctx.textAlign = "left";
+    ctx.font = `bold 10px ${FONT}`;
+    ctx.fillStyle = "#6f8fbf";
+    ctx.fillText(label, x + 14, y + 17);
+    ctx.font = `bold 14px ${FONT}`;
+    ctx.fillStyle = label === "TITLE" ? "#cfe4ff" : GOLD;
+    // Clip to the cell so a long title never runs into its neighbour.
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(x + 10, y, cw - 16, h);
+    ctx.clip();
+    ctx.fillText(value, x + 14, y + 35);
+    ctx.restore();
+    x += cw;
+  });
+}
+
 function drawPurse(ctx: Ctx, w: World): void {
   const pr = w.profile;
   const p = w.player;
@@ -752,7 +852,7 @@ function drawPurse(ctx: Ctx, w: World): void {
   ctx.fillStyle = pr.potions > 0 ? "#6dff9c" : "#4a5f85";
   ctx.fillText(`[F] POTION x${pr.potions}`, 286, 159);
   // The stone is greyed out where it cannot work.
-  const dead = w.sealed || (w.gateKind !== "normal" && w.gateKind !== "key" && w.gateKind !== "tower");
+  const dead = w.sealed || !LEAVABLE.has(w.gateKind);
   ctx.fillStyle = w.bossDead || w.remnantHold ? GOLD : pr.stones > 0 && !dead ? "#9fc8ff" : "#4a5f85";
   ctx.fillText(w.bossDead || w.remnantHold ? "[T] LEAVE GATE" : `[T] STONE x${pr.stones}`, 286, 178);
 
@@ -807,7 +907,16 @@ function drawAlerts(ctx: Ctx, w: World): void {
     ctx.textAlign = "center";
     ctx.font = `bold 15px ${FONT}`;
     ctx.fillStyle = GOLD;
-    ctx.fillText(`THE TOWER   ·   FLOOR ${w.towerFloor}   ·   BEST ${w.profile.towerBest}`, VIEW_W / 2, 64);
+    ctx.fillText(`THE TOWER   ·   FLOOR ${w.towerFloor}   ·   BEST ${w.profile.towerBest}`, VIEW_W / 2, 92);
+  }
+  if (w.gateKind === "clock" && w.mode === "gate") {
+    banner(`TIME TRIAL   ·   FLOOR ${w.towerFloor}   ·   BEST ${w.profile.clockBest}   ·   ${clock(w.clockT)}`, Math.min(1, w.clockT / CLOCK.start), w.clockT < 15 ? "#ff5a60" : GOLD);
+  }
+  if (w.gateKind === "rush" && w.mode === "gate") {
+    ctx.textAlign = "center";
+    ctx.font = `bold 15px ${FONT}`;
+    ctx.fillStyle = GOLD;
+    ctx.fillText(`BOSS RUSH   ·   ${w.rushIdx + 1} OF ${RANK_IDS.length}   ·   ${clock(w.rushTime)}`, VIEW_W / 2, 92);
   }
   if (w.breakT > 0) banner(`GATE BREAK   ·   hold the line   ${clock(w.breakT)}`, w.breakT / BREAK.time, "#ff8a3c");
   if (w.penaltyT > 0) banner(`PENALTY ZONE   ·   survive   ${clock(w.penaltyT)}`, w.penaltyT / PENALTY.time, "#ff5a60");
@@ -995,7 +1104,11 @@ export function drawHud(ctx: Ctx, w: World, mouseX: number, mouseY: number, proj
       (() => {
         const k = (action: string) => keyName(boundKey(w, action));
         const move = ["KeyW", "KeyA", "KeyS", "KeyD"].map(k).join("");
-        const army = w.profile.classUnlocked ? ` · ${k("KeyG")} bind · ${k("KeyH")} army · ${k("KeyJ")} ${ORDER_TEXT[w.armyOrder].toLowerCase()}` : "";
+        const army = isCaller(w.profile)
+          ? ` · ${k("KeyG")} bind · ${k("KeyH")} army · ${k("KeyJ")} ${ORDER_TEXT[w.armyOrder].toLowerCase()}`
+          : w.profile.classUnlocked
+            ? ` · ${k("KeyH")} ${CLASSES[w.profile.cls].power.toLowerCase()}`
+            : "";
         return `${move} move · CLICK attack · ${k("Space")} dash · ${k("KeyQ")} ${k("KeyE")} ${k("KeyR")} RMB skills · ${k("KeyF")} potion · ${k("KeyV")} mana · ${k("KeyB")} belt · ${k("KeyX")} swap · ${k("KeyT")} stone${army} · ${k("KeyC")} status · ESC pause`;
       })(),
       VIEW_W / 2,

@@ -382,7 +382,7 @@ describe("gate board tabs", () => {
     const c = new FakeControls();
     c.press("KeyE");
     run(w, c, 0.02);
-    expect(w.tab).toBe("shop");
+    expect(w.tab).toBe("trials");
     c.press("KeyQ");
     c.press("KeyQ");
     run(w, c, 0.02);

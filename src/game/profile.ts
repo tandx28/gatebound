@@ -2,8 +2,17 @@ import { seeded } from "../engine/rng";
 import { seenScenes, startCutscene } from "./cutscenes";
 import { clamp } from "../engine/vec";
 import {
+  ARCANIST,
   BINDABLE,
   bossEchoCap,
+  CLASSES,
+  CLASS_IDS,
+  CLOCK,
+  RANGER,
+  RUSH,
+  SKILL_SLOTS,
+  VANGUARD,
+  type ClassId,
   BREAK,
   dailyGoals,
   DEFAULT_LOADOUT,
@@ -19,6 +28,7 @@ import {
   RANKS,
   RESET,
   SKILL_IDS,
+  SKILL_GROUPS,
   SKILL_RANK,
   SKILLS,
   TOWER,
@@ -72,6 +82,7 @@ import {
   QUALITIES,
   sfx,
   visibleTabs,
+  isCaller,
   type Enemy,
   type HubTab,
   type Profile,
@@ -128,6 +139,9 @@ export function newProfile(): Profile {
     tips: true,
     sealedPity: 0,
     redGate: { day: 0, rank: "E", done: false },
+    cls: "echo",
+    clockBest: 0,
+    rushBest: 0,
   };
 }
 
@@ -158,6 +172,18 @@ export function refreshDerived(w: World): void {
     const wd = WEAPONS[p.weapon];
     next.attackCooldown *= wd.cooldown / WEAPONS.dagger.cooldown;
     next.critChance = Math.min(CRIT_CAP, next.critChance + wd.crit);
+  }
+  // What the class always gives. (Before the rite there is no class.)
+  if (pr.classUnlocked) {
+    if (pr.cls === "vanguard") next.maxHp = Math.round(next.maxHp * VANGUARD.hp);
+    if (pr.cls === "ranger") {
+      next.critChance = Math.min(CRIT_CAP, next.critChance + RANGER.crit);
+      if (p.weapon === "bow") next.damage *= RANGER.bow;
+    }
+    if (pr.cls === "arcanist") {
+      next.skillPower *= ARCANIST.skill;
+      next.maxMana = Math.round(next.maxMana * ARCANIST.mana);
+    }
   }
   p.perks = gearPerks(pr.equipped, pr.activeWeapon);
   p.powers = gearPowers(pr.equipped, pr.activeWeapon);
@@ -256,6 +282,62 @@ export function towerFloorCleared(w: World): void {
   }
   if (floor >= 25) earnTitle(w, "tower_25");
   if (floor >= 50) earnTitle(w, "tower_50");
+  w.dirty = true;
+}
+
+/** Whether skill slot `i` is open: the last three open one per New Game+ cycle. */
+export function slotOpen(profile: Profile, i: number): boolean {
+  return !!SKILL_SLOTS[i] && profile.cycle >= SKILL_SLOTS[i].cycle;
+}
+
+/** Whether a class can be taken up: the rite must be done, and some need a New Game+. */
+export function classOpen(profile: Profile, id: ClassId): boolean {
+  return profile.classUnlocked && profile.cycle >= CLASSES[id].cycle;
+}
+
+/** The boss rush opens once the story has been told to its end at least once. */
+export function rushOpen(profile: Profile): boolean {
+  return profile.ending !== null || profile.cycle > 0;
+}
+
+/** A time trial floor is clear: more time on the clock, the record, and the tower's boss-floor pay. */
+export function clockFloorCleared(w: World): void {
+  const pr = w.profile;
+  const floor = w.towerFloor;
+  const boss = floor % TOWER.bossEvery === 0;
+  w.clockT += boss ? CLOCK.perBoss : CLOCK.perFloor;
+  if (floor > pr.clockBest) pr.clockBest = floor;
+  if (boss) {
+    const gold = TOWER.gold * floor;
+    pr.gold += gold;
+    w.notices.push({ title: `FLOOR ${floor} CLEARED`, body: `+${gold} gold  ·  +${CLOCK.perBoss} seconds`, life: 3 });
+    sfx(w, "quest");
+  }
+  if (floor >= CLOCK.title) earnTitle(w, "clock");
+  w.dirty = true;
+}
+
+/** The time trial's clock ran out: the climb ends and everything found is kept. */
+export function settleClock(w: World): void {
+  if (w.run.settled) return;
+  w.run.settled = true;
+  w.run.summary = [`Time! You reached floor ${w.towerFloor}. Best: floor ${w.profile.clockBest}.`, ...bank(w)];
+  w.dirty = true;
+}
+
+/** The boss rush is won: a record time, a purse, a Rank S prize. */
+export function settleRush(w: World): void {
+  if (w.run.settled) return;
+  const pr = w.profile;
+  const time = Math.max(1, Math.round(w.rushTime));
+  const record = pr.rushBest === 0 || time < pr.rushBest;
+  if (record) pr.rushBest = time;
+  w.run.gold += RUSH.gold;
+  w.run.items.push(rollDrop("S", w.rng));
+  w.run.settled = true;
+  const clock = `${Math.floor(time / 60)}:${String(time % 60).padStart(2, "0")}`;
+  w.run.summary = [`Every master fell in ${clock}${record ? "   ·   NEW RECORD" : ""}`, ...bank(w)];
+  earnTitle(w, "rush");
   w.dirty = true;
 }
 
@@ -418,7 +500,8 @@ export function newGamePlus(w: World): boolean {
   // Today's shelf is rolled again, for the legendary a new cycle brings.
   pr.shop.stock = stockFor(w);
   w.pendingDialogue = [];
-  w.notices.push({ title: `NEW GAME+  ${pr.cycle}`, body: `The Ledger opens at its first page. Enemies are ${Math.round(NGPLUS.harder * pr.cycle * 100)}% stronger.`, life: 6 });
+  w.notices.push({ title: `NEW GAME+  ${pr.cycle}`, body: `The Ledger opens at its first page. Enemies are ${Math.round(NGPLUS.harder * pr.cycle * 100)}% stronger. A new skill slot opens.`, life: 6 });
+  earnTitle(w, `ng${pr.cycle}`);
   w.dirty = true;
   // Steps already met (a level, a following of echoes) pass at once.
   fireQuest(w, { type: "level", level: w.player.prog.level });
@@ -508,7 +591,7 @@ export function onKill(w: World, e: Enemy): void {
   fireQuest(w, { type: "kill", kind: e.kind });
   // An Echo Caller can bind what falls. Summoned minions leave nothing.
   const field = w.gateKind === "normal" || w.gateKind === "key" || w.gateKind === "break";
-  if (w.profile.classUnlocked && field && (e.xp > 0 || e.boss)) {
+  if (isCaller(w.profile) && field && (e.xp > 0 || e.boss)) {
     w.remnants.push({
       x: e.x,
       y: e.y,
@@ -811,6 +894,8 @@ export function settleDeath(w: World): void {
   run.keys = 0;
   run.books = [];
   if (w.gateKind === "tower") run.summary.unshift(`You fell on floor ${w.towerFloor} of the tower. Best: floor ${pr.towerBest}.`);
+  if (w.gateKind === "clock") run.summary.unshift(`You fell on floor ${w.towerFloor} of the time trial. Best: floor ${pr.clockBest}.`);
+  if (w.gateKind === "rush") run.summary.unshift(`You fell to master ${w.rushIdx + 1} of ${RANK_IDS.length} in the boss rush.`);
   // Dying in the penalty zone still settles the debt; so does a lost break.
   if (w.gateKind === "penalty") pr.penaltyPending = false;
   if (w.gateKind === "break") {
@@ -892,7 +977,7 @@ export function tutorialTip(w: World): string | null {
 }
 
 /** What a gate-board action asks the caller to start, if anything. */
-export type Enter = Rank | "key" | "rite" | "sealed" | "tower" | null;
+export type Enter = Rank | "key" | "rite" | "sealed" | "tower" | "clock" | "rush" | null;
 
 /** Perform a gate-board action by id. */
 export function hubAction(w: World, id: string): Enter {
@@ -938,6 +1023,8 @@ function hubActionInner(w: World, verb: string, arg: string, extra: string | und
       if (arg === "rite") return riteOpen(pr) ? "rite" : null;
       if (arg === "sealed") return redGateOpen(w) ? "sealed" : null;
       if (arg === "tower") return towerOpen(pr) ? "tower" : null;
+      if (arg === "clock") return towerOpen(pr) ? "clock" : null;
+      if (arg === "rush") return rushOpen(pr) ? "rush" : null;
       return RANK_IDS.includes(arg as Rank) ? (arg as Rank) : null;
     case "buy":
       if (arg === "potion") {
@@ -1001,11 +1088,34 @@ function hubActionInner(w: World, verb: string, arg: string, extra: string | und
       if (arg !== "+" && arg !== "-") return null;
       w.invPage = Math.max(0, w.invPage + (arg === "+" ? 1 : -1));
       return null;
+    case "class": {
+      // Take up another class. Echoes are kept, resting, for a return to Echo Caller.
+      const id = arg as ClassId;
+      if (!CLASS_IDS.includes(id) || !classOpen(pr, id) || pr.cls === id) return null;
+      pr.cls = id;
+      refreshDerived(w);
+      w.notices.push({ title: CLASSES[id].name.toUpperCase(), body: `H: ${CLASSES[id].power}  ·  ${CLASSES[id].powerAbout}`, life: 4 });
+      if (!visibleTabs(w).includes(w.tab)) w.tab = "hunter";
+      break;
+    }
+    case "pick": {
+      // Choose the slot the next skill click fills.
+      const i = Number(arg);
+      if (!slotOpen(pr, i)) return null;
+      w.slotPick = i;
+      break;
+    }
+    case "skillpage": {
+      const i = Number(arg);
+      if (!(i >= 0 && i < SKILL_GROUPS.length)) return null;
+      w.skillPage = i;
+      break;
+    }
     case "slot": {
       // Put a skill in a slot. If it sat in another slot, the two trade places.
       const i = Number(arg);
       const id = extra as SkillId;
-      if (!(i >= 0 && i < pr.loadout.length) || !SKILL_IDS.includes(id)) return null;
+      if (!(i >= 0 && i < pr.loadout.length) || !slotOpen(pr, i) || !SKILL_IDS.includes(id)) return null;
       const from = pr.loadout.indexOf(id);
       if (from === i) pr.loadout[i] = null;
       else {

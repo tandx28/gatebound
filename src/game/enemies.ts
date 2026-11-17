@@ -6,6 +6,7 @@ import {
   CHARGER,
   COLOSSUS,
   DOMAIN,
+  MARK,
   DOMINION,
   EGG,
   EXPLODER,
@@ -83,6 +84,7 @@ export function makeEnemy(kind: EnemyKind, x: number, y: number, rank: Rank, boo
     dot: 0,
     dotT: 0,
     chillT: 0,
+    markT: 0,
   };
 }
 
@@ -137,6 +139,7 @@ export function damageEnemy(
     w.enemies.some((o) => o !== e && o.kind === "warder" && o.hp > 0 && Math.hypot(o.x - e.x, o.y - e.y) < WARDER.aura);
   if (shielded) scaled *= WARDER.shield;
   if (w.domainT > 0) scaled *= DOMAIN.vulnerable;
+  if (e.markT > 0) scaled *= MARK.vulnerable;
 
   const dmg = Math.round(scaled);
   e.hp = applyDamage(e.hp, dmg);

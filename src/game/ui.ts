@@ -1,4 +1,4 @@
-import { BINDABLE, bossEchoCap, echoCap, NGPLUS, KINDS, RANK_IDS, RESET, SKILL_IDS, SKILL_RANK, SKILL_SLOTS, SKILLS, VIEW_H, VIEW_W, type Rank } from "./config";
+import { BINDABLE, bossEchoCap, CLASS_IDS, CLASSES, CLOCK, echoCap, NGPLUS, KINDS, RANK_IDS, RESET, RUSH, SKILL_GROUPS, SKILL_RANK, SKILL_SLOTS, SKILLS, VIEW_H, VIEW_W, type Rank } from "./config";
 import {
   BAG,
   describeBonus,
@@ -17,10 +17,10 @@ import {
   type SupplyId,
 } from "./items";
 import { CUTSCENES, seenScenes } from "./cutscenes";
-import { activeEchoes, boundKey, canActivate, canNewGamePlus, keyName, owns, redGateOpen, riteOpen, towerOpen } from "./profile";
+import { activeEchoes, boundKey, canActivate, canNewGamePlus, classOpen, keyName, owns, redGateOpen, riteOpen, rushOpen, slotOpen, towerOpen } from "./profile";
 import { MAIN } from "./quests";
 import { CHAPTERS } from "./story";
-import { visibleTabs, type World } from "./state";
+import { isCaller, visibleTabs, type World } from "./state";
 import { BASE_STAT, STAT_KEYS } from "./stats";
 
 /** Layout shared by the renderer and the click handling, so they agree. */
@@ -69,6 +69,8 @@ export interface Button {
   kind: "tab" | "card" | "row" | "plain" | "setting";
   text?: string;
   sub?: string;
+  /** A third line under `sub`, for rows that need it (classes, trials). */
+  sub2?: string;
   textX?: number;
   /** Highlighted: the current tab, an active title. */
   on?: boolean;
@@ -268,15 +270,25 @@ export function hubHeadings(w: World): { x: number; y: number; text: string }[] 
     ];
   }
   if (w.tab === "skills") {
-    return [{ x: LEFT, y, text: "SKILLS   ·   click a slot to put a skill in it; click it again to clear it" }];
+    const open = SKILL_SLOTS.filter((_, i) => slotOpen(w.profile, i)).length;
+    return [
+      { x: SLOT_X0, y: y + 4, text: `SKILL SLOTS   ·   ${open} of ${SKILL_SLOTS.length} open   ·   pick a slot, then click a skill below to put it there` },
+      { x: GROUP_X + SKILL_GROUPS.length * (GROUP_W + 10) + 10, y: GROUP_Y + 19, text: SKILL_GROUPS[w.skillPage]?.about.toUpperCase() ?? "" },
+    ];
   }
   if (w.tab === "gear") {
     return [
       { x: LEFT, y, text: "EQUIPPED   ·   X swaps the weapon in hand" },
-      { x: LEFT, y: y + 5 * ROW_H, text: "TITLES" },
       { x: RIGHT, y, text: bag },
     ];
   }
+  if (w.tab === "hunter") {
+    return [
+      { x: HUNTER.classX, y, text: w.profile.classUnlocked ? "CLASS   ·   H uses its power   ·   change it here at any time" : "CLASS   ·   opens with the Rite of Echoes" },
+      { x: HUNTER.titleX, y, text: `TITLES   ·   ${w.profile.titles.length} of ${TITLES.length}   ·   one in use at a time` },
+    ];
+  }
+  if (w.tab === "trials") return [{ x: LEFT, y, text: "TRIALS   ·   ways to keep climbing once the gates are behind you" }];
   return [];
 }
 
@@ -338,15 +350,125 @@ function storyButtons(w: World): Button[] {
   return out;
 }
 
+/** The skills tab: slot strip on top, group pages, then the group's skills. */
+const SLOT_W = 146;
+const SLOT_X0 = VIEW_W / 2 - (SLOT_W * SKILL_SLOTS.length + 10 * (SKILL_SLOTS.length - 1)) / 2;
+const GROUP_X = 150;
+const GROUP_Y = 306;
+const GROUP_W = 130;
+export const SKILL_ROWS = { top: 356, rowH: 50 };
+
+function skillButtons(w: World): Button[] {
+  const pr = w.profile;
+  const level = w.player.prog.level;
+  const out: Button[] = [];
+  // Never leave the pick on a locked slot.
+  const pick = slotOpen(pr, w.slotPick) ? w.slotPick : 0;
+  const pk = SKILL_SLOTS[pick].key;
+  SKILL_SLOTS.forEach((slot, j) => {
+    const open = slotOpen(pr, j);
+    const id = pr.loadout[j];
+    out.push({
+      rect: { x: SLOT_X0 + j * (SLOT_W + 10), y: 248, w: SLOT_W, h: 40 },
+      id: `pick:${j}`,
+      label: open ? `${slot.key}  ${id ? SKILLS[id].name : "empty"}` : `${slot.key}  NG+ ${slot.cycle}`,
+      enabled: open,
+      kind: "plain",
+      on: open && j === pick,
+    });
+  });
+  SKILL_GROUPS.forEach((g, i) => {
+    out.push({ rect: { x: GROUP_X + i * (GROUP_W + 10), y: GROUP_Y, w: GROUP_W, h: 28 }, id: `skillpage:${i}`, label: g.name, enabled: true, kind: "plain", on: w.skillPage === i });
+  });
+  const group = SKILL_GROUPS[w.skillPage] ?? SKILL_GROUPS[0];
+  group.skills.forEach((id, i) => {
+    const s = SKILLS[id];
+    const open = level >= s.level;
+    const rank = pr.skillRanks[id];
+    const at = pr.loadout.indexOf(id);
+    const label = !open ? `LEVEL ${s.level}` : at === pick ? `IN ${pk}  ·  CLEAR` : at >= 0 ? `${SKILL_SLOTS[at].key} TO ${pk}` : `SET ${pk}`;
+    const echoOnly = group.name === "ECHO" && !isCaller(pr);
+    out.push({
+      rect: { x: 1000, y: SKILL_ROWS.top + i * SKILL_ROWS.rowH, w: 140, h: 30 },
+      id: `slot:${pick}:${id}`,
+      label,
+      enabled: open,
+      kind: "row",
+      text: `${s.name}${rank > 1 ? `  ${"I".repeat(rank)}` : ""}${at >= 0 ? `   ·   on ${SKILL_SLOTS[at].key}` : ""}${echoOnly ? "   ·   Echo Caller only" : ""}`,
+      sub: open ? `${s.about}   ·   ${s.mana} mana   ·   ${s.cooldown} s   ·   rank ${rank} of ${SKILL_RANK.max}` : `${s.about}   ·   unlocks at level ${s.level}`,
+      textX: GROUP_X,
+      on: at === pick,
+    });
+  });
+  return out;
+}
+
+/** Where the Hunter tab draws: classes on the left, titles on the right. */
+export const HUNTER = { classX: 60, classH: 66, titleX: 660, titleH: 30 };
+
+function hunterButtons(w: World): Button[] {
+  const pr = w.profile;
+  const out: Button[] = [];
+  CLASS_IDS.forEach((id, i) => {
+    const c = CLASSES[id];
+    const open = classOpen(pr, id);
+    const on = pr.classUnlocked && pr.cls === id;
+    out.push({
+      rect: { x: HUNTER.classX + 440, y: TOP + i * HUNTER.classH, w: 110, h: 28 },
+      id: `class:${id}`,
+      label: on ? "IN USE" : open ? "TAKE UP" : pr.classUnlocked ? `NG+ ${c.cycle}` : "AFTER RITE",
+      enabled: open && !on,
+      kind: "row",
+      text: `${c.name.toUpperCase()}   ·   H  ${c.power}`,
+      sub: c.powerAbout,
+      sub2: c.passive,
+      textX: HUNTER.classX,
+      on,
+    });
+  });
+  TITLES.forEach((t, i) => {
+    const have = pr.titles.includes(t.id);
+    const on = pr.title === t.id;
+    const b = row(HUNTER.titleX, i, `title:${t.id}`, on ? "ACTIVE" : have ? "USE" : "LOCKED", have, have ? t.name : "???", have ? describeBonus(t.bonus) : t.how, on);
+    b.rect = { x: HUNTER.titleX + 440, y: TOP + i * HUNTER.titleH, w: 90, h: 24 };
+    out.push(b);
+  });
+  return out;
+}
+
+/** The Trials tab: the tower, the time trial and the boss rush. */
+export const TRIALS = { top: TOP + 6, rowH: 96 };
+
+function trialButtons(w: World): Button[] {
+  const pr = w.profile;
+  const rush = pr.rushBest > 0 ? `${Math.floor(pr.rushBest / 60)}:${String(pr.rushBest % 60).padStart(2, "0")}` : "none yet";
+  const rows: [string, string, boolean, string, string, string, string][] = [
+    ["gate:tower", "THE TOWER", towerOpen(pr), "RANK C", "Climb floor after floor until you fall or leave. Every fifth floor a master holds, and pays.", "Nothing is restocked on the way up. A Return Stone takes you out with what you found.", `Best floor ${pr.towerBest}`],
+    ["gate:clock", "TIME TRIAL", towerOpen(pr), "RANK C", `The tower against a clock: ${CLOCK.start} s to start, +${CLOCK.perFloor} s a floor, +${CLOCK.perBoss} s a master's floor.`, "When the clock runs out the climb ends, and everything found is kept.", `Best floor ${pr.clockBest}   ·   floor ${CLOCK.title} earns a title`],
+    ["gate:rush", "BOSS RUSH", rushOpen(pr), "END THE STORY", "Every rank's master, one after another, all at Rank S strength.", `A breath and ${RUSH.heal * 100}% health between them. ${RUSH.gold} gold and a Rank S prize at the end.`, `Best time ${rush}`],
+  ];
+  return rows.map(([id, name, open, need, sub, sub2, record], i) => ({
+    rect: { x: 980, y: TRIALS.top + i * TRIALS.rowH + 6, w: 150, h: 36 },
+    id,
+    label: open ? "ENTER" : need,
+    enabled: open,
+    kind: "row" as const,
+    text: `${name}   ·   ${record}`,
+    sub,
+    sub2,
+    textX: LEFT,
+  }));
+}
+
 /** Every button on the gate board for the current tab. */
 export function hubButtons(w: World): Button[] {
   const pr = w.profile;
   const out: Button[] = [];
 
   const tabs = visibleTabs(w);
-  // Nine tabs only fit if each is a little narrower.
-  const tw = tabs.length > 8 ? 124 : 140;
-  const gap = 10;
+  // As many tabs as there are, each as wide as the row allows, never wider than 140.
+  const gap = 8;
+  const tw = Math.min(140, Math.floor((VIEW_W - 60 - gap * (tabs.length - 1)) / tabs.length));
   const x0 = VIEW_W / 2 - (tw * tabs.length + gap * (tabs.length - 1)) / 2;
   tabs.forEach((tab, i) => {
     out.push({
@@ -378,15 +500,6 @@ export function hubButtons(w: World): Button[] {
         enabled: true,
         kind: "plain",
         danger: true,
-      });
-    }
-    if (towerOpen(pr)) {
-      out.push({
-        rect: { x: VIEW_W / 2 - 310, y: 644, w: 620, h: 32 },
-        id: "gate:tower",
-        label: `THE TOWER   ·   climb without end   ·   best floor ${pr.towerBest}`,
-        enabled: true,
-        kind: "plain",
       });
     }
     if (riteOpen(pr)) {
@@ -440,37 +553,13 @@ export function hubButtons(w: World): Button[] {
     const other = pr.equipped[pr.activeWeapon === 1 ? "weapon" : "weapon2"];
     // Narrow, so it stays clear of the bag column beside it.
     out.push({ rect: { x: LEFT + 466, y: TOP, w: 56, h: 28 }, id: "weapon:swap", label: "SWAP", enabled: !!other, kind: "plain" });
-    TITLES.forEach((t, i) => {
-      const have = pr.titles.includes(t.id);
-      const on = pr.title === t.id;
-      out.push(row(LEFT, 5 + i, `title:${t.id}`, on ? "ACTIVE" : have ? "USE" : "LOCKED", have, have ? t.name : "???", have ? describeBonus(t.bonus) : t.how, on));
-    });
     out.push(...bagRows(w, "equip", (o) => (itemDef(o)?.weapon ? WEAPONS[itemDef(o)!.weapon!].name.toUpperCase() : "EQUIP"), () => true));
   } else if (w.tab === "skills") {
-    const level = w.player.prog.level;
-    SKILL_IDS.forEach((id, i) => {
-      const s = SKILLS[id];
-      const open = level >= s.level;
-      const rank = pr.skillRanks[id];
-      // Twelve skills: rows as close as two lines of text allow.
-      const y = TOP + i * 34;
-      SKILL_SLOTS.forEach((slot, j) => {
-        const b: Button = {
-          rect: { x: LEFT + 560 + j * 76, y, w: 66, h: 30 },
-          id: `slot:${j}:${id}`,
-          label: slot.key,
-          enabled: open,
-          kind: j === 0 ? "row" : "plain",
-          on: pr.loadout[j] === id,
-        };
-        if (j === 0) {
-          b.text = `${s.name}${rank > 1 ? `  ${"I".repeat(rank)}` : ""}`;
-          b.sub = open ? `${s.about}  ·  ${s.mana} mana  ·  rank ${rank} of ${SKILL_RANK.max}` : `Unlocks at level ${s.level}`;
-          b.textX = LEFT;
-        }
-        out.push(b);
-      });
-    });
+    out.push(...skillButtons(w));
+  } else if (w.tab === "hunter") {
+    out.push(...hunterButtons(w));
+  } else if (w.tab === "trials") {
+    out.push(...trialButtons(w));
   } else if (w.tab === "echoes") {
     // Two columns of ten.
     pr.echoes.forEach((e, i) => {

@@ -24,12 +24,18 @@ Play it: https://tandx28.github.io/gatebound/
 - The Rite of Echoes: after it, the enemies you kill, bosses included, can
   be bound to fight beside you, ordered to hunt, guard or hold, sent away
   and called back.
+- Four classes, chosen on the Hunter tab once the rite is done, each with its
+  own power on H: Echo Caller (the army), Vanguard (Bulwark), Ranger (Arrow
+  Storm) and Arcanist (Overflow, from New Game+ 1).
+- Twenty skills on four pages of the Skills tab: blade, guard, arcane, echo.
 - A story in six chapters with in-engine cutscenes and two endings. Hold Esc
   for two seconds to skip a scene; replay any of them from the Story tab.
 - Bosses pass through stages as they weaken, gaining new attacks: quakes,
   rings of bolts, crossing lines of blasts, falling fire, called guards.
 - After the story: New Game+ (three cycles, everything kept, stronger
-  gates), then Nightmare, and the Tower, an endless climb with a floor record.
+  gates, one more skill slot and a title each cycle), then Nightmare. The
+  Trials tab holds the Tower (an endless climb), the Time Trial (the tower
+  against a clock) and the Boss Rush (every master at Rank S, timed).
 - Every key can be moved (System, or the pause menu: Controls).
 - Generated music with its own song per gate, and synthesised sound effects.
 - Progress saves in the browser. Saving inside a gate resumes at the room.
@@ -43,12 +49,13 @@ Play it: https://tandx28.github.io/gatebound/
 | Click | Attack |
 | Space | Dash |
 | Q E R, right click | Skills |
+| 1 2 3 | Extra skill slots, opened by New Game+ 1, 2 and 3 |
 | F | Potion |
 | V B Z | Mana draught, belt item, next belt item |
 | X | Swap weapon |
 | T | Return Stone: leave the gate |
 | G | Bind a remnant (after the rite) |
-| H | Send your echoes away, or call them back |
+| H | Class power: send echoes away or call them back (Echo Caller), Bulwark, Arrow Storm, Overflow |
 | J | Army orders: hunt, guard, hold |
 | C | Status and stat points |
 | Esc | Pause, save, settings |

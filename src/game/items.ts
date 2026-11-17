@@ -296,6 +296,11 @@ export const TITLES: TitleDef[] = [
   { id: "tower_25", name: "Twenty-Five Floors Up", how: "Clear floor 25 of the tower", bonus: { speedPct: 0.05, hp: 15 } },
   { id: "tower_50", name: "Above the Gates", how: "Clear floor 50 of the tower", bonus: { damagePct: 0.08, crit: 0.04 } },
   { id: "nightmare", name: "Nightmare Walker", how: "Clear a Rank S gate in Nightmare", bonus: { damagePct: 0.12, hp: 30 } },
+  { id: "clock", name: "Against the Clock", how: "Reach floor 15 of a time trial", bonus: { speedPct: 0.06, crit: 0.02 } },
+  { id: "rush", name: "Master of Masters", how: "Finish the boss rush", bonus: { damagePct: 0.1, hp: 25 } },
+  { id: "ng1", name: "Twice-Told", how: "Begin New Game+ 1", bonus: { damagePct: 0.04, hp: 10 } },
+  { id: "ng2", name: "Thrice-Told", how: "Begin New Game+ 2", bonus: { damagePct: 0.07, hp: 20 } },
+  { id: "ng3", name: "The Endless Reader", how: "Begin New Game+ 3", bonus: { damagePct: 0.1, hp: 30, crit: 0.03 } },
   { id: "keeper", name: "Keeper of the Ledger", how: "Sign the last page", bonus: { hp: 40 } },
   { id: "unwritten", name: "The Unwritten", how: "Burn the last page", bonus: { damagePct: 0.1 } },
 ];

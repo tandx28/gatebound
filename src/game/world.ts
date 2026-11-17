@@ -6,8 +6,22 @@ import { stepBossExtras } from "./bosses";
 import { stepCutscene } from "./cutscenes";
 import { blockCircle, furnish, insidePillar, PILLAR, stepTraps } from "./rooms";
 import {
+  ARCANIST,
   ARMY,
   BLINK,
+  CHAIN,
+  CLASSES,
+  CLEAVE,
+  CLOCK,
+  FROST,
+  LEGION,
+  MARK,
+  MEND,
+  METEOR,
+  QUAKE,
+  RANGER,
+  RUSH,
+  VANGUARD,
   CORPSE,
   DRAIN,
   BREAK,
@@ -66,6 +80,7 @@ import {
   noPerks,
   sfx,
   visibleTabs,
+  isCaller,
   type Enemy,
   type GateKind,
   type GateSnapshot,
@@ -74,6 +89,10 @@ import {
 } from "./state";
 import {
   towerFloorCleared,
+  clockFloorCleared,
+  settleClock,
+  settleRush,
+  slotOpen,
   advanceDialogue,
   applySetting,
   bossBindChance,
@@ -136,6 +155,13 @@ export function createWorld(rng: () => number = Math.random): World {
     armyOrder: "hunt",
     armyAway: false,
     armyCd: 0,
+    legionT: 0,
+    blasts: [],
+    clockT: 0,
+    rushIdx: 0,
+    rushTime: 0,
+    skillPage: 0,
+    slotPick: 0,
     allyShots: [],
     remnants: [],
     corpses: [],
@@ -193,6 +219,8 @@ export function createWorld(rng: () => number = Math.random): World {
       surgeT: 0,
       parryT: 0,
       drainT: 0,
+      bulwarkT: 0,
+      overflowT: 0,
       moving: false,
       kx: 0,
       ky: 0,
@@ -235,6 +263,8 @@ function clearField(w: World): void {
   w.rallyTarget = null;
   w.domainT = 0;
   w.turnedT = 0;
+  w.blasts = [];
+  w.legionT = 0;
 }
 
 function noCooldowns(): Record<SkillId, number> {
@@ -244,8 +274,8 @@ function noCooldowns(): Record<SkillId, number> {
 /** Bring the active echoes onto the field, in a ring round the player. */
 function deployAllies(w: World): void {
   const p = w.player;
-  // Sent away: they stay away until called.
-  if (w.armyAway) {
+  // Sent away: they stay away until called. Only an Echo Caller has an army at all.
+  if (w.armyAway || !isCaller(w.profile)) {
     w.allies = [];
     return;
   }
@@ -274,6 +304,8 @@ function resetPlayer(p: Player): void {
   p.skillCd = noCooldowns();
   p.parryT = 0;
   p.drainT = 0;
+  p.bulwarkT = 0;
+  p.overflowT = 0;
   p.ail = noAilments();
   p.furyT = 0;
   p.swapCd = 0;
@@ -293,6 +325,9 @@ function beginGate(w: World, rank: Rank, dungeon: Dungeon, kind: GateKind, seale
   w.riteWave = 0;
   w.towerFloor = 0;
   w.towerRest = 0;
+  w.clockT = 0;
+  w.rushIdx = 0;
+  w.rushTime = 0;
   w.breakT = 0;
   w.breakSpawn = 0;
   w.allies = [];
@@ -409,13 +444,36 @@ function startFloor(w: World, floor: number): void {
     e.dmg *= harder;
   }
   sfx(w, floor % TOWER.bossEvery === 0 ? "alarm" : "door");
-  w.notices.push({ title: `THE TOWER  ·  FLOOR ${floor}`, body: floor % TOWER.bossEvery === 0 ? "A master holds this floor." : `Rank ${w.rank} strength.`, life: 2.5 });
+  w.notices.push({ title: `${w.gateKind === "clock" ? "TIME TRIAL" : "THE TOWER"}  ·  FLOOR ${floor}`, body: floor % TOWER.bossEvery === 0 ? "A master holds this floor." : `Rank ${w.rank} strength.`, life: 2.5 });
 }
 
 /** The tower: climb until you fall or leave. Nothing is restocked on the way up. */
 export function enterTower(w: World): void {
   beginArena(w, "E", "tower", false);
   startFloor(w, 1);
+}
+
+/** The time trial: the tower's floors against a clock. */
+export function enterClock(w: World): void {
+  beginArena(w, "E", "clock", false);
+  w.clockT = CLOCK.start;
+  startFloor(w, 1);
+}
+
+/** Bring on the boss rush's next master, at Rank S strength. */
+function startRush(w: World, i: number): void {
+  w.rushIdx = i;
+  w.towerRest = 0;
+  w.rank = "S";
+  spawnPack(w, [RANKS[RANK_IDS[i]].boss]);
+  sfx(w, "alarm");
+  w.notices.push({ title: `BOSS RUSH  ·  ${i + 1} OF ${RANK_IDS.length}`, body: KINDS[RANKS[RANK_IDS[i]].boss].name, life: 2.5 });
+}
+
+/** The boss rush: every rank's master, one after another. */
+export function enterRush(w: World): void {
+  beginArena(w, "S", "rush", false);
+  startRush(w, 0);
 }
 
 /** A gate break: hold out against packs of your own rank until it closes. */
@@ -614,7 +672,7 @@ export function effective(p: Player): { damage: number; moveSpeed: number; attac
   // Breakwater: desperate strength when nearly dead.
   const desperate = p.powers.includes("breakwater") && p.hp / p.d.maxHp < 0.3 ? 2 : 1;
   return {
-    damage: p.d.damage * (on ? SURGE.damage : 1) * (p.furyT > 0 ? FURY.damage : 1) * desperate,
+    damage: p.d.damage * (on ? SURGE.damage : 1) * (p.furyT > 0 ? FURY.damage : 1) * desperate * (p.bulwarkT > 0 ? VANGUARD.damage : 1),
     moveSpeed: p.d.moveSpeed * (on ? SURGE.speed : 1),
     attackCooldown: p.d.attackCooldown / (on ? SURGE.speed : 1),
   };
@@ -666,9 +724,9 @@ export function weaponOf(p: Player): (typeof WEAPONS)["dagger"] {
 function useSkill(w: World, id: SkillId): void {
   const p = w.player;
   if (!skillReady(p, id)) return;
-  // Each rank from a skill book adds power and trims the cooldown.
+  // Each rank from a skill book adds power and trims the cooldown; an Arcanist's Overflow adds more.
   const extra = w.profile.skillRanks[id] - 1;
-  const power = 1 + SKILL_RANK.power * extra;
+  const power = (1 + SKILL_RANK.power * extra) * (p.overflowT > 0 ? ARCANIST.power : 1);
   p.mana -= SKILLS[id].mana;
   p.skillCd[id] = SKILLS[id].cooldown * (1 - SKILL_RANK.cooldown * extra);
   p.attackT = 0;
@@ -693,6 +751,8 @@ function useSkill(w: World, id: SkillId): void {
     sfx(w, "deny");
     floatText(w, p.x, p.y, "NO ECHO", "#b9a4ff");
   };
+  if (useNewSkill(w, id, power, extra)) return;
+  if (id === "legion" && w.allies.length === 0) return refund();
   if (id === "swap") {
     const a = nearestAlly();
     if (!a) return refund();
@@ -793,6 +853,180 @@ function useSkill(w: World, id: SkillId): void {
   }
 }
 
+/** The enemy nearest a point, alive and not untouchable, within `reach`. */
+function enemyNear(w: World, x: number, y: number, reach: number, skip: Set<Enemy> = new Set()): Enemy | null {
+  let best: Enemy | null = null;
+  let d = reach;
+  for (const e of w.enemies) {
+    if (e.hp <= 0 || e.immortal || skip.has(e)) continue;
+    const n = Math.hypot(e.x - x, e.y - y) - e.radius;
+    if (n < d) {
+      d = n;
+      best = e;
+    }
+  }
+  return best;
+}
+
+/** Stop a common enemy in its tracks for a while. Bosses shrug it off. */
+function stun(w: World, e: Enemy, time: number): void {
+  if (e.boss || e.hp <= 0) return;
+  e.state = "recover";
+  e.t = Math.max(e.t, time);
+  floatText(w, e.x, e.y, "STUNNED", "#ffd84a");
+}
+
+/**
+ * The skills added in the second skill set. Returns true if `id` was one of
+ * them (mana and cooldown are already paid by the caller).
+ */
+function useNewSkill(w: World, id: SkillId, power: number, extra: number): boolean {
+  const p = w.player;
+  const sp = p.d.skillPower * power;
+  if (id === "cleave") {
+    for (const e of w.enemies) {
+      if (inArc(p.x, p.y, p.facing, CLEAVE.half, CLEAVE.range, e)) strike(w, e, CLEAVE.mult * sp, CLEAVE.knock);
+    }
+    w.fx.push({ kind: "ring", x: p.x + Math.cos(p.facing) * 60, y: p.y + Math.sin(p.facing) * 60, radius: CLEAVE.range * 0.7, t: 0.22, total: 0.22, color: "#cfe4ff" });
+    w.shake = Math.max(w.shake, 5);
+  } else if (id === "quake") {
+    for (let i = 0; i < QUAKE.count; i++) {
+      const d = QUAKE.step * (i + 1);
+      w.blasts.push({
+        x: clamp(p.x + Math.cos(p.facing) * d, 20, ROOM.w - 20),
+        y: clamp(p.y + Math.sin(p.facing) * d, 20, ROOM.h - 20),
+        radius: QUAKE.radius,
+        t: QUAKE.first + QUAKE.gap * i,
+        mult: QUAKE.mult * sp,
+        color: "#ff9a4a",
+        stun: QUAKE.stun,
+      });
+    }
+  } else if (id === "mend") {
+    healPlayer(w, Math.round(p.d.maxHp * MEND.heal * power));
+    burst(w, p.x, p.y, "#7dffb0", 22, 220);
+    w.fx.push({ kind: "ring", x: p.x, y: p.y, radius: 70, t: 0.4, total: 0.4, color: "#7dffb0" });
+  } else if (id === "frost") {
+    for (const e of w.enemies) {
+      if (Math.hypot(e.x - p.x, e.y - p.y) > FROST.radius + e.radius) continue;
+      strike(w, e, FROST.mult * sp, 120, false);
+      e.chillT = Math.max(e.chillT, FROST.chill + extra);
+    }
+    w.fx.push({ kind: "ring", x: p.x, y: p.y, radius: FROST.radius, t: 0.35, total: 0.35, color: "#9fe8ff" });
+    burst(w, p.x, p.y, "#9fe8ff", 30, 320);
+  } else if (id === "chain") {
+    const hit = new Set<Enemy>();
+    let from = { x: p.x, y: p.y };
+    let target = enemyNear(w, p.aimX, p.aimY, CHAIN.reach);
+    for (let i = 0; i < CHAIN.jumps + extra && target; i++) {
+      hit.add(target);
+      const dx = target.x - from.x;
+      const dy = target.y - from.y;
+      w.fx.push({ kind: "beam", x: from.x, y: from.y, angle: Math.atan2(dy, dx), radius: Math.hypot(dx, dy), t: 0.25, total: 0.25, color: "#9fc8ff" });
+      strike(w, target, CHAIN.mult * sp, 80, false);
+      from = { x: target.x, y: target.y };
+      target = enemyNear(w, from.x, from.y, CHAIN.leap, hit);
+    }
+    if (hit.size === 0) {
+      // Nothing to reach: the mana and the wait come back.
+      p.mana += SKILLS.chain.mana;
+      p.skillCd.chain = 0;
+      sfx(w, "deny");
+    }
+  } else if (id === "mark") {
+    const e = enemyNear(w, p.aimX, p.aimY, 400);
+    if (!e) {
+      p.mana += SKILLS.mark.mana;
+      p.skillCd.mark = 0;
+      sfx(w, "deny");
+      return true;
+    }
+    e.markT = MARK.time + 2 * extra;
+    floatText(w, e.x, e.y, "MARKED", "#ff5a60", true);
+    w.fx.push({ kind: "ring", x: e.x, y: e.y, radius: e.radius + 24, t: 0.5, total: 0.5, color: "#ff5a60" });
+  } else if (id === "meteor") {
+    const x = clamp(p.aimX, 30, ROOM.w - 30);
+    const y = clamp(p.aimY, 30, ROOM.h - 30);
+    w.blasts.push({ x, y, radius: METEOR.radius, t: METEOR.delay, mult: METEOR.mult * sp, color: "#ffb04a" });
+    w.fx.push({ kind: "ring", x, y, radius: METEOR.radius, t: METEOR.delay, total: METEOR.delay, color: "#ffb04a" });
+  } else if (id === "legion") {
+    if (w.allies.length === 0) return false;
+    w.legionT = LEGION.time + 2 * extra;
+    for (const a of w.allies) burst(w, a.x, a.y, "#b9a4ff", 10, 200);
+    floatText(w, p.x, p.y, "ECHO FURY", "#b9a4ff", true);
+  } else return false;
+  return true;
+}
+
+/** H: the power of the class in use. Nothing before the rite. */
+function classPower(w: World): void {
+  const pr = w.profile;
+  const p = w.player;
+  if (!pr.classUnlocked) return;
+  if (pr.cls === "echo") return toggleArmy(w);
+  if (w.armyCd > 0) {
+    sfx(w, "deny");
+    return;
+  }
+  w.armyCd = CLASSES[pr.cls].cooldown;
+  if (pr.cls === "vanguard") {
+    p.bulwarkT = VANGUARD.time;
+    // Everything close is thrown clear first: a breath of room, no damage.
+    for (const e of w.enemies) {
+      const d = Math.hypot(e.x - p.x, e.y - p.y);
+      if (d > VANGUARD.radius + e.radius || e.boss) continue;
+      const n = norm(e.x - p.x, e.y - p.y);
+      e.kx = (n.x || 1) * VANGUARD.knock;
+      e.ky = n.y * VANGUARD.knock;
+    }
+    w.fx.push({ kind: "ring", x: p.x, y: p.y, radius: VANGUARD.radius, t: 0.4, total: 0.4, color: "#ffd84a" });
+    floatText(w, p.x, p.y, "BULWARK", "#ffd84a", true);
+    w.shake = Math.max(w.shake, 7);
+    sfx(w, "block");
+  } else if (pr.cls === "ranger") {
+    const x = clamp(p.aimX, 30, ROOM.w - 30);
+    const y = clamp(p.aimY, 30, ROOM.h - 30);
+    for (let i = 0; i < RANGER.arrows; i++) {
+      const a = w.rng() * Math.PI * 2;
+      const r = Math.sqrt(w.rng()) * RANGER.spread;
+      w.blasts.push({ x: x + Math.cos(a) * r, y: y + Math.sin(a) * r, radius: RANGER.radius, t: RANGER.delay + RANGER.gap * i, mult: RANGER.mult * p.d.skillPower, color: "#7dffb0" });
+    }
+    w.fx.push({ kind: "ring", x, y, radius: RANGER.spread + RANGER.radius, t: RANGER.delay, total: RANGER.delay, color: "#7dffb0" });
+    sfx(w, "pierce");
+  } else {
+    p.overflowT = ARCANIST.time;
+    p.mana = p.d.maxMana;
+    for (const id of SKILL_IDS) p.skillCd[id] = 0;
+    w.fx.push({ kind: "ring", x: p.x, y: p.y, radius: 90, t: 0.5, total: 0.5, color: "#4f7bff" });
+    burst(w, p.x, p.y, "#4f7bff", 30, 300);
+    floatText(w, p.x, p.y, "OVERFLOW", "#9fc8ff", true);
+    sfx(w, "surge");
+  }
+}
+
+/** The hunter's delayed blasts: each lands once, on enemies only. */
+function stepBlasts(w: World, dt: number): void {
+  const p = w.player;
+  const left: typeof w.blasts = [];
+  for (const b of w.blasts) {
+    b.t -= dt;
+    if (b.t > 0) {
+      left.push(b);
+      continue;
+    }
+    for (const e of w.enemies) {
+      if (Math.hypot(e.x - b.x, e.y - b.y) > b.radius + e.radius) continue;
+      const roll = rollDamage(effective(p).damage * b.mult, p.d.critChance, PLAYER.critMult, w.rng);
+      damageEnemy(w, e, roll.amount, roll.crit, b.x, b.y, 160);
+      if (b.stun) stun(w, e, b.stun);
+    }
+    w.fx.push({ kind: "blast", x: b.x, y: b.y, radius: b.radius, t: 0.3, total: 0.3, color: b.color });
+    burst(w, b.x, b.y, b.color, 10, 220);
+    w.shake = Math.max(w.shake, 4);
+  }
+  w.blasts = left;
+}
+
 /**
  * Keep the player inside the room. An open door lets them walk out through
  * its gap; passing fully through moves them to the next room.
@@ -832,8 +1066,11 @@ function constrainPlayer(w: World): void {
  * T: leave the gate. Free once the boss is dead; otherwise it costs a
  * Return Stone, which does nothing in a sealed gate or the penalty zone.
  */
+/** Gates a Return Stone can leave. */
+export const LEAVABLE = new Set<GateKind>(["normal", "key", "tower", "clock", "rush"]);
+
 function tryLeave(w: World): void {
-  if ((w.gateKind !== "normal" && w.gateKind !== "key" && w.gateKind !== "tower") || w.clearT > 0) return;
+  if (!LEAVABLE.has(w.gateKind) || w.clearT > 0) return;
   if (w.remnantHold && !w.bossDead) {
     // Walking away from a boss's remnant: the gate was won, so it clears.
     w.remnantHold = false;
@@ -864,7 +1101,7 @@ function tryLeave(w: World): void {
 function tryBind(w: World): void {
   const p = w.player;
   const pr = w.profile;
-  if (!pr.classUnlocked) return;
+  if (!isCaller(pr)) return;
   let best = -1;
   let d = ECHO.bindRange;
   w.remnants.forEach((r, i) => {
@@ -913,7 +1150,7 @@ function tryBind(w: World): void {
  */
 export function toggleArmy(w: World): void {
   const p = w.player;
-  if (!w.profile.classUnlocked || w.armyCd > 0) return;
+  if (!isCaller(w.profile) || w.armyCd > 0) return;
   if (!w.profile.echoes.some((e) => e.active)) {
     sfx(w, "deny");
     floatText(w, p.x, p.y, "NO ECHOES", "#b9a4ff");
@@ -957,9 +1194,9 @@ function stepPlayer(w: World, input: Controls, dt: number): void {
   const move = norm(axis.x, axis.y);
   p.moving = move.x !== 0 || move.y !== 0;
 
-  // Each of the four slots fires whatever skill the player put in it.
+  // Each open slot fires whatever skill the player put in it.
   w.profile.loadout.forEach((id, i) => {
-    if (input.consume(SKILL_SLOTS[i].code) && id) useSkill(w, id);
+    if (SKILL_SLOTS[i] && slotOpen(w.profile, i) && input.consume(SKILL_SLOTS[i].code) && id) useSkill(w, id);
   });
   if (input.consume("KeyF")) usePotion(w);
   if (input.consume("KeyV")) useBag(w, "mana");
@@ -985,8 +1222,8 @@ function stepPlayer(w: World, input: Controls, dt: number): void {
     p.drinkCd = 1;
   }
   if (input.consume("KeyG")) tryBind(w);
-  if (input.consume("KeyH")) toggleArmy(w);
-  if (input.consume("KeyJ") && w.profile.classUnlocked) {
+  if (input.consume("KeyH")) classPower(w);
+  if (input.consume("KeyJ") && isCaller(w.profile)) {
     w.armyOrder = ORDERS[(ORDERS.indexOf(w.armyOrder) + 1) % ORDERS.length];
     floatText(w, p.x, p.y, ORDER_TEXT[w.armyOrder], "#b9a4ff", true);
     sfx(w, "click");
@@ -1003,7 +1240,7 @@ function stepPlayer(w: World, input: Controls, dt: number): void {
     p.dashX = dir.x;
     p.dashY = dir.y;
     p.dashT = PLAYER.dashTime;
-    p.dashCd = PLAYER.dashCooldown;
+    p.dashCd = PLAYER.dashCooldown * (w.profile.classUnlocked && w.profile.cls === "ranger" ? RANGER.dash : 1);
     p.iframes = Math.max(p.iframes, PLAYER.dashIframes);
     p.attackT = 0;
     // A fresh id, so Ashen Wake cuts each enemy once per dash.
@@ -1096,10 +1333,13 @@ function stepPlayer(w: World, input: Controls, dt: number): void {
   p.attackCd = Math.max(0, p.attackCd - dt);
   p.iframes = Math.max(0, p.iframes - dt);
   p.hurtFlash = Math.max(0, p.hurtFlash - dt);
-  p.mana = Math.min(p.d.maxMana, p.mana + PLAYER.manaRegen * dt);
+  const regen = w.profile.classUnlocked && w.profile.cls === "arcanist" ? ARCANIST.regen : 1;
+  p.mana = Math.min(p.d.maxMana, p.mana + PLAYER.manaRegen * regen * dt);
   for (const id of SKILL_IDS) p.skillCd[id] = Math.max(0, p.skillCd[id] - dt);
   p.parryT = Math.max(0, p.parryT - dt);
   p.drainT = Math.max(0, p.drainT - dt);
+  p.bulwarkT = Math.max(0, p.bulwarkT - dt);
+  p.overflowT = Math.max(0, p.overflowT - dt);
 }
 
 /**
@@ -1240,6 +1480,8 @@ function stepSelect(w: World, input: Controls): void {
   if (enter === "key") enterKeyGate(w);
   else if (enter === "rite") enterRite(w);
   else if (enter === "tower") enterTower(w);
+  else if (enter === "clock") enterClock(w);
+  else if (enter === "rush") enterRush(w);
   else if (enter === "sealed") enterGate(w, w.profile.redGate.rank, { sealed: true });
   else if (enter) enterGate(w, enter);
 }
@@ -1405,8 +1647,11 @@ export function step(w: World, input: Controls, dt: number): void {
     stepEnemy(w, e, dt * pace);
     if (e.boss) stepBossExtras(w, e, dt * pace);
     e.slowT = Math.max(0, e.slowT - dt);
+    e.markT = Math.max(0, e.markT - dt);
     stepEnemyPerks(e, dt);
   }
+  stepBlasts(w, dt);
+  w.legionT = Math.max(0, w.legionT - dt);
   w.rallyT = Math.max(0, w.rallyT - dt);
   w.domainT = Math.max(0, w.domainT - dt);
   w.turnedT = Math.max(0, w.turnedT - dt);
@@ -1579,13 +1824,47 @@ export function step(w: World, input: Controls, dt: number): void {
     }
   }
 
+  // The time trial's clock runs while a floor is fought. At zero the climb ends, all earned kept.
+  if (w.gateKind === "clock" && (w.mode as string) === "gate" && w.towerRest <= 0) {
+    w.clockT = Math.max(0, w.clockT - dt);
+    if (w.clockT <= 0) {
+      clearField(w);
+      settleClock(w);
+      w.mode = "cleared";
+      sfx(w, "alarm");
+      return;
+    }
+  }
+
+  // The boss rush: a breath and a little health after each master, then the next.
+  if (w.gateKind === "rush" && (w.mode as string) === "gate") {
+    w.rushTime += dt;
+    if (w.towerRest > 0) {
+      w.towerRest -= dt;
+      if (w.towerRest <= 0) startRush(w, w.rushIdx + 1);
+    } else if (w.enemies.length === 0 && w.spawnQueue.length === 0) {
+      if (w.rushIdx + 1 >= RANK_IDS.length) {
+        clearField(w);
+        settleRush(w);
+        w.mode = "cleared";
+        sfx(w, "quest");
+        return;
+      }
+      healPlayer(w, Math.round(p.d.maxHp * RUSH.heal));
+      w.towerRest = RUSH.rest;
+      floatText(w, p.x, p.y, "MASTER FALLEN", "#ffd84a", true);
+      sfx(w, "roomclear");
+    }
+  }
+
   // The tower: a breath after the last enemy falls, then the next floor.
-  if (w.gateKind === "tower" && (w.mode as string) === "gate") {
+  if ((w.gateKind === "tower" || w.gateKind === "clock") && (w.mode as string) === "gate") {
     if (w.towerRest > 0) {
       w.towerRest -= dt;
       if (w.towerRest <= 0) startFloor(w, w.towerFloor + 1);
     } else if (w.enemies.length === 0) {
-      towerFloorCleared(w);
+      if (w.gateKind === "clock") clockFloorCleared(w);
+      else towerFloorCleared(w);
       w.towerRest = TOWER.rest;
       floatText(w, p.x, p.y, `FLOOR ${w.towerFloor} CLEARED`, "#ffd84a", true);
       sfx(w, "roomclear");

@@ -55,6 +55,11 @@ Conventions that everything relies on:
   Use `baseOf`, `perksOf`, `itemDef`, `makeItem` from `items.ts`.
 - Rendering is interpolated: every moving thing carries `px, py` (where it
   was one step ago) and the view draws between the two with `alpha`.
+- Classes: `profile.classUnlocked` means the rite is done; `profile.cls` is
+  the class in use. Anything about echoes (binding, remnants, the army, the
+  Echoes tab) checks `isCaller(profile)`, not `classUnlocked`. H runs
+  `classPower` in `world.ts`; `armyCd` is the cooldown for every class.
+  Skill slots 5 to 7 open with New Game+ cycles: check `slotOpen`.
 - Saves: `localStorage["gatebound.save"]`, versioned (`SAVE_VERSION` in
   `save.ts`). `parseSave` rebuilds a profile field by field from untrusted
   input and is the only way a save gets in. Device settings live separately
@@ -81,7 +86,10 @@ src/game/
   rooms.ts              pillars and floor traps: worked out from the room, never saved
   dungeon.ts            room-graph generator
   save.ts               save format, validation, migration
-  ui.ts                 button rectangles for the board, pause and status menus
+  ui.ts                 button rectangles for the board (eleven tabs, skill pages,
+                        Hunter and Trials tabs), pause and status menus
+  classes.test.ts       classes, extra skill slots, new skills, time trial, boss rush,
+                        and a check that every tab's buttons fit at 1280 × 720
   balance/              bot.ts (scripted player), balance.test.ts (locked
                         difficulty targets), report.test.ts, stuck.test.ts
   *.test.ts             unit tests beside the code they cover

@@ -1,7 +1,7 @@
 import type { Pillar, Trap } from "./rooms";
 import type { CutsceneState } from "./cutscenes";
 import { applyDamage, type Circle } from "./combat";
-import { type ArmyOrder, PARRY, PLAYER, STATUS, TOTEM, type EnemyKind, type Rank, type SkillId, type StatusId } from "./config";
+import { type ArmyOrder, type ClassId, PARRY, PLAYER, STATUS, TOTEM, VANGUARD, type EnemyKind, type Rank, type SkillId, type StatusId } from "./config";
 import type { Dungeon } from "./dungeon";
 import { PERK, PERK_IDS, type BagId, type EquipSlot, type PerkId, type PowerId, type SupplyId, type WeaponType } from "./items";
 import type { QuestState } from "./quests";
@@ -40,6 +40,9 @@ export interface Player extends Circle {
   parryT: number;
   /** Seconds left of Blood Price: blows heal. */
   drainT: number;
+  /** Seconds left of a Vanguard's Bulwark, and of an Arcanist's Overflow. */
+  bulwarkT: number;
+  overflowT: number;
   moving: boolean;
   /** Velocity from being thrown, decays quickly. */
   kx: number;
@@ -128,6 +131,8 @@ export interface Enemy extends Circle {
   dotT: number;
   /** Seconds left chilled by a frost perk. */
   chillT: number;
+  /** Seconds left under a Death Mark: it takes more damage from everything. */
+  markT: number;
 }
 
 export interface Projectile extends Circle {
@@ -163,6 +168,20 @@ export interface Zone {
   status?: StatusId;
   /** Leaves burning ground behind for this many seconds. */
   patch?: number;
+}
+
+/** A blast of the hunter's own that lands after a short delay. It hurts only enemies. */
+export interface Blast {
+  x: number;
+  y: number;
+  radius: number;
+  /** Seconds until it lands. */
+  t: number;
+  /** Damage as a multiple of the hunter's blow. */
+  mult: number;
+  color: string;
+  /** Seconds it stuns what it hits (not bosses). */
+  stun?: number;
 }
 
 /** An expanding ring that must be dashed through. */
@@ -288,6 +307,12 @@ export interface Profile {
   redGate: { day: number; rank: Rank; done: boolean };
   /** How the story ended, once the last page is signed or burnt. */
   ending: Ending | null;
+  /** The class in use once the rite is done. H is its power. */
+  cls: ClassId;
+  /** Highest floor reached in a time trial. */
+  clockBest: number;
+  /** Fastest boss rush, in whole seconds; 0 until one is finished. */
+  rushBest: number;
 }
 
 export type Ending = "keeper" | "unwritten";
@@ -369,17 +394,22 @@ export interface Settings {
 export type Quality = "high" | "medium" | "low";
 export const QUALITIES: Quality[] = ["high", "medium", "low"];
 
-export type HubTab = "gates" | "shop" | "supplies" | "gear" | "skills" | "quests" | "story" | "echoes" | "system";
-export const HUB_TABS: HubTab[] = ["gates", "shop", "supplies", "gear", "skills", "quests", "story", "echoes", "system"];
+export type HubTab = "gates" | "trials" | "shop" | "supplies" | "gear" | "skills" | "hunter" | "quests" | "story" | "echoes" | "system";
+export const HUB_TABS: HubTab[] = ["gates", "trials", "shop", "supplies", "gear", "skills", "hunter", "quests", "story", "echoes", "system"];
 
 /** Tabs on show: the Echoes tab appears once the class is earned. */
 export function visibleTabs(w: World): HubTab[] {
-  return HUB_TABS.filter((t) => t !== "echoes" || w.profile.classUnlocked);
+  return HUB_TABS.filter((t) => t !== "echoes" || isCaller(w.profile));
+}
+
+/** The rite is done and the class in use is Echo Caller: echoes can be bound and fight. */
+export function isCaller(pr: Profile): boolean {
+  return pr.classUnlocked && pr.cls === "echo";
 }
 
 export type Menu = "none" | "status" | "pause" | "keys";
 export type Mode = "title" | "select" | "gate" | "cleared" | "dead";
-export type GateKind = "normal" | "key" | "penalty" | "rite" | "break" | "tower";
+export type GateKind = "normal" | "key" | "penalty" | "rite" | "break" | "tower" | "clock" | "rush";
 
 /** Enough of a gate in progress to resume it from the current room. */
 export interface GateSnapshot {
@@ -442,8 +472,17 @@ export interface World {
   armyOrder: ArmyOrder;
   /** The army has been sent away for now; H calls it back. */
   armyAway: boolean;
-  /** Seconds until the army can be called or sent away again. */
+  /** Seconds until the class power on H (the army, for an Echo Caller) can be used again. */
   armyCd: number;
+  /** Seconds left of Echo Fury: every echo hits harder. */
+  legionT: number;
+  /** The hunter's own delayed blasts: Falling Star, Earthbreaker, Arrow Storm. */
+  blasts: Blast[];
+  /** Seconds left on a time trial's clock. */
+  clockT: number;
+  /** Which master of the boss rush is being fought (0 to 5), and seconds spent so far. */
+  rushIdx: number;
+  rushTime: number;
   allyShots: Projectile[];
   remnants: Remnant[];
   corpses: Corpse[];
@@ -463,6 +502,9 @@ export interface World {
   layoutRev: number;
   /** Which page of the bag the board is showing. */
   invPage: number;
+  /** Which page of the skills tab is showing, and the slot a skill click fills. */
+  skillPage: number;
+  slotPick: number;
   /** Which belt item the B key uses. */
   belt: number;
   /** The Untouched Mantle's ward: ready to swallow one hit in this room. */
@@ -583,7 +625,9 @@ export function hurtPlayer(w: World, amount: number, status?: StatusId): boolean
   }
   // A standing totem makes everything in the room hit harder.
   const boost = w.enemies.some((e) => e.kind === "totem" && e.hp > 0) ? TOTEM.damage : 1;
-  const dmg = Math.round(amount * boost);
+  // A Vanguard stands firmer always, and far firmer behind Bulwark.
+  const guard = (w.profile.classUnlocked && w.profile.cls === "vanguard" ? VANGUARD.guard : 1) * (p.bulwarkT > 0 ? VANGUARD.taken : 1);
+  const dmg = Math.round(amount * boost * guard);
   if (status) afflict(w, status);
   p.hp = applyDamage(p.hp, dmg);
   if (dmg > 0) w.run.tookDamage = true;

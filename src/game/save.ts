@@ -1,4 +1,4 @@
-import { NGPLUS, ECHO, KINDS, RANK_IDS, SKILL_IDS, SKILL_RANK, type EnemyKind, type Rank, type SkillId } from "./config";
+import { CLASSES, CLASS_IDS, NGPLUS, ECHO, KINDS, RANK_IDS, SKILL_IDS, SKILL_RANK, type ClassId, type EnemyKind, type Rank, type SkillId } from "./config";
 import { SIDES, type Dungeon, type RoomNode } from "./dungeon";
 import {
   BAG,
@@ -254,6 +254,8 @@ export function parseSave(raw: unknown): SaveData | null {
   profile.nightmareUnlocked = rf.nightmareUnlocked === true;
   profile.nightmare = profile.nightmareUnlocked && rf.nightmare === true;
   profile.towerBest = int(rf.towerBest, 0, 1e6, 0);
+  profile.clockBest = int(rf.clockBest, 0, 1e6, 0);
+  profile.rushBest = int(rf.rushBest, 0, 1e7, 0);
   profile.cycle = int(rf.cycle, 0, NGPLUS.max, 0);
   // Tips are for new hunters: a save made before they existed has no need of them.
   profile.tips = rf.tips === true;
@@ -261,6 +263,9 @@ export function parseSave(raw: unknown): SaveData | null {
   if (isObj(rf.redGate) && RANK_IDS.includes(rf.redGate.rank as Rank)) {
     profile.redGate = { day: int(rf.redGate.day, 0, 1e7, 0), rank: rf.redGate.rank as Rank, done: rf.redGate.done === true };
   }
+  // A class must be open to this hunter (the rite done, the cycle reached); otherwise Echo Caller.
+  const cls = rf.cls as ClassId;
+  if (CLASS_IDS.includes(cls) && profile.classUnlocked && profile.cycle >= CLASSES[cls].cycle) profile.cls = cls;
   // The ending needs the whole chain behind it.
   if ((rf.ending === "keeper" || rf.ending === "unwritten") && profile.quests.main >= MAIN.length) profile.ending = rf.ending;
   const sides = new Set(SIDE.map((s) => s.id));

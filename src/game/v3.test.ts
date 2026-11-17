@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Controls } from "../engine/input";
 import { seeded } from "../engine/rng";
-import { BINDABLE, BREAK, CORPSE, HIDDEN, KINDS, NGPLUS, ORDER, PARRY, RANK_IDS, ROOM, SEALED, SEALED_GUARD, SKILL_IDS, SKILLS, STAGGER, STEP, TOWER, towerRank, VIEW_H, VIEW_W, type Rank } from "./config";
+import { BINDABLE, BREAK, CORPSE, HIDDEN, KINDS, NGPLUS, ORDER, PARRY, RANK_IDS, ROOM, SEALED, SEALED_GUARD, SKILL_GROUPS, SKILL_IDS, SKILLS, STAGGER, STEP, TOWER, towerRank, VIEW_H, VIEW_W, type Rank } from "./config";
 import { generateDungeon } from "./dungeon";
 import { makeEnemy } from "./enemies";
 import { itemDef, TITLES } from "./items";
@@ -471,7 +471,8 @@ describe("the tower", () => {
     expect(towerOpen(w.profile)).toBe(false);
     expect(hubAction(w, "gate:tower")).toBe(null);
     w.profile.hunterRank = "C";
-    expect(hubButtons(w).some((b) => b.id === "gate:tower")).toBe(true);
+    w.tab = "trials";
+    expect(hubButtons(w).some((b) => b.id === "gate:tower" && b.enabled)).toBe(true);
     expect(hubAction(w, "gate:tower")).toBe("tower");
   });
 
@@ -609,7 +610,7 @@ function settleQuest(w: World): void {
 
 describe("the six later skills", () => {
   it("there are twelve skills, each with a level, a cost and a rank, and the board fits them", () => {
-    expect(SKILL_IDS.length).toBe(12);
+    expect(SKILL_IDS.length).toBe(20);
     const w = createWorld(() => 0.5);
     w.profile.introSeen = true;
     toSelect(w);
@@ -620,7 +621,10 @@ describe("the six later skills", () => {
       expect(w.player.skillCd[id]).toBe(0);
     }
     expect([24, 30, 36, 42, 48, 54].every((l) => SKILL_IDS.some((id) => SKILLS[id].level === l))).toBe(true);
-    for (const b of hubButtons(w)) expect(b.rect.y + b.rect.h).toBeLessThanOrEqual(VIEW_H - 40);
+    SKILL_GROUPS.forEach((_, i) => {
+      w.skillPage = i;
+      for (const b of hubButtons(w)) expect(b.rect.y + b.rect.h).toBeLessThanOrEqual(VIEW_H - 40);
+    });
   });
 
   const caller = (id: (typeof SKILL_IDS)[number]) => {

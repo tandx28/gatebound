@@ -1,6 +1,6 @@
 import { norm } from "../engine/vec";
 import { circlesOverlap, clampToRoom } from "./combat";
-import { DOMINION, ECHO, KINDS, ORDER, RALLY, ROOM, type EnemyKind } from "./config";
+import { DOMINION, ECHO, KINDS, LEGION, ORDER, RALLY, ROOM, type EnemyKind } from "./config";
 import { damageEnemy } from "./enemies";
 import { playerHit } from "./perks";
 import { floatText, hurtPlayer, sfx, type Ally, type Echo, type Enemy, type World } from "./state";
@@ -146,7 +146,7 @@ export function stepAlly(w: World, a: Ally, dt: number): void {
 
   // Rally overrides each echo's own choice of target, and makes it hit harder.
   const rallied = w.rallyT > 0 && w.rallyTarget && w.rallyTarget.hp > 0 ? w.rallyTarget : null;
-  const dmg = a.dmg * (rallied ? RALLY.damage : 1);
+  const dmg = a.dmg * (rallied ? RALLY.damage : 1) * (w.legionT > 0 ? LEGION.damage : 1);
   const t = rallied ?? nearestEnemy(w, a);
   if (!t) {
     follow();

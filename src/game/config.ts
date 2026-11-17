@@ -31,7 +31,27 @@ export const PLAYER = {
   hurtIframes: 0.5,
 };
 
-export type SkillId = "pierce" | "whirl" | "surge" | "rally" | "blink" | "domain" | "swap" | "sacrifice" | "parry" | "shot" | "ward" | "drain";
+export type SkillId =
+  | "pierce"
+  | "whirl"
+  | "surge"
+  | "rally"
+  | "blink"
+  | "domain"
+  | "swap"
+  | "sacrifice"
+  | "parry"
+  | "shot"
+  | "ward"
+  | "drain"
+  | "cleave"
+  | "quake"
+  | "mend"
+  | "frost"
+  | "chain"
+  | "meteor"
+  | "mark"
+  | "legion";
 
 export interface SkillDef {
   name: string;
@@ -46,16 +66,51 @@ export interface SkillDef {
   cooldown: number;
 }
 
-export const SKILL_IDS: SkillId[] = ["pierce", "whirl", "surge", "rally", "swap", "sacrifice", "blink", "parry", "shot", "domain", "ward", "drain"];
-
-/** The four skill slots: three keys and the right mouse button. */
-export const SKILL_SLOTS: { key: string; code: string }[] = [
-  { key: "Q", code: "KeyQ" },
-  { key: "E", code: "KeyE" },
-  { key: "R", code: "KeyR" },
-  { key: "RMB", code: "Mouse2" },
+export const SKILL_IDS: SkillId[] = [
+  "pierce",
+  "whirl",
+  "surge",
+  "rally",
+  "swap",
+  "sacrifice",
+  "blink",
+  "parry",
+  "shot",
+  "domain",
+  "ward",
+  "drain",
+  "cleave",
+  "quake",
+  "mend",
+  "frost",
+  "chain",
+  "meteor",
+  "mark",
+  "legion",
 ];
-export const DEFAULT_LOADOUT: (SkillId | null)[] = ["pierce", "whirl", "surge", "rally"];
+
+/** The pages of the skills tab: skills grouped by what they are for. */
+export const SKILL_GROUPS: { name: string; about: string; skills: SkillId[] }[] = [
+  { name: "BLADE", about: "strikes and movement", skills: ["pierce", "whirl", "cleave", "blink", "shot", "quake"] },
+  { name: "GUARD", about: "staying alive and hitting harder", skills: ["surge", "parry", "mend", "ward", "drain"] },
+  { name: "ARCANE", about: "control and ruin from afar", skills: ["frost", "chain", "mark", "domain", "meteor"] },
+  { name: "ECHO", about: "commands for an Echo Caller's army", skills: ["rally", "swap", "sacrifice", "legion"] },
+];
+
+/**
+ * The skill slots: three keys and the right mouse button, then three more
+ * that open one per New Game+ cycle (`cycle` is the cycle that opens it).
+ */
+export const SKILL_SLOTS: { key: string; code: string; cycle: number }[] = [
+  { key: "Q", code: "KeyQ", cycle: 0 },
+  { key: "E", code: "KeyE", cycle: 0 },
+  { key: "R", code: "KeyR", cycle: 0 },
+  { key: "RMB", code: "Mouse2", cycle: 0 },
+  { key: "1", code: "Digit1", cycle: 1 },
+  { key: "2", code: "Digit2", cycle: 2 },
+  { key: "3", code: "Digit3", cycle: 3 },
+];
+export const DEFAULT_LOADOUT: (SkillId | null)[] = ["pierce", "whirl", "surge", "rally", null, null, null];
 
 export const SKILLS: Record<SkillId, SkillDef> = {
   pierce: { name: "Pierce", about: "Lunge through enemies for heavy damage", key: "Q", code: "KeyQ", level: 3, mana: 6, cooldown: 4 },
@@ -70,6 +125,14 @@ export const SKILLS: Record<SkillId, SkillDef> = {
   shot: { name: "Long Shot", about: "A line of force through everything ahead", key: "", code: "", level: 42, mana: 12, cooldown: 9 },
   ward: { name: "Ward", about: "The next hit you take does nothing", key: "", code: "", level: 48, mana: 14, cooldown: 22 },
   drain: { name: "Blood Price", about: "For a while, your blows heal you", key: "", code: "", level: 54, mana: 16, cooldown: 24 },
+  cleave: { name: "Rending Arc", about: "A wide, heavy cut across everything in front", key: "", code: "", level: 14, mana: 7, cooldown: 5 },
+  frost: { name: "Frost Nova", about: "Chill everything near you; they slow to a crawl", key: "", code: "", level: 16, mana: 9, cooldown: 10 },
+  mend: { name: "Second Wind", about: "Recover a share of your health at once", key: "", code: "", level: 18, mana: 12, cooldown: 30 },
+  chain: { name: "Arc Chain", about: "Lightning leaps from enemy to enemy", key: "", code: "", level: 26, mana: 10, cooldown: 7 },
+  quake: { name: "Earthbreaker", about: "Split the ground ahead; it stuns what it hits", key: "", code: "", level: 28, mana: 11, cooldown: 9 },
+  legion: { name: "Echo Fury", about: "Every echo hits far harder for a while", key: "", code: "", level: 34, mana: 14, cooldown: 26 },
+  mark: { name: "Death Mark", about: "The enemy nearest the cursor takes more damage", key: "", code: "", level: 38, mana: 8, cooldown: 12 },
+  meteor: { name: "Falling Star", about: "A star strikes the cursor after a breath", key: "", code: "", level: 50, mana: 18, cooldown: 16 },
 };
 
 export const SWAP = { iframes: 0.3 };
@@ -77,6 +140,47 @@ export const SACRIFICE = { radius: 170, mult: 5 };
 export const PARRY = { time: 0.45, radius: 150, mult: 2.5, stun: 0.9 };
 export const SHOT = { range: 720, width: 30, mult: 3.2 };
 export const DRAIN = { time: 6, share: 0.12 };
+/** Rending Arc: reach, half the arc's angle, damage. */
+export const CLEAVE = { range: 150, half: 1.2, mult: 2.6, knock: 340 };
+/** Earthbreaker: blasts walking out from the hunter, one after another. */
+export const QUAKE = { count: 4, step: 95, radius: 72, first: 0.08, gap: 0.09, mult: 1.7, stun: 1 };
+/** Second Wind: share of health restored. */
+export const MEND = { heal: 0.3 };
+/** Frost Nova: radius, damage, and seconds of chill. */
+export const FROST = { radius: 210, mult: 1.1, chill: 4 };
+/** Arc Chain: how many enemies it reaches, how far each leap goes, how far the first. */
+export const CHAIN = { jumps: 5, leap: 260, reach: 560, mult: 1.8 };
+/** Falling Star: delay before it lands, blast radius, damage. */
+export const METEOR = { delay: 0.8, radius: 150, mult: 4.5 };
+/** Death Mark: seconds, and how much more damage the marked enemy takes. */
+export const MARK = { time: 8, vulnerable: 1.5 };
+/** Echo Fury: seconds, and how much harder echoes hit. */
+export const LEGION = { time: 8, damage: 1.6 };
+
+/** A class, chosen on the board once the rite is done. H is its own power. */
+export type ClassId = "echo" | "vanguard" | "ranger" | "arcanist";
+export const CLASS_IDS: ClassId[] = ["echo", "vanguard", "ranger", "arcanist"];
+export interface ClassDef {
+  name: string;
+  /** The H power: its name and what it does. */
+  power: string;
+  powerAbout: string;
+  /** What the class always has. */
+  passive: string;
+  /** Seconds between uses of the H power. */
+  cooldown: number;
+  /** New Game+ cycle that opens the class. */
+  cycle: number;
+}
+export const CLASSES: Record<ClassId, ClassDef> = {
+  echo: { name: "Echo Caller", power: "Arise", powerAbout: "send your army away or call it back", passive: "binds the fallen (G) and fights with an army", cooldown: 1.2, cycle: 0 },
+  vanguard: { name: "Vanguard", power: "Bulwark", powerAbout: "throw back foes; half damage taken, +30% blows for 6 s", passive: "+25% health, take 10% less from every hit", cooldown: 24, cycle: 0 },
+  ranger: { name: "Ranger", power: "Arrow Storm", powerAbout: "eight arrows rain round the cursor", passive: "bows hit 25% harder, +5% crit, faster dash", cooldown: 14, cycle: 0 },
+  arcanist: { name: "Arcanist", power: "Overflow", powerAbout: "full mana, skills ready, skills +40% for 6 s", passive: "+30% skill power, +30% mana, faster mana", cooldown: 40, cycle: 1 },
+};
+export const VANGUARD = { time: 6, taken: 0.5, damage: 1.3, radius: 170, knock: 560, hp: 1.25, guard: 0.9 };
+export const RANGER = { arrows: 8, spread: 130, radius: 62, delay: 0.45, gap: 0.08, mult: 1.5, bow: 1.25, dash: 0.75, crit: 0.05 };
+export const ARCANIST = { time: 6, power: 1.4, skill: 1.3, mana: 1.3, regen: 1.6 };
 /** Which sound each of the later skills borrows. */
 export const SKILL_SOUND: Partial<Record<SkillId, string>> = { swap: "dash", sacrifice: "blast", parry: "block", shot: "pierce", ward: "chime", drain: "surge" };
 
@@ -318,6 +422,18 @@ export const NGPLUS = { max: 3, harder: 0.6, reward: 0.5 };
  * harder than the last. Every fifth floor is a boss, and pays out.
  */
 export const TOWER = { openRank: "C" as Rank, bossEvery: 5, floorsPerRank: 10, perFloor: 0.07, pack: 3, packGrow: 0.3, maxPack: 9, rest: 2.5, gold: 60 };
+
+/**
+ * The time trial: the tower against a clock. Each floor cleared buys time;
+ * when the clock runs out the climb ends and everything earned is kept.
+ */
+export const CLOCK = { start: 90, perFloor: 15, perBoss: 30, title: 15 };
+
+/**
+ * The boss rush: every rank's master in turn, all at Rank S strength, with a
+ * short breath and a little health between. Opens once the story is told.
+ */
+export const RUSH = { rest: 3, heal: 0.3, gold: 4000 };
 
 export function towerRank(floor: number): Rank {
   return RANK_IDS[Math.min(RANK_IDS.length - 1, Math.floor((floor - 1) / TOWER.floorsPerRank))];

@@ -23,6 +23,7 @@ import {
   rankForLevel,
   RANKS,
   ROOM,
+  SKILL_GROUPS,
   SKILL_IDS,
   SKILLS,
   STATUS,
@@ -467,14 +468,14 @@ describe("skill slots", () => {
   it("putting a skill in a slot swaps it with what was there; clicking its own slot clears it", () => {
     const w = createWorld(seeded(1));
     hubAction(w, "slot:0:whirl");
-    expect(w.profile.loadout).toEqual(["whirl", "pierce", "surge", "rally"]);
+    expect(w.profile.loadout).toEqual(["whirl", "pierce", "surge", "rally", null, null, null]);
     hubAction(w, "slot:3:blink");
-    expect(w.profile.loadout).toEqual(["whirl", "pierce", "surge", "blink"]);
+    expect(w.profile.loadout).toEqual(["whirl", "pierce", "surge", "blink", null, null, null]);
     hubAction(w, "slot:3:blink");
-    expect(w.profile.loadout).toEqual(["whirl", "pierce", "surge", null]);
+    expect(w.profile.loadout).toEqual(["whirl", "pierce", "surge", null, null, null, null]);
     hubAction(w, "slot:9:whirl");
     hubAction(w, "slot:0:fireball");
-    expect(w.profile.loadout).toEqual(["whirl", "pierce", "surge", null]);
+    expect(w.profile.loadout).toEqual(["whirl", "pierce", "surge", null, null, null, null]);
   });
 
   it("a slot fires whatever skill is in it; an empty slot does nothing", () => {
@@ -492,12 +493,17 @@ describe("skill slots", () => {
     expect(w.player.surgeT).toBeGreaterThan(0);
   });
 
-  it("the skills tab offers every skill a button per slot, live only once the level is reached", () => {
+  it("the skills tab shows every skill once across its pages, live only once the level is reached", () => {
     const w = createWorld(seeded(1));
     w.tab = "skills";
-    const all = hubButtons(w).filter((b) => b.id.startsWith("slot:"));
-    expect(all.length).toBe(SKILL_IDS.length * 4);
-    expect(all.find((b) => b.id === "slot:0:domain")!.enabled).toBe(false);
+    const seen: string[] = [];
+    SKILL_GROUPS.forEach((_, i) => {
+      w.skillPage = i;
+      seen.push(...hubButtons(w).filter((b) => b.id.startsWith("slot:")).map((b) => b.id.split(":")[2]));
+    });
+    expect([...seen].sort()).toEqual([...SKILL_IDS].sort());
+    w.skillPage = SKILL_GROUPS.findIndex((g) => g.skills.includes("domain"));
+    expect(hubButtons(w).find((b) => b.id === "slot:0:domain")!.enabled).toBe(false);
     w.player.prog.level = SKILLS.domain.level;
     expect(hubButtons(w).find((b) => b.id === "slot:0:domain")!.enabled).toBe(true);
   });
@@ -629,7 +635,7 @@ describe("save, version 3", () => {
     a.player.prog.level = 55;
     const b = createWorld(seeded(2));
     applySave(b, parseSave(JSON.parse(JSON.stringify(toSave(a))))!);
-    expect(b.profile.loadout).toEqual(["blink", null, "domain", "rally"]);
+    expect(b.profile.loadout).toEqual(["blink", null, "domain", "rally", null, null, null]);
     expect(b.profile.hunterRank).toBe("S");
     expect(b.player.prog.level).toBe(55);
   });
@@ -637,7 +643,7 @@ describe("save, version 3", () => {
   it("repairs a bad loadout: unknown skills and repeats become empty slots", () => {
     const raw = JSON.parse(JSON.stringify(toSave(createWorld(seeded(1)))));
     raw.profile.loadout = ["pierce", "pierce", "fireball", 7, "whirl", "surge"];
-    expect(parseSave(raw)!.profile.loadout).toEqual(["pierce", null, null, null]);
+    expect(parseSave(raw)!.profile.loadout).toEqual(["pierce", null, null, null, "whirl", "surge", null]);
   });
 
   it("a level 20 save from before carries on: same level, rank B within reach", () => {
