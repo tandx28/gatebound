@@ -11,9 +11,18 @@ import { flame } from "./fire";
  * only the pillars and traps it already had.
  */
 
+/**
+ * A fire that may light the room: where its light sits, its colour, its
+ * strength at rest and where in its flicker it starts. The room does not make
+ * the light itself: the view keeps a fixed set of lights and lends them out,
+ * because a change in how many lights a scene has makes the GPU rebuild every
+ * lit surface's shader, which stalls the game for a second or more.
+ */
 export interface Torch {
-  light: THREE.PointLight | null;
-  /** The light's strength at rest, and where in its flicker it starts. */
+  x: number;
+  y: number;
+  z: number;
+  color: number;
   base: number;
   phase: number;
 }
@@ -75,11 +84,8 @@ export function pillarFor(theme: Theme, p: Pillar, wallTex: THREE.Texture, tint:
   return g;
 }
 
-/**
- * Dress the room. Returns the torches, for the view to make flicker.
- * `lights` is how many torches may cast real light: fewer on slower machines.
- */
-export function dress(group: THREE.Group, theme: Theme, seed: number, doors: Partial<Record<Side, number>>, tint: number, lights: number, wallH: number): Torch[] {
+/** Dress the room. Returns where its fires are, in the order they should be given light. */
+export function dress(group: THREE.Group, theme: Theme, seed: number, doors: Partial<Record<Side, number>>, tint: number, wallH: number): Torch[] {
   const look = LOOK[theme];
   const rng = seeded(seed * 7919 + 3);
   const torches: Torch[] = [];
@@ -97,13 +103,7 @@ export function dress(group: THREE.Group, theme: Theme, seed: number, doors: Par
     const f = flame(look.fire, size, size * 3.2);
     f.position.set(x, y, z);
     group.add(f);
-    let light: THREE.PointLight | null = null;
-    if (torches.filter((t) => t.light).length < lights) {
-      light = new THREE.PointLight(look.fire, strength, 700, 1.7);
-      light.position.set(x, y + size * 2, z);
-      group.add(light);
-    }
-    torches.push({ light, base: strength, phase: rng() * 10 });
+    torches.push({ x, y: y + size * 2, z, color: look.fire, base: strength, phase: rng() * 10 });
   };
 
   // Torches in iron brackets along the far wall and the two side walls.
@@ -205,12 +205,7 @@ export function dress(group: THREE.Group, theme: Theme, seed: number, doors: Par
           }
         });
         const [x, z] = place(side, at, 40);
-        if (torches.filter((t) => t.light).length < lights) {
-          const light = new THREE.PointLight(look.fire, 22000, 650, 1.7);
-          light.position.set(x, 40, z);
-          group.add(light);
-          torches.push({ light, base: 22000, phase: rng() * 10 });
-        }
+        torches.push({ x, y: 40, z, color: look.fire, base: 22000, phase: rng() * 10 });
       } else {
         // Fallen rock.
         put(side, at, 34, (g) => {

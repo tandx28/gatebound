@@ -56,6 +56,8 @@ const WALL_H = 80;
 const WALL_T = 30;
 const CAM_OFFSET = new THREE.Vector3(0, 800, 590);
 const MAX_PARTICLES = 800;
+/** Torch lights the scene always holds, lit or not. */
+const TORCH_LIGHTS = 6;
 
 function glow(color: number, intensity = 1.6): THREE.MeshStandardMaterial {
   return new THREE.MeshStandardMaterial({
@@ -231,6 +233,12 @@ export class Scene3D {
   private wardShell!: THREE.Mesh;
   /** The fires of the current room, to be made to flicker. */
   private torches: Torch[] = [];
+  /**
+   * A fixed set of lights for torches, always in the scene; a room lends them
+   * out and dark ones sit at zero. The number never changes, because each change
+   * makes the GPU rebuild the shader of every lit surface: a stall of a second or more.
+   */
+  private torchLights: THREE.PointLight[] = [];
   private grade!: ShaderPass;
   /** Enemies that have just fallen, playing out their deaths. */
   private corpses = new Map<Corpse, Rig>();
@@ -324,6 +332,12 @@ export class Scene3D {
     this.hunter = figure("player");
     this.player.add(this.hunter.root);
     this.playerLight.position.y = 115;
+    for (let i = 0; i < TORCH_LIGHTS; i++) {
+      const light = new THREE.PointLight(0xff9a3c, 0, 700, 1.7);
+      light.userData.torch = null;
+      this.torchLights.push(light);
+      this.scene.add(light);
+    }
     this.player.add(this.playerLight);
     this.scene.add(this.player);
 
@@ -500,8 +514,18 @@ export class Scene3D {
     // Pillars in the manner of the room, then everything that dresses it.
     const theme = roomTheme(w.rank, w.gateKind === "normal" || w.gateKind === "key" ? room : null);
     for (const pillar of w.pillars) this.roomGroup.add(pillarFor(theme, pillar, this.wallTex, tint));
-    const lights = this.quality === "high" ? 6 : this.quality === "medium" ? 2 : 0;
-    this.torches = dress(this.roomGroup, theme, (room?.id ?? 0) + (room?.gx ?? 0) * 31 + (room?.gy ?? 0) * 57, room?.doors ?? {}, tint, lights, WALL_H);
+    this.torches = dress(this.roomGroup, theme, (room?.id ?? 0) + (room?.gx ?? 0) * 31 + (room?.gy ?? 0) * 57, room?.doors ?? {}, tint, WALL_H);
+    // Lend the room's first fires the fixed lights; the rest burn without throwing light.
+    const lit = this.quality === "high" ? TORCH_LIGHTS : this.quality === "medium" ? 2 : 0;
+    this.torchLights.forEach((light, i) => {
+      const t = i < lit ? this.torches[i] : undefined;
+      light.userData.torch = t ?? null;
+      light.intensity = 0;
+      if (t) {
+        light.position.set(t.x, t.y, t.z);
+        light.color.setHex(t.color);
+      }
+    });
 
     const wallMat = new THREE.MeshStandardMaterial({ map: this.wallTex, color: isBoss ? 0x7a6066 : RANK_STONE[w.rank], roughness: 0.95, metalness: 0 });
     const trimMat = glow(isBoss ? 0xff3355 : tint, 0.55);
@@ -936,17 +960,20 @@ export class Scene3D {
     });
     this.playerLight.color.setHex(p.surgeT > 0 ? 0xffd070 : 0xc4d8ff);
     // Blink while invulnerable after a hit (not during a dash).
-    this.player.visible = !(p.iframes > 0 && !fast && Math.floor(p.iframes * 20) % 2 === 0) && w.mode !== "dead" && w.mode !== "title";
+    const blinking = p.iframes > 0 && !fast && Math.floor(p.iframes * 20) % 2 === 0;
+    this.playerLight.intensity = w.mode === "dead" || w.mode === "title" ? 0 : 15000;
 
     // During a cutscene the hunter is one of the cast, not the player's figure.
     // Fire wavers, and the light it throws with it.
     tickFire(this.clock);
     this.grade.uniforms.time.value = this.clock % 100;
-    for (const t of this.torches) {
-      if (t.light) t.light.intensity = t.base * (0.82 + 0.12 * Math.sin(this.clock * 11 + t.phase) + 0.06 * Math.sin(this.clock * 27 + t.phase * 3));
+    for (const light of this.torchLights) {
+      const t = light.userData.torch as Torch | null;
+      light.intensity = t ? t.base * (0.82 + 0.12 * Math.sin(this.clock * 11 + t.phase) + 0.06 * Math.sin(this.clock * 27 + t.phase * 3)) : 0;
     }
     const stage = this.syncActors(w, alpha);
-    this.hunter.root.visible = !stage;
+    // Only the figure blinks or hides; its lamp stays, so the count of lights never changes.
+    this.hunter.root.visible = !stage && !blinking && w.mode !== "dead" && w.mode !== "title";
     if (stage) this.player.position.set(stage.x, 0, stage.y);
 
     this.syncEnemies(w, alpha);

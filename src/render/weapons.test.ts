@@ -62,14 +62,18 @@ describe("rooms of different kinds", () => {
     expect([...seen].sort()).toEqual([...THEMES].sort());
   });
 
-  it("every kind dresses a room, lights no more torches than allowed, and puts nothing in a doorway", () => {
+  it("every kind dresses a room, makes no lights of its own, and puts nothing in a doorway", () => {
     const tex = new THREE.Texture();
     for (const theme of [...THEMES, "gate", "throne"] as const) {
-      for (const lights of [0, 2, 6]) {
+      {
         const group = new THREE.Group();
-        const torches = dress(group, theme, 7, { n: 1, w: 2 }, 0x3aa0ff, lights, 80);
+        const torches = dress(group, theme, 7, { n: 1, w: 2 }, 0x3aa0ff, 80);
         expect(group.children.length, theme).toBeGreaterThan(4);
-        expect(torches.filter((t) => t.light).length).toBeLessThanOrEqual(lights);
+        // A light made per room would change the scene's light count, and stall the GPU.
+        let lights = 0;
+        group.traverse((o) => ((o as THREE.Light).isLight ? (lights += 1) : 0));
+        expect(lights, theme).toBe(0);
+        for (const t of torches) expect([t.x, t.y, t.z].every(Number.isFinite)).toBe(true);
         group.updateMatrixWorld(true);
         for (const child of group.children) {
           const p = new THREE.Vector3().setFromMatrixPosition(child.matrixWorld);

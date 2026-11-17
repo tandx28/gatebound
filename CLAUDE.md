@@ -196,6 +196,7 @@ redraws; use it because background tabs throttle frames), `__input`,
 | An attack that damages on its first frame | Unavoidable hits; the owner has already complained about this once | Warn first: `Shockwave.wait`, zone timers, wind-up states |
 | Clearing the field without thinking what must survive | Boss remnants and held gates vanish | Check `clearField` callers; preserve what the player is meant to act on |
 | Disposing a shared model's geometry | Every other copy re-uploads or breaks | Honour `userData.shared`; clone materials per figure, not geometry |
+| Adding, removing or hiding a light during play (including hiding a group that holds one) | The GPU rebuilds every lit surface's shader: a 1-2 s freeze | Keep the light count fixed; set `intensity = 0` instead, borrow from the torch pool in `scene3d.ts` |
 | Forgetting WebGL context loss | "The screen went white" mid-fight | Keep all GPU state inside `Scene3D` so `main.ts` can rebuild it |
 | Writing node names with dots when looking up bones | three.js strips dots on load (`handslot.r` → `handslotr`) | Use the `bone()` helper in `models.ts` |
 | Referring to an animation clip that was trimmed away | Figure freezes in a T-pose | Add the clip to `KEEP` in `tools/trim_models.py`, re-run it, and keep `models.test.ts` passing |
