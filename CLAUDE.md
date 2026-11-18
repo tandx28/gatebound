@@ -65,6 +65,14 @@ Conventions that everything relies on:
   meshes and its own motes. Visual-only randomness (sparks, ash, auras) lives
   there and uses `Math.random`, never `w.rng`: drawing must not change the
   game's dice, or the balance bot's results shift.
+- A new weapon item needs a `FORMS` entry in `src/render/weapons.ts` of its
+  own type (a test checks every weapon has one). Glow strength follows rarity:
+  gems and runes only below rare, the edge from rare, the pattern animates from
+  legendary, moving parts only on mythics.
+- Anything drawn only for play (auras, rings, aim line, footprints, marks)
+  is hidden while `w.cutscene` runs.
+- The attack button is latched (`w.attackLatched`) when play resumes with it
+  held, so a click on the board or a menu never swings.
 - Special-gate scenes play in full only when `w.specialScenes` is on (the
   shell sets it); tests and the bot see the title card (`w.sting`).
 - The secret: five struck lines (`earnLine`, `STRUCK_LINES` in profile.ts),
@@ -113,6 +121,10 @@ src/render/
   effects.ts            3D skill and ultimate effects, auras, ash, dust, hazards
   rigs.ts               built figures and poses for every kind
   models.ts             KayKit model specs, loading, animation
+  weapons.ts            one built form per named weapon (FORMS), glow patterns,
+                        animateWeapon for glow and mythic moving parts
+  preview.ts            the turning weapon on the shop/gear tabs: own small scene,
+                        drawn by the main renderer into PREVIEW_VIEW (ui.ts)
 src/audio/              sfx.ts (effects), compose.ts + director.ts + music.ts
 public/models/          trimmed .glb files (CC0) and their LICENSE.txt
 tools/trim_models.py    cuts source .glb files down to the clips in use

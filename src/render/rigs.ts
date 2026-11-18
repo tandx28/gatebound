@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import type { EnemyKind } from "../game/config";
-import type { PerkId, Rarity, WeaponType } from "../game/items";
+import type { WeaponType } from "../game/items";
+import type { WeaponLook } from "./weapons";
 
 /**
  * Jointed figures built from simple solids, with their animation.
@@ -30,7 +31,7 @@ export interface Anim {
   /** Which weapon the hunter holds. */
   weapon?: WeaponType | null;
   /** How that weapon is made: its rarity and the element it carries. */
-  gear?: { rarity: Rarity | null; element: PerkId | null };
+  gear?: WeaponLook;
   /** The colour of the hunter's aura while empowered. */
   aura?: number;
   /** How far the bow is drawn, 0 to 1 (1 = a full, charged draw). */

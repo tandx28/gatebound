@@ -23,8 +23,10 @@ import {
   type Rank,
 } from "../game/config";
 import type { Dungeon, Side } from "../game/dungeon";
-import { BOW, itemDef, perksOf, WEAPONS, type PerkId, type Rarity, type WeaponType } from "../game/items";
-import { ELEMENT } from "./weapons";
+import { BOW, WEAPONS, type WeaponType } from "../game/items";
+import { PREVIEW_VIEW, previewWeapon } from "../game/ui";
+import { WeaponPreview } from "./preview";
+import { ELEMENT, formOf, HAND_GLOW, lookOf, type WeaponLook } from "./weapons";
 import type { Ally, Corpse, Enemy, Quality, ShotLook, World } from "../game/state";
 import { SHOT_HUE } from "../game/allies";
 import { Effects } from "./effects";
@@ -268,6 +270,8 @@ export class Scene3D {
   private pCol = new Float32Array(MAX_PARTICLES * 3);
   private colorCache = new Map<string, THREE.Color>();
   private clock = 0;
+  /** The turning weapon on the shop and gear tabs. */
+  private preview = new WeaponPreview();
   private tmp = new THREE.Vector3();
   private lost = false;
   private size = { w: VIEW_W, h: VIEW_H, dpr: 1 };
@@ -434,6 +438,7 @@ export class Scene3D {
 
   dispose(): void {
     disposeTree(this.scene);
+    this.preview.dispose();
     this.composer.dispose();
     this.renderer.dispose();
   }
@@ -629,11 +634,11 @@ export class Scene3D {
   }
 
   /** How the weapon in hand is made: its rarity, and the first element among its perks. */
-  private gearOf(w: World): { rarity: Rarity | null; element: PerkId | null } {
+  private gearOf(w: World): WeaponLook {
     const pr = w.profile;
     const owned = pr.equipped[pr.activeWeapon === 1 ? "weapon2" : "weapon"];
-    if (!owned) return { rarity: null, element: null };
-    return { rarity: itemDef(owned)?.rarity ?? null, element: perksOf(owned).find((perk) => ELEMENT[perk] !== undefined) ?? null };
+    // In the hand the glow is held back; the board's preview shows it in full.
+    return owned ? lookOf(owned, HAND_GLOW) : { rarity: null, element: null };
   }
 
   /** The fallen lie where they fell, then sink out of sight. */
@@ -900,7 +905,7 @@ export class Scene3D {
       const reach = WEAPONS[type].range;
       // The cut on the floor takes the colour of whatever the blade carries.
       const gear = this.gearOf(w);
-      const hue = (gear.element && ELEMENT[gear.element]) || 0x5ee6ff;
+      const hue = (gear.element && ELEMENT[gear.element]) || (gear.base ? formOf(type, gear.base).glow : 0x5ee6ff);
       this.sectors[type].place(p.x, p.y, p.attackFacing, reach, reach, hue, 0.35 + 0.5 * k);
       // And the same cut in the air at blade height, sweeping across as the swing goes.
       const arc = this.slashes[type];
@@ -914,17 +919,19 @@ export class Scene3D {
     }
     for (const [type, arc] of Object.entries(this.slashes)) if (p.attackT <= 0 || type !== (p.weapon && p.weapon !== "bow" && p.weapon !== "staff" ? p.weapon : "dagger")) arc.visible = false;
     // A ward waiting to take a hit shows as a shell of light round the hunter.
-    this.wardShell.visible = w.wardReady && w.mode === "gate";
+    this.wardShell.visible = w.wardReady && w.mode === "gate" && !w.cutscene;
     if (this.wardShell.visible) {
       this.wardShell.position.set(p.x, 34, p.y);
       this.wardShell.rotation.y = this.clock * 0.8;
       (this.wardShell.material as THREE.MeshBasicMaterial).opacity = 0.2 + 0.08 * Math.sin(this.clock * 5);
     }
-    if (p.surgeT > 0) this.rings.place(p.x, p.y, 0, 26, 26, 0xffd84a, 0.7);
+    // A cutscene shows the hunter plain: no aim line, no rings underfoot.
+    const field = w.mode === "gate" && !w.cutscene;
+    if (p.surgeT > 0 && field) this.rings.place(p.x, p.y, 0, 26, 26, 0xffd84a, 0.7);
     // Aim marker under the player.
-    if (w.mode === "gate") this.lines.place(p.x, p.y, p.facing, 34, 2, 0x5ee6ff, 0.5);
+    if (field) this.lines.place(p.x, p.y, p.facing, 34, 2, 0x5ee6ff, 0.5);
     // The hunter stands in a pool of cold light that breathes.
-    if (w.mode === "gate") this.rings.place(p.x, p.y, 0, 24 + 2 * Math.sin(this.clock * 3), 24 + 2 * Math.sin(this.clock * 3), 0x5ee6ff, 0.45);
+    if (field) this.rings.place(p.x, p.y, 0, 24 + 2 * Math.sin(this.clock * 3), 24 + 2 * Math.sin(this.clock * 3), 0x5ee6ff, 0.45);
 
     this.circles.end();
     this.rings.end();
@@ -1051,6 +1058,7 @@ export class Scene3D {
     this.camera.position.y += (Math.random() - 0.5) * shake;
 
     this.composer.render();
+    this.preview.draw(this.renderer, previewWeapon(w), PREVIEW_VIEW, this.size.w, this.size.h, this.clock);
     this.camera.position.copy(steady);
     this.camera.updateMatrixWorld();
   }

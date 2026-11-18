@@ -2,12 +2,12 @@ import * as THREE from "three";
 import { describe, expect, it } from "vitest";
 import { seeded } from "../engine/rng";
 import { generateDungeon } from "../game/dungeon";
-import { ALL_RARITIES, PERK_IDS, type WeaponType } from "../game/items";
+import { ALL_RARITIES, ITEMS, PERK_IDS, type WeaponType } from "../game/items";
 import { roomTheme, THEMES } from "../game/rooms";
 import { dress, pillarFor } from "./decor";
-import { ELEMENT, lookKey, weaponModel } from "./weapons";
+import { animateWeapon, ELEMENT, FORMS, formOf, lookKey, weaponModel } from "./weapons";
 
-const TYPES: WeaponType[] = ["dagger", "sword", "spear", "bow"];
+const TYPES: WeaponType[] = ["dagger", "sword", "spear", "bow", "staff"];
 
 describe("weapons in the hand", () => {
   it("every type builds for every rarity and every perk, with no bad numbers", () => {
@@ -24,21 +24,58 @@ describe("weapons in the hand", () => {
     }
   });
 
-  it("a finer make has more to it, and an element adds its own parts", () => {
+  // Rarity no longer adds parts to a plain weapon; each named form has its own,
+  // and a mythic adds moving ones (tested below).
+  it("an element adds its own parts", () => {
     const parts = (g: THREE.Object3D) => {
       let n = 0;
       g.traverse((o) => ((o as THREE.Mesh).isMesh ? (n += 1) : 0));
       return n;
     };
     for (const type of TYPES) {
-      expect(parts(weaponModel(type, { rarity: "mythic", element: null }))).toBeGreaterThan(parts(weaponModel(type, { rarity: "common", element: null })));
       for (const element of Object.keys(ELEMENT) as (keyof typeof ELEMENT)[]) {
         expect(parts(weaponModel(type, { rarity: "common", element })), `${type} ${element}`).toBeGreaterThan(parts(weaponModel(type, { rarity: "common", element: null })));
       }
     }
   });
 
+  it("every weapon item has a form of its own type, and no two share one", () => {
+    const weapons = Object.values(ITEMS).filter((d) => d.weapon);
+    for (const d of weapons) expect(formOf(d.weapon!, d.id), d.id).toBe(FORMS[d.id]);
+    expect(new Set(weapons.map((d) => FORMS[d.id])).size).toBe(weapons.length);
+  });
+
+  it("every named weapon builds with finite bounds, and shapes differ within a type", () => {
+    const sizes = new Map<WeaponType, Set<string>>();
+    for (const d of Object.values(ITEMS)) {
+      if (!d.weapon) continue;
+      const g = weaponModel(d.weapon, { base: d.id, rarity: d.rarity, element: null });
+      animateWeapon(g, 1.3);
+      g.updateMatrixWorld(true);
+      const box = new THREE.Box3().setFromObject(g);
+      for (const v of [box.min.x, box.min.y, box.min.z, box.max.x, box.max.y, box.max.z]) expect(Number.isFinite(v), d.id).toBe(true);
+      const s = box.getSize(new THREE.Vector3());
+      const key = `${s.x.toFixed(1)}:${s.y.toFixed(1)}:${s.z.toFixed(1)}`;
+      if (!sizes.has(d.weapon)) sizes.set(d.weapon, new Set());
+      sizes.get(d.weapon)!.add(key);
+    }
+    for (const [type, seen] of sizes) expect(seen.size, type).toBeGreaterThanOrEqual(5);
+  });
+
+  it("a mythic has parts that move on their own; its common-rarity copy does not", () => {
+    const moving = (g: THREE.Object3D) => {
+      let n = 0;
+      g.traverse((o) => (o.userData.orbit || o.userData.spin !== undefined ? (n += 1) : 0));
+      return n;
+    };
+    for (const [id, type] of [["ashen_wake", "dagger"], ["twin_fang", "sword"], ["trials_end", "spear"], ["blank_quill", "staff"]] as const) {
+      expect(moving(weaponModel(type, { base: id, rarity: "mythic", element: null })), id).toBeGreaterThan(0);
+      expect(moving(weaponModel(type, { base: id, rarity: "common", element: null })), id).toBe(0);
+    }
+  });
+
   it("the weapon is rebuilt only when its type, rarity or element changes", () => {
+    expect(lookKey("sword", { base: "falchion", rarity: "rare", element: null })).not.toBe(lookKey("sword", { base: "dusk_blade", rarity: "rare", element: null }));
     const a = lookKey("sword", { rarity: "rare", element: "burn" });
     expect(lookKey("sword", { rarity: "rare", element: "burn" })).toBe(a);
     expect(lookKey("sword", { rarity: "epic", element: "burn" })).not.toBe(a);

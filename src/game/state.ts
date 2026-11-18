@@ -591,6 +591,14 @@ export interface World {
   glyphNext: number;
   /** Seconds the hunter has stood still in an empty room, for one of the lines. */
   stillT: number;
+  /**
+   * The attack button was already down when play resumed (a click on the
+   * board, a menu, a cutscene). It swings nothing until it is let go, so
+   * a click meant for a button never counts as a basic attack.
+   */
+  attackLatched: boolean;
+  /** The item row under the cursor on the shop or gear tab, for the weapon preview. */
+  hoverItem: string | null;
   /** The Redactor's hazards: the floor about to be erased, walls sweeping across, bars about to fall. */
   erasure: Erasure | null;
   sweeps: Sweep[];

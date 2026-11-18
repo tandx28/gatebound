@@ -80,6 +80,8 @@ export interface Button {
   /** Item rarity, which colours the row's name. */
   rarity?: Rarity;
   rank?: Rank;
+  /** The owned item this row stands for, so hovering it can show it. */
+  item?: string;
 }
 
 const LEFT = 150;
@@ -96,7 +98,37 @@ function row(col: number, i: number, id: string, label: string, enabled: boolean
 function itemRow(col: number, i: number, id: string, owned: string, label: string, enabled: boolean): Button {
   const b = row(col, i, id, label, enabled, itemName(owned), describeItem(owned));
   b.rarity = itemDef(owned)?.rarity;
+  b.item = owned;
   return b;
+}
+
+/**
+ * The turning weapon preview on the shop and gear tabs: under the left
+ * column, clear of every row. The 3D view draws into it; the board leaves
+ * the inside clear.
+ */
+export const PREVIEW: Rect = { x: LEFT, y: 524, w: 460, h: 160 };
+/** The part of the preview the weapon turns in; the name and make sit to its left. */
+export const PREVIEW_VIEW: Rect = { x: LEFT + 190, y: 530, w: 264, h: 148 };
+
+/** The item row under the cursor, anywhere along the row and not only on its button. */
+export function hoveredItem(w: World, x: number, y: number): string | null {
+  if (w.tab !== "shop" && w.tab !== "gear") return null;
+  for (const b of hubButtons(w)) {
+    if (!b.item) continue;
+    const left = b.textX ?? b.rect.x;
+    if (x >= left && x <= b.rect.x + b.rect.w && y >= b.rect.y - 4 && y <= b.rect.y + b.rect.h + 4) return b.item;
+  }
+  return null;
+}
+
+/** The weapon the preview shows: the hovered row if it is a weapon, else the weapon in hand. */
+export function previewWeapon(w: World): string | null {
+  if (w.mode !== "select" || (w.tab !== "shop" && w.tab !== "gear") || w.dialogue) return null;
+  if (w.hoverItem && itemDef(w.hoverItem)?.weapon) return w.hoverItem;
+  const pr = w.profile;
+  const held = pr.equipped[pr.activeWeapon === 1 ? "weapon2" : "weapon"];
+  return held && itemDef(held)?.weapon ? held : null;
 }
 
 /** How many bag items the board shows at once. */
@@ -575,6 +607,7 @@ export function hubButtons(w: World): Button[] {
       const def = owned ? itemDef(owned) : undefined;
       const b = row(LEFT, i, `unequip:${slot}`, "REMOVE", !!owned, `${name}${slot.startsWith("weapon") && inHand ? " (in hand)" : ""}: ${owned ? itemName(owned) : "none"}`, owned ? describeItem(owned) : "", slot.startsWith("weapon") && inHand && !!owned);
       b.rarity = def?.rarity;
+      if (owned) b.item = owned;
       out.push(b);
     });
     const other = pr.equipped[pr.activeWeapon === 1 ? "weapon" : "weapon2"];

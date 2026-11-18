@@ -93,7 +93,7 @@ import {
   type Ending,
   type World,
 } from "./state";
-import { BASE_STAT, CRIT_CAP, derive, STAT_KEYS, xpToNext } from "./stats";
+import { addCrit, BASE_STAT, derive, STAT_KEYS, xpToNext } from "./stats";
 import { DIALOGUES } from "./story";
 import { BEAST_ORDER, BEAST_PAGE, huntBonus, huntTier, tierKills } from "./bestiary";
 
@@ -181,13 +181,13 @@ export function refreshDerived(w: World): void {
   if (p.weapon) {
     const wd = WEAPONS[p.weapon];
     next.attackCooldown *= wd.cooldown / WEAPONS.dagger.cooldown;
-    next.critChance = Math.min(CRIT_CAP, next.critChance + wd.crit);
+    addCrit(next, wd.crit);
   }
   // What the class always gives. (Before the rite there is no class.)
   if (pr.classUnlocked) {
     if (pr.cls === "vanguard") next.maxHp = Math.round(next.maxHp * VANGUARD.hp);
     if (pr.cls === "ranger") {
-      next.critChance = Math.min(CRIT_CAP, next.critChance + RANGER.crit);
+      addCrit(next, RANGER.crit);
       if (p.weapon === "bow") next.damage *= RANGER.bow;
     }
     if (pr.cls === "arcanist") {
@@ -904,6 +904,8 @@ export function settleClear(w: World): void {
   const run = w.run;
   run.settled = true;
   w.dirty = true;
+  // A struck line: any gate cleared with skills alone, whatever its kind.
+  if (run.swings === 0) earnLine(w, 0);
 
   if (w.gateKind === "penalty") {
     pr.penaltyPending = false;
@@ -967,8 +969,7 @@ export function settleClear(w: World): void {
   if (w.sealed && high("A")) grantMythic(w, "seal_breaker", false);
   if (!run.tookDamage && high("B")) grantMythic(w, "untouched_mantle", false);
   if (pr.nightmare && w.rank === "S") earnTitle(w, "nightmare");
-  // Two of the struck lines: a gate cleared with skills alone, and a sealed one in Nightmare.
-  if (w.gateKind === "normal" && run.swings === 0) earnLine(w, 0);
+  // A struck line for a sealed gate cleared in Nightmare.
   if (w.sealed && pr.nightmare) earnLine(w, 3);
   fireQuest(w, { type: "gate", rank: w.rank, noPotion: !run.usedPotion, noDamage: !run.tookDamage });
 }

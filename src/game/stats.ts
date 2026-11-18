@@ -19,6 +19,11 @@ export const BASE_STAT = 5;
 export const LEVEL_CAP = 60;
 export const POINTS_PER_LEVEL = 3;
 export const CRIT_CAP = 0.6;
+/**
+ * Crit chance past the cap is not wasted: each point over it adds this much
+ * to the crit multiplier (1% over the cap is +3% crit damage).
+ */
+export const CRIT_OVERFLOW = 3;
 
 export interface Progress {
   level: number;
@@ -51,6 +56,10 @@ export interface Derived {
   moveSpeed: number;
   attackCooldown: number;
   critChance: number;
+  /** Crit chance before the cap: what gear, stats and class add up to. */
+  critRaw: number;
+  /** How hard a crit lands: the base, plus whatever spilled over the cap. */
+  critMult: number;
   /** Multiplier applied to skill damage. */
   skillPower: number;
 }
@@ -61,15 +70,26 @@ export interface Derived {
  */
 export function derive(s: Stats, bonus: Bonus = {}): Derived {
   const over = (k: StatKey) => s[k] - BASE_STAT;
-  return {
+  const d: Derived = {
     maxHp: PLAYER.maxHp + 8 * over("vit") + (bonus.hp ?? 0),
     maxMana: PLAYER.maxMana + 6 * over("int") + (bonus.mana ?? 0),
     damage: (PLAYER.attackDamage + 1.5 * over("str") + (bonus.damage ?? 0)) * (1 + (bonus.damagePct ?? 0)),
     moveSpeed: PLAYER.speed * (1 + 0.012 * over("agi")) * (1 + (bonus.speedPct ?? 0)),
     attackCooldown: PLAYER.attackCooldown / (1 + 0.02 * over("agi")),
-    critChance: Math.min(CRIT_CAP, PLAYER.critChance + 0.01 * over("sen") + (bonus.crit ?? 0)),
+    critChance: 0,
+    critRaw: 0,
+    critMult: PLAYER.critMult,
     skillPower: 1 + 0.05 * over("int"),
   };
+  return addCrit(d, PLAYER.critChance + 0.01 * over("sen") + (bonus.crit ?? 0));
+}
+
+/** Add crit chance, keeping the chance under the cap and turning the rest into crit damage. */
+export function addCrit(d: Derived, extra: number): Derived {
+  d.critRaw += extra;
+  d.critChance = Math.min(CRIT_CAP, d.critRaw);
+  d.critMult = PLAYER.critMult + Math.max(0, d.critRaw - CRIT_CAP) * CRIT_OVERFLOW;
+  return d;
 }
 
 /**

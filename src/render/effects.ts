@@ -187,12 +187,16 @@ export class Effects {
   /** Draw every effect for this frame. `clock` is the view's own ever-rising time. */
   sync(w: World, dt: number, clock: number): void {
     for (const p of this.pools()) p.begin();
-    for (const f of w.fx) this.drawFx(w, f, clock);
+    // A cutscene shows only its own actors: the hunter's auras, rings,
+    // footprints, marks and loot beams wait until it ends.
+    const scene = w.cutscene !== null;
+    for (const f of w.fx) if (!scene || f.kind !== "loot") this.drawFx(w, f, clock);
     this.drawBlasts(w, clock);
     this.drawRedactor(w, clock);
     this.drawGlyphs(w, clock);
-    this.drawMarks(w, clock);
-    this.drawPlayer(w, dt, clock);
+    if (!scene) this.drawMarks(w, clock);
+    if (scene) this.prints = [];
+    else this.drawPlayer(w, dt, clock);
     this.drawCorpses(w);
     this.drawSparks(w);
     // A trail of sparks behind staff bolts and charged arrows.

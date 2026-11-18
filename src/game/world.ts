@@ -125,7 +125,7 @@ import {
   usePotion,
 } from "./profile";
 import { addXp, allocate, derive, newProgress, POINTS_PER_LEVEL, STAT_KEYS } from "./stats";
-import { keysButtons, hubButtons, pauseButtons, pointIn, statButton, titleButton } from "./ui";
+import { hoveredItem, keysButtons, hubButtons, pauseButtons, pointIn, statButton, titleButton } from "./ui";
 
 export type { Enemy, Player, World } from "./state";
 
@@ -177,6 +177,8 @@ export function createWorld(rng: () => number = Math.random): World {
     glyphs: [],
     glyphNext: 0,
     stillT: 0,
+    attackLatched: false,
+    hoverItem: null,
     erasure: null,
     sweeps: [],
     bars: [],
@@ -824,7 +826,7 @@ export function skillReady(p: Player, id: SkillId): boolean {
 
 function strike(w: World, e: Enemy, mult: number, knock: number, heavy = true): boolean {
   const p = w.player;
-  const roll = rollDamage(effective(p).damage * mult, p.d.critChance, PLAYER.critMult, w.rng);
+  const roll = rollDamage(effective(p).damage * mult, p.d.critChance, p.d.critMult, w.rng);
   // What it was doing before the blow: the blow itself may knock it out of that.
   const was = e.state;
   const landed = playerHit(w, e, roll.amount, roll.crit, p.x, p.y, knock);
@@ -1159,7 +1161,7 @@ function stepBlasts(w: World, dt: number): void {
     }
     for (const e of w.enemies) {
       if (Math.hypot(e.x - b.x, e.y - b.y) > b.radius + e.radius) continue;
-      const roll = rollDamage(effective(p).damage * b.mult, p.d.critChance, PLAYER.critMult, w.rng);
+      const roll = rollDamage(effective(p).damage * b.mult, p.d.critChance, p.d.critMult, w.rng);
       damageEnemy(w, e, roll.amount, roll.crit, b.x, b.y, 160);
       if (b.stun) stun(w, e, b.stun);
     }
@@ -1233,7 +1235,7 @@ function boltLook(w: World): ShotLook {
 function fireBolt(w: World): void {
   const p = w.player;
   const wd = WEAPONS.staff;
-  const roll = rollDamage(effective(p).damage * wd.damage, p.d.critChance, PLAYER.critMult, w.rng);
+  const roll = rollDamage(effective(p).damage * wd.damage, p.d.critChance, p.d.critMult, w.rng);
   w.allyShots.push({
     x: p.x + Math.cos(p.facing) * p.radius,
     y: p.y + Math.sin(p.facing) * p.radius,
@@ -1251,13 +1253,23 @@ function fireBolt(w: World): void {
 }
 
 /**
+ * Whether the hunter is pressing attack. A button still held from a click
+ * outside the field is ignored until it is let go.
+ */
+function attackPressed(w: World, input: Controls): boolean {
+  const tapped = input.consume("Mouse0");
+  if (w.attackLatched) return false;
+  return tapped || input.attackHeld;
+}
+
+/**
  * The bow. Holding the attack draws the string; letting go looses the arrow.
  * A draw held to the full looses a charged shot that pierces everything in
  * line. A tap is a quick, ordinary arrow.
  */
 function stepBow(w: World, input: Controls, dt: number): void {
   const p = w.player;
-  const held = input.consume("Mouse0") || input.attackHeld;
+  const held = attackPressed(w, input);
   const busy = p.dashT > 0 || p.lungeT > 0;
   if (held && !busy && (p.drawT > 0 || p.attackCd <= 0)) {
     p.drawT += dt;
@@ -1271,7 +1283,7 @@ function stepBow(w: World, input: Controls, dt: number): void {
   p.swingId += 1;
   w.run.swings += 1;
   const wd = WEAPONS.bow;
-  const roll = rollDamage(effective(p).damage * wd.damage * (charged ? BOW.chargeMult : 1), p.d.critChance, PLAYER.critMult, w.rng);
+  const roll = rollDamage(effective(p).damage * wd.damage * (charged ? BOW.chargeMult : 1), p.d.critChance, p.d.critMult, w.rng);
   const speed = charged ? BOW.chargeSpeed : BOW.arrowSpeed;
   w.allyShots.push({
     x: p.x + Math.cos(p.facing) * p.radius,
@@ -1620,7 +1632,7 @@ function stepPlayer(w: World, input: Controls, dt: number): void {
   if (w.roomId !== roomBefore) return;
 
   if (p.weapon === "bow") stepBow(w, input, dt);
-  else if (p.attackCd <= 0 && p.dashT <= 0 && p.lungeT <= 0 && (input.attackHeld || input.consume("Mouse0"))) {
+  else if (p.attackCd <= 0 && p.dashT <= 0 && p.lungeT <= 0 && attackPressed(w, input)) {
     p.attackCd = eff.attackCooldown;
     p.attackFacing = p.facing;
     p.swingId += 1;
@@ -1629,7 +1641,7 @@ function stepPlayer(w: World, input: Controls, dt: number): void {
     if (p.weapon === "staff") fireBolt(w);
     else if (wd.ranged) {
       // An arrow: rolled now, landed by whatever it reaches first.
-      const roll = rollDamage(eff.damage * wd.damage, p.d.critChance, PLAYER.critMult, w.rng);
+      const roll = rollDamage(eff.damage * wd.damage, p.d.critChance, p.d.critMult, w.rng);
       w.allyShots.push({
         x: p.x + Math.cos(p.facing) * p.radius,
         y: p.y + Math.sin(p.facing) * p.radius,
@@ -1809,6 +1821,7 @@ function stepSelect(w: World, input: Controls): void {
     return;
   }
 
+  w.hoverItem = hoveredItem(w, input.mouseX, input.mouseY);
   let action: string | null = null;
   if (clicked) {
     const hit = hubButtons(w).find((b) => b.enabled && pointIn(b.rect, input.mouseX, input.mouseY));
@@ -1952,6 +1965,9 @@ export function step(w: World, input: Controls, dt: number): void {
   for (const n of w.notices.slice(0, NOTICES_SHOWN)) n.life -= dt;
   w.notices = w.notices.filter((n) => n.life > 0);
 
+  // Outside the field, any press of the attack button belongs to something else.
+  if (w.mode !== "gate" || w.cutscene || w.menu !== "none") w.attackLatched = input.attackHeld;
+  else if (!input.attackHeld) w.attackLatched = false;
   if (w.mode === "title") return stepTitle(w, input);
   if (w.sting) {
     w.sting.t -= dt;

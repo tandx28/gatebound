@@ -32,6 +32,11 @@ Play it: https://tandx28.github.io/gatebound/
 - Five weapon types: dagger, sword, spear, bow (hold to draw; a full draw
   looses a piercing charged shot) and staff (bolts that burst, shaped by the
   staff's element: fireball, ice shard, lightning, plain light).
+- Every named weapon has its own model and its own glow (steady, pulsing,
+  flickering, runes that light in turn, or a ripple); mythics have parts that
+  circle on their own. The shop and gear tabs show the weapon under the
+  cursor, turning, beside its name.
+- Crit chance stops at 60%; anything past that becomes extra crit damage.
 - Every mythic has an ultimate on Y that recharges over 90 s, faster with kills.
   Legendary and mythic gear wears an aura by its perks.
 - A Bestiary tab: kills per enemy kind, lore at 10 kills, and +10/20/30%

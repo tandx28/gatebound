@@ -39,6 +39,9 @@ import {
   HUNTER,
   KEYS_PANEL,
   keysButtons,
+  PREVIEW,
+  PREVIEW_VIEW,
+  previewWeapon,
   PAUSE_PANEL,
   pauseButtons,
   pointIn,
@@ -412,7 +415,8 @@ function drawStatus(ctx: Ctx, w: World): void {
     str: `${Math.round(p.d.damage)} damage`,
     agi: `${Math.round(p.d.moveSpeed)} speed`,
     vit: `${p.d.maxHp} health`,
-    sen: `${Math.round(p.d.critChance * 100)}% crit`,
+    // Past the cap, the spill shows as crit damage.
+    sen: `${Math.round(p.d.critChance * 100)}% crit  x${p.d.critMult.toFixed(2)}`,
     int: `${p.d.maxMana} mana`,
   };
   STAT_KEYS.forEach((key, i) => {
@@ -807,14 +811,16 @@ function drawHub(ctx: Ctx, w: World): void {
     ctx.textAlign = "left";
     ctx.font = `bold 12px ${FONT}`;
     ctx.fillStyle = "#6f8fbf";
-    ctx.fillText(`MYTHICS   ·   ${pr.mythics.length} of ${MYTHICS.length} earned`, 680, 536);
+    ctx.fillText(`MYTHICS   ·   ${pr.mythics.length} of ${MYTHICS.length} earned`, 680, 552);
     ctx.font = `11px ${FONT}`;
     MYTHICS.forEach((m, i) => {
       const have = pr.mythics.includes(m.id);
       ctx.fillStyle = have ? RARITY_CSS.mythic : "#4a5f85";
-      ctx.fillText(have ? `${itemName(m.id)}:  ${POWERS[m.id]}` : `???   ${m.how}`, 680, 554 + i * 15);
+      // Below the bag's page buttons, and above the footer.
+      ctx.fillText(have ? `${itemName(m.id)}:  ${POWERS[m.id]}` : `???   ${m.how}`, 680, 568 + i * 14);
     });
   }
+  if (w.tab === "shop" || w.tab === "gear") drawPreview(ctx, w);
   if ((w.tab === "shop" || w.tab === "gear") && pr.inventory.length === 0) {
     ctx.textAlign = "left";
     ctx.font = `13px ${FONT}`;
@@ -825,6 +831,47 @@ function drawHub(ctx: Ctx, w: World): void {
   ctx.font = `12px ${FONT}`;
   ctx.fillStyle = "rgba(159,200,255,0.6)";
   ctx.fillText("Q / E  switch tab   ·   C  status and stat points", VIEW_W / 2, VIEW_H - 24);
+}
+
+/**
+ * The frame round the turning weapon, with its name and make. The 3D view
+ * draws the weapon itself; the inside of its box is left clear for it.
+ */
+function drawPreview(ctx: Ctx, w: World): void {
+  const owned = previewWeapon(w);
+  const r = PREVIEW;
+  ctx.fillStyle = "rgba(6,10,20,0.85)";
+  ctx.fillRect(r.x, r.y, r.w, r.h);
+  ctx.strokeStyle = "rgba(94,230,255,0.35)";
+  ctx.lineWidth = 1;
+  ctx.strokeRect(r.x + 0.5, r.y + 0.5, r.w - 1, r.h - 1);
+  ctx.textAlign = "left";
+  const textW = PREVIEW_VIEW.x - r.x - 16;
+  if (!owned) {
+    ctx.font = `12px ${FONT}`;
+    ctx.fillStyle = "#4a5f85";
+    ctx.fillText("Point at a weapon", r.x + 12, r.y + 28);
+    ctx.fillText("to see it here.", r.x + 12, r.y + 46);
+    return;
+  }
+  const def = itemDef(owned);
+  ctx.clearRect(PREVIEW_VIEW.x, PREVIEW_VIEW.y, PREVIEW_VIEW.w, PREVIEW_VIEW.h);
+  // A long name steps down in size until it fits beside the weapon.
+  let size = 15;
+  ctx.font = `bold ${size}px ${FONT}`;
+  while (size > 10 && ctx.measureText(itemName(owned)).width > textW) {
+    size -= 1;
+    ctx.font = `bold ${size}px ${FONT}`;
+  }
+  ctx.fillStyle = def ? RARITY_CSS[def.rarity] : "#cfe4ff";
+  ctx.fillText(itemName(owned), r.x + 12, r.y + 28);
+  ctx.font = `12px ${FONT}`;
+  ctx.fillStyle = "#9fc8ff";
+  if (def?.weapon) ctx.fillText(`${def.rarity.toUpperCase()}  ${WEAPONS[def.weapon].name.toUpperCase()}`, r.x + 12, r.y + 50);
+  ctx.fillStyle = "#6f8fbf";
+  const pr = w.profile;
+  const inHand = owned === pr.equipped[pr.activeWeapon === 1 ? "weapon2" : "weapon"];
+  ctx.fillText(inHand && w.hoverItem !== owned ? "in your hand" : "", r.x + 12, r.y + 72);
 }
 
 /**

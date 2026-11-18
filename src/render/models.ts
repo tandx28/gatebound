@@ -5,7 +5,7 @@ import type { EnemyKind } from "../game/config";
 import type { ActorKind } from "../game/cutscenes";
 import type { WeaponType } from "../game/items";
 import { weaponProp, type Anim, type Held, type Pose, type Rig } from "./rigs";
-import { lookKey, weaponModel, type WeaponLook } from "./weapons";
+import { animateWeapon, lookKey, weaponModel, type WeaponLook } from "./weapons";
 
 /**
  * Modelled, skinned figures for the hunter and the human and undead enemies
@@ -509,6 +509,10 @@ function build(spec: ModelSpec, radius: number, hunter: boolean): Rig | null {
       // Bare hands show nothing at all.
       for (const [type, g] of arsenal) g.visible = type === a.weapon;
       if (hunter && a.weapon) arm(a.weapon, a.gear ?? { rarity: null, element: null });
+      if (hunter && a.weapon) {
+        const held = arsenal.get(a.weapon);
+        if (held) animateWeapon(held, a.time);
+      }
       if (hunter && a.weapon === "bow") bend(arsenal.get("bow"), a.draw ?? 0);
       if (hunter && a.weapon === "staff") {
         // The staff's head turns slowly and swells as a bolt leaves it.
@@ -534,10 +538,12 @@ export function bend(holder: THREE.Object3D | undefined, draw: number): void {
     if (o.userData.nock) {
       for (const half of o.children) {
         const side = half.userData.half as number;
-        const len = Math.hypot(d, 11);
-        half.position.set(-d / 2, (side * 11) / 2, 0);
-        half.rotation.z = side * Math.atan2(d, 11);
-        half.scale.y = len / 11;
+        // Each bow's string is as long as its limbs reach.
+        const r = (half.userData.len as number | undefined) ?? 11;
+        const len = Math.hypot(d, r);
+        half.position.set(-d / 2, (side * r) / 2, 0);
+        half.rotation.z = side * Math.atan2(d, r);
+        half.scale.y = len / r;
       }
     }
     if (o.userData.limbs) o.scale.x = 1 - d * 0.02;
