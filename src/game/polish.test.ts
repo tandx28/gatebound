@@ -6,7 +6,8 @@ import { ITEMS, makeItem } from "./items";
 import { refreshDerived, settleClear } from "./profile";
 import { addCrit, CRIT_CAP, CRIT_OVERFLOW, derive } from "./stats";
 import type { World } from "./state";
-import { hoveredItem, hubButtons, PREVIEW, PREVIEW_VIEW, previewWeapon } from "./ui";
+import { bagView, hoveredItem, hubButtons, PREVIEW, PREVIEW_VIEW, previewWeapon } from "./ui";
+import { hubAction } from "./profile";
 import { createWorld, enterGate, enterKeyGate, step } from "./world";
 
 class FakeControls implements Controls {
@@ -131,5 +132,63 @@ describe("the weapon preview", () => {
     expect(PREVIEW_VIEW.x).toBeGreaterThanOrEqual(PREVIEW.x);
     expect(PREVIEW_VIEW.x + PREVIEW_VIEW.w).toBeLessThanOrEqual(PREVIEW.x + PREVIEW.w);
     expect(PREVIEW_VIEW.y + PREVIEW_VIEW.h).toBeLessThanOrEqual(PREVIEW.y + PREVIEW.h);
+  });
+});
+
+describe("filtering and sorting the bag", () => {
+  function bagged(): World {
+    const w = createWorld(seeded(4));
+    w.mode = "select";
+    w.tab = "gear";
+    w.profile.inventory = [makeItem("iron_fang", []), makeItem("padded_coat", []), makeItem("oathkeeper", []), makeItem("focus_ring", []), makeItem("gatecleaver", []), makeItem("aegis_of_veyra", [])];
+    return w;
+  }
+  const ids = (w: World) => bagView(w).map((v) => v.owned.split("+")[0]);
+
+  it("shows the newest first by default, and every action still points at the right item", () => {
+    const w = bagged();
+    expect(ids(w)[0]).toBe("aegis_of_veyra");
+    const equip = hubButtons(w).find((b) => b.item === w.profile.inventory[2])!;
+    expect(equip.id).toBe("equip:2");
+  });
+
+  it("filters by kind and by rarity, and the switches step round", () => {
+    const w = bagged();
+    hubAction(w, "bag:kind");
+    expect(w.bagKind).toBe("weapon");
+    expect(ids(w).sort()).toEqual(["gatecleaver", "iron_fang", "oathkeeper"]);
+    hubAction(w, "bag:rarity");
+    hubAction(w, "bag:rarity");
+    hubAction(w, "bag:rarity");
+    expect(ids(w)).toEqual(["oathkeeper"]);
+    hubAction(w, "bag:kind");
+    expect(ids(w)).toEqual(["aegis_of_veyra"]);
+    hubAction(w, "bag:kind");
+    hubAction(w, "bag:kind");
+    hubAction(w, "bag:rarity");
+    expect(w.bagKind).toBe("all");
+    expect(w.bagRarity).toBe(0);
+    expect(ids(w)).toHaveLength(6);
+  });
+
+  it("sorts by rarity, name and kind without changing the bag itself", () => {
+    const w = bagged();
+    const before = [...w.profile.inventory];
+    hubAction(w, "bag:sort");
+    expect(ids(w).slice(0, 2).sort()).toEqual(["aegis_of_veyra", "oathkeeper"]);
+    hubAction(w, "bag:sort");
+    expect(ids(w)[0]).toBe("aegis_of_veyra");
+    hubAction(w, "bag:sort");
+    expect(ids(w).slice(0, 3)).toEqual(["iron_fang", "oathkeeper", "gatecleaver"]);
+    expect(ids(w).slice(3, 5).sort()).toEqual(["aegis_of_veyra", "padded_coat"]);
+    expect(w.profile.inventory).toEqual(before);
+  });
+
+  it("a filter goes back to the first page", () => {
+    const w = bagged();
+    w.profile.inventory = Array.from({ length: 20 }, () => makeItem("iron_fang", []));
+    w.invPage = 2;
+    hubAction(w, "bag:sort");
+    expect(w.invPage).toBe(0);
   });
 });

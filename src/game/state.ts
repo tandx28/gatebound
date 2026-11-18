@@ -507,6 +507,15 @@ export function isCaller(pr: Profile): boolean {
 
 export type Menu = "none" | "status" | "pause" | "keys";
 export type Mode = "title" | "select" | "gate" | "cleared" | "dead";
+/** The bag's filter by kind, and its sort order, on the shop and gear tabs. */
+export type BagKind = "all" | "weapon" | "armour" | "accessory";
+export type BagSort = "newest" | "rarity" | "name" | "kind";
+/** The bag's filter and sort choices, in the order a click steps through them. */
+export const BAG_KINDS: BagKind[] = ["all", "weapon", "armour", "accessory"];
+/** Lowest rarity shown: any, rare and up, epic and up, legendary and up (indexes into ALL_RARITIES). */
+export const BAG_RARITIES = [0, 2, 3, 4];
+export const BAG_SORTS: BagSort[] = ["newest", "rarity", "name", "kind"];
+
 export type GateKind = "normal" | "key" | "penalty" | "rite" | "break" | "tower" | "clock" | "rush" | "margin";
 
 /** Enough of a gate in progress to resume it from the current room. */
@@ -626,6 +635,12 @@ export interface World {
   layoutRev: number;
   /** Which page of the bag the board is showing. */
   invPage: number;
+  /** Which kind of item the bag shows: everything, or one slot. */
+  bagKind: BagKind;
+  /** The lowest rarity the bag shows, as an index into ALL_RARITIES (0 shows all). */
+  bagRarity: number;
+  /** The order the bag is shown in. Only the view changes; the bag itself keeps its order. */
+  bagSort: BagSort;
   /** Which page of the skills tab is showing, and the slot a skill click fills. */
   skillPage: number;
   slotPick: number;

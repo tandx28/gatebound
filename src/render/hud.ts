@@ -31,6 +31,7 @@ import { activeQuests, MAIN, questProgress } from "../game/quests";
 import { CHAPTERS } from "../game/story";
 import { STAT_KEYS, STAT_NAMES, xpToNext, type StatKey } from "../game/stats";
 import {
+  bagPage,
   hubButtons,
   hubHeadings,
   BEAST,
@@ -821,11 +822,11 @@ function drawHub(ctx: Ctx, w: World): void {
     });
   }
   if (w.tab === "shop" || w.tab === "gear") drawPreview(ctx, w);
-  if ((w.tab === "shop" || w.tab === "gear") && pr.inventory.length === 0) {
+  if ((w.tab === "shop" || w.tab === "gear") && bagPage(w).shown === 0) {
     ctx.textAlign = "left";
     ctx.font = `13px ${FONT}`;
     ctx.fillStyle = "#4a5f85";
-    ctx.fillText("Nothing in your bag.", 680, 268);
+    ctx.fillText(pr.inventory.length === 0 ? "Nothing in your bag." : "Nothing in your bag matches. Change the filters below.", 680, 268);
   }
   ctx.textAlign = "center";
   ctx.font = `12px ${FONT}`;

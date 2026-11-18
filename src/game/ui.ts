@@ -1,5 +1,6 @@
 import { BINDABLE, bossEchoCap, CLASS_IDS, CLASSES, CLOCK, echoCap, NGPLUS, KINDS, RANK_IDS, RESET, RUSH, SKILL_GROUPS, SKILL_RANK, SKILL_SLOTS, SKILLS, VIEW_H, VIEW_W, type Rank } from "./config";
 import {
+  ALL_RARITIES,
   BAG,
   describeBonus,
   describeItem,
@@ -21,7 +22,7 @@ import { BEAST_ORDER, BEAST_PAGE } from "./bestiary";
 import { activeEchoes, boundKey, canActivate, canNewGamePlus, classOpen, keyName, owns, redGateOpen, riteOpen, rushOpen, slotOpen, towerOpen } from "./profile";
 import { MAIN } from "./quests";
 import { CHAPTERS } from "./story";
-import { isCaller, visibleTabs, type World } from "./state";
+import { isCaller, visibleTabs, type BagKind, type BagSort, type World } from "./state";
 import { BASE_STAT, STAT_KEYS } from "./stats";
 
 /** Layout shared by the renderer and the click handling, so they agree. */
@@ -134,24 +135,63 @@ export function previewWeapon(w: World): string | null {
 /** How many bag items the board shows at once. */
 export const BAG_PAGE = 7;
 
-/** The slice of the bag on show, with each item's true position. */
-export function bagPage(w: World): { items: { owned: string; index: number }[]; page: number; pages: number } {
-  const all = w.profile.inventory;
-  const pages = Math.max(1, Math.ceil(all.length / BAG_PAGE));
-  const page = Math.min(w.invPage, pages - 1);
-  const items = all.slice(page * BAG_PAGE, (page + 1) * BAG_PAGE).map((owned, i) => ({ owned, index: page * BAG_PAGE + i }));
-  return { items, page, pages };
+const KIND_LABEL: Record<BagKind, string> = { all: "ALL KINDS", weapon: "WEAPONS", armour: "ARMOUR", accessory: "ACCESSORIES" };
+const SLOT_ORDER: Record<string, number> = { weapon: 0, armour: 1, accessory: 2 };
+const WEAPON_ORDER: Record<string, number> = { dagger: 0, sword: 1, spear: 2, bow: 3, staff: 4 };
+
+/** The bag as the board shows it: filtered and sorted, each item with its true position. */
+export function bagView(w: World): { owned: string; index: number }[] {
+  const tier = (o: string) => ALL_RARITIES.indexOf(itemDef(o)?.rarity ?? "common");
+  const list = w.profile.inventory
+    .map((owned, index) => ({ owned, index }))
+    .filter(({ owned }) => {
+      const def = itemDef(owned);
+      if (!def) return w.bagKind === "all" && w.bagRarity === 0;
+      return (w.bagKind === "all" || def.slot === w.bagKind) && tier(owned) >= w.bagRarity;
+    });
+  const newest = (a: { index: number }, b: { index: number }) => b.index - a.index;
+  const by: Record<BagSort, (a: { owned: string; index: number }, b: { owned: string; index: number }) => number> = {
+    newest,
+    rarity: (a, b) => tier(b.owned) - tier(a.owned) || newest(a, b),
+    name: (a, b) => itemName(a.owned).localeCompare(itemName(b.owned)) || newest(a, b),
+    kind: (a, b) => {
+      const da = itemDef(a.owned);
+      const db = itemDef(b.owned);
+      const slot = (SLOT_ORDER[da?.slot ?? ""] ?? 3) - (SLOT_ORDER[db?.slot ?? ""] ?? 3);
+      const weapon = (WEAPON_ORDER[da?.weapon ?? ""] ?? 0) - (WEAPON_ORDER[db?.weapon ?? ""] ?? 0);
+      return slot || weapon || tier(b.owned) - tier(a.owned) || newest(a, b);
+    },
+  };
+  return list.sort(by[w.bagSort]);
 }
 
-/** Rows for the bag in the right column, each with one action, and page buttons below. */
+/** The slice of the bag on show, with each item's true position. */
+export function bagPage(w: World): { items: { owned: string; index: number }[]; page: number; pages: number; shown: number } {
+  const all = bagView(w);
+  const pages = Math.max(1, Math.ceil(all.length / BAG_PAGE));
+  const page = Math.min(w.invPage, pages - 1);
+  const items = all.slice(page * BAG_PAGE, (page + 1) * BAG_PAGE);
+  return { items, page, pages, shown: all.length };
+}
+
+/**
+ * Rows for the bag in the right column, each with one action, and under
+ * them one strip: page back, the three filter and sort switches, page on.
+ */
 function bagRows(w: World, verb: string, label: (owned: string) => string, enabled: (owned: string) => boolean): Button[] {
   const { items, page, pages } = bagPage(w);
   const out = items.map(({ owned, index }, i) => itemRow(RIGHT, i, `${verb}:${index}`, owned, label(owned), enabled(owned)));
-  if (pages > 1) {
-    const y = TOP + BAG_PAGE * ROW_H + 6;
-    out.push({ rect: { x: RIGHT, y, w: 90, h: 26 }, id: "page:-", label: "< PREV", enabled: page > 0, kind: "plain" });
-    out.push({ rect: { x: RIGHT + 370, y, w: 90, h: 26 }, id: "page:+", label: "NEXT >", enabled: page < pages - 1, kind: "plain" });
-  }
+  if (w.profile.inventory.length === 0) return out;
+  const y = TOP + BAG_PAGE * ROW_H + 6;
+  out.push({ rect: { x: RIGHT, y, w: 44, h: 26 }, id: "page:-", label: "<", enabled: page > 0, kind: "plain" });
+  const rarity = w.bagRarity === 0 ? "ANY RARITY" : `${ALL_RARITIES[w.bagRarity].toUpperCase()}+`;
+  const switches: [string, string, boolean][] = [
+    ["bag:kind", KIND_LABEL[w.bagKind], w.bagKind !== "all"],
+    ["bag:rarity", rarity, w.bagRarity !== 0],
+    ["bag:sort", `SORT ${w.bagSort.toUpperCase()}`, w.bagSort !== "newest"],
+  ];
+  switches.forEach(([id, text, on], i) => out.push({ rect: { x: RIGHT + 50 + i * 118, y, w: 112, h: 26 }, id, label: text, enabled: true, kind: "plain", on }));
+  out.push({ rect: { x: RIGHT + 416, y, w: 44, h: 26 }, id: "page:+", label: ">", enabled: page < pages - 1, kind: "plain" });
   return out;
 }
 
@@ -284,7 +324,10 @@ export function pauseButtons(w: World): Button[] {
 /** Section headings on the current tab, positioned to match the rows. */
 export function hubHeadings(w: World): { x: number; y: number; text: string }[] {
   const y = TOP - 14;
-  const bag = `YOUR BAG   ·   ${w.profile.inventory.length} items${bagPage(w).pages > 1 ? `   ·   page ${bagPage(w).page + 1} of ${bagPage(w).pages}` : ""}`;
+  const view = bagPage(w);
+  const total = w.profile.inventory.length;
+  const count = view.shown === total ? `${total} items` : `${view.shown} of ${total} items`;
+  const bag = `YOUR BAG   ·   ${count}${view.pages > 1 ? `   ·   page ${view.page + 1} of ${view.pages}` : ""}`;
   if (w.tab === "shop") return [{ x: LEFT, y, text: "TODAY'S STOCK" }, { x: RIGHT, y, text: bag }];
   if (w.tab === "supplies") {
     return [

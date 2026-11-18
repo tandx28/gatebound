@@ -78,6 +78,9 @@ import {
 } from "./items";
 import { MAIN, newQuests, questEvent, type QuestEvent, type Reward } from "./quests";
 import {
+  BAG_KINDS,
+  BAG_RARITIES,
+  BAG_SORTS,
   burst,
   floatText,
   healPlayer,
@@ -1207,6 +1210,17 @@ function hubActionInner(w: World, verb: string, arg: string, extra: string | und
       if (arg !== "+" && arg !== "-") return null;
       w.invPage = Math.max(0, w.invPage + (arg === "+" ? 1 : -1));
       return null;
+    case "bag": {
+      // Step the bag's filter or sort to its next choice, and go back to the first page.
+      const next = <T>(list: readonly T[], now: T): T => list[(list.indexOf(now) + 1) % list.length];
+      if (arg === "kind") w.bagKind = next(BAG_KINDS, w.bagKind);
+      else if (arg === "rarity") w.bagRarity = next(BAG_RARITIES, w.bagRarity);
+      else if (arg === "sort") w.bagSort = next(BAG_SORTS, w.bagSort);
+      else return null;
+      w.invPage = 0;
+      sfx(w, "click");
+      return null;
+    }
     case "class": {
       // Take up another class. Echoes are kept, resting, for a return to Echo Caller.
       const id = arg as ClassId;

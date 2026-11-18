@@ -36,6 +36,8 @@ Play it: https://tandx28.github.io/gatebound/
   flickering, runes that light in turn, or a ripple); mythics have parts that
   circle on their own. The shop and gear tabs show the weapon under the
   cursor, turning, beside its name.
+- The bag on the shop and gear tabs can be filtered by kind (weapons, armour,
+  accessories) and by rarity, and sorted by newest, rarity, name or kind.
 - Crit chance stops at 60%; anything past that becomes extra crit damage.
 - Every mythic has an ultimate on Y that recharges over 90 s, faster with kills.
   Legendary and mythic gear wears an aura by its perks.
