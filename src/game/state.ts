@@ -407,6 +407,8 @@ export interface Profile {
   marginFound: boolean;
   /** Special-gate scenes already seen in full; after that they play as a short title. */
   scenesSeen: string[];
+  /** The ultimate the hunter chose for Y, when more than one worn mythic has one. */
+  ultPick: PowerId | null;
 }
 
 export type Ending = "keeper" | "unwritten";
@@ -613,11 +615,13 @@ export interface World {
    */
   hoverItem: string | null;
   /**
-   * A visit to the practice room to see a mythic's ultimate: which one,
-   * the real cooldown to give back afterwards, and the seconds left once it
-   * has been used (0 until then).
+   * The ultimate showcase: a short scene in a room of targets where the
+   * hunter uses a mythic's ultimate on their own. Which one, the real
+   * cooldown to give back afterwards, seconds until the next phase (the
+   * ultimate, then the end), whether it has been used, and how long the
+   * scene has run.
    */
-  practice: { power: PowerId; cd: number; t: number } | null;
+  practice: { power: PowerId; cd: number; t: number; fired: boolean; age: number } | null;
   /** The Redactor's hazards: the floor about to be erased, walls sweeping across, bars about to fall. */
   erasure: Erasure | null;
   sweeps: Sweep[];

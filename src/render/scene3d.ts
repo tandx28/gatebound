@@ -1039,9 +1039,11 @@ export class Scene3D {
     const tx = stage ? stage.x : THREE.MathUtils.clamp(at.x, 520, ROOM.w - 520);
     const tz = stage ? stage.y : THREE.MathUtils.clamp(at.y, 330, ROOM.h - 260);
     // A cutscene moves the camera in and out; play always stands at 1.
-    const zoom = stage ? stage.zoom : 1;
+    // The ultimate showcase pushes in slowly on the ring of targets.
+    const show = w.practice ? 1.15 + 0.25 * Math.min(1, w.practice.age / 3) : 0;
+    const zoom = stage ? stage.zoom : show || 1;
     if (Math.abs(this.camera.zoom - zoom) > 0.001) {
-      this.camera.zoom += (zoom - this.camera.zoom) * (stage ? 1 - Math.exp(-2.5 * dt) : 1);
+      this.camera.zoom += (zoom - this.camera.zoom) * (stage || show ? 1 - Math.exp(-2.5 * dt) : 1);
       this.camera.updateProjectionMatrix();
     }
     // A new room cuts straight to its framing instead of sliding across.

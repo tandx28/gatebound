@@ -16,7 +16,15 @@ export interface Pillar {
   x: number;
   y: number;
   radius: number;
+  /**
+   * How it is built, for the view only: which of its theme's shapes (0 to 3),
+   * or WALL_STYLE for a block of a low wall. It never changes how it blocks.
+   */
+  style?: number;
 }
+
+/** The style of a pillar that is one block of a low wall. */
+export const WALL_STYLE = 9;
 
 export type TrapKind = "spike" | "flame" | "sludge";
 
@@ -33,9 +41,10 @@ export interface Trap {
   hitEnemies: number;
 }
 
-export type Layout = "open" | "scatter" | "hall" | "ring" | "cross";
+export type Layout = "open" | "scatter" | "hall" | "ring" | "cross" | "walls" | "grove";
 
-export const PILLAR = { radius: 34, big: 62, stun: 1 };
+/** Pillar sizes: the usual, the great ones of a cross, a block of a low wall, a slender one of a grove. */
+export const PILLAR = { radius: 34, big: 62, wall: 26, slender: 22, stun: 1 };
 export const TRAPS = {
   spike: { radius: 48, period: 3.2, warn: 1.2, on: 0.35, damage: 12, enemyShare: 0.1 },
   flame: { radius: 150, width: 28, period: 4.6, warn: 1.2, on: 1, damage: 8, enemyShare: 0.08 },
@@ -60,10 +69,13 @@ export function furnish(rank: Rank, room: RoomNode | null): { layout: Layout; pi
   if (!room || room.kind !== "normal") return { layout: "open", pillars: [], traps: [] };
   const tier = RANK_IDS.indexOf(rank);
   const rng = seeded((room.gx + 64) * 7919 + (room.gy + 64) * 104729 + room.id * 31 + tier * 1009 + room.depth * 17 + 5);
-  const layouts: Layout[] = ["open", "scatter", "scatter", "hall", "ring", "cross"];
+  const layouts: Layout[] = ["open", "scatter", "scatter", "hall", "ring", "cross", "walls", "grove"];
   const layout = layouts[Math.floor(rng() * layouts.length)];
   const r = PILLAR.radius;
   let pillars: Pillar[] = [];
+  // Each pillar of a room is built to one of its theme's shapes; a room keeps to one or two of them.
+  const styles = [Math.floor(rng() * 4), Math.floor(rng() * 4)];
+  const style = () => styles[Math.floor(rng() * 2)];
   if (layout === "hall") {
     for (const y of [CY - 160, CY + 160]) for (const x of [CX - 320, CX, CX + 320]) pillars.push({ x, y, radius: r });
   } else if (layout === "ring") {
@@ -74,12 +86,37 @@ export function furnish(rank: Rank, room: RoomNode | null): { layout: Layout; pi
   } else if (layout === "cross") {
     for (const [sx, sy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) pillars.push({ x: CX + sx * 290, y: CY + sy * 190, radius: PILLAR.big });
   } else if (layout === "scatter") {
+    // Of different sizes: a stout one, slender ones.
     for (let tries = 0; tries < 40 && pillars.length < 4; tries++) {
       const x = 200 + rng() * (ROOM.w - 400);
       const y = 170 + rng() * (ROOM.h - 340);
-      if (free(x, y, r, pillars)) pillars.push({ x, y, radius: r });
+      const size = Math.round(r * (0.75 + rng() * 0.6));
+      if (free(x, y, size, pillars)) pillars.push({ x, y, radius: size });
+    }
+  } else if (layout === "walls") {
+    // Two low walls of stone blocks, standing across or along the room, with
+    // the way round each one open at both ends.
+    const across = rng() < 0.5;
+    const blocks = 5;
+    const gap = PILLAR.wall * 1.5;
+    for (const side of [-1, 1]) {
+      for (let i = 0; i < blocks; i++) {
+        const along = (i - (blocks - 1) / 2) * gap;
+        const x = across ? CX + side * 300 : CX + along;
+        const y = across ? CY + along : CY + side * 200;
+        pillars.push({ x, y, radius: PILLAR.wall, style: WALL_STYLE });
+      }
+    }
+  } else if (layout === "grove") {
+    // Many slender pillars, close enough to weave between.
+    for (let tries = 0; tries < 80 && pillars.length < 8; tries++) {
+      const x = 180 + rng() * (ROOM.w - 360);
+      const y = 150 + rng() * (ROOM.h - 300);
+      const size = Math.round(PILLAR.slender * (0.85 + rng() * 0.3));
+      if (free(x, y, size, pillars)) pillars.push({ x, y, radius: size });
     }
   }
+  for (const p of pillars) if (p.style === undefined) p.style = style();
   pillars = pillars.filter((p) => DOORS.every(([dx, dy]) => Math.hypot(p.x - dx, p.y - dy) > 190 + p.radius));
 
   const kinds = (["spike", "flame", "sludge"] as TrapKind[]).filter((k) => tier >= RANK_IDS.indexOf(TRAPS.from[k]));

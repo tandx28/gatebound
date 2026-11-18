@@ -9,7 +9,7 @@ import { refreshDerived, settleClear } from "./profile";
 import { addCrit, CRIT_CAP, CRIT_OVERFLOW, derive } from "./stats";
 import type { World } from "./state";
 import { bagView, hoveredItem, hubButtons, previewItem, PREVIEW, PREVIEW_VIEW, previewWeapon } from "./ui";
-import { hubAction } from "./profile";
+import { hubAction, ultimateOf } from "./profile";
 import { createWorld, enterGate, enterKeyGate, enterPractice, step } from "./world";
 
 class FakeControls implements Controls {
@@ -123,7 +123,7 @@ describe("the weapon preview", () => {
     for (const tab of ["shop", "gear"] as const) {
       w.tab = tab;
       for (const b of hubButtons(w)) {
-        if (b.kind === "tab" || b.id.startsWith("ult:")) continue;
+        if (b.kind === "tab" || b.id.startsWith("ultsee:")) continue;
         const r = b.rect;
         const apart = r.x + r.w <= PREVIEW.x || r.x >= PREVIEW.x + PREVIEW.w || r.y + r.h <= PREVIEW.y || r.y >= PREVIEW.y + PREVIEW.h;
         expect(apart, `${tab} ${b.id}`).toBe(true);
@@ -209,13 +209,13 @@ describe("seeing a mythic's ultimate", () => {
     w.tab = "gear";
     w.profile.inventory = [makeItem("ashen_wake", []), makeItem("iron_fang", []), makeItem("breakwater", [])];
     w.hoverItem = w.profile.inventory[1];
-    expect(hubButtons(w).some((b) => b.id.startsWith("ult:"))).toBe(false);
+    expect(hubButtons(w).some((b) => b.id.startsWith("ultsee:"))).toBe(false);
     w.hoverItem = w.profile.inventory[0];
-    expect(hubButtons(w).find((b) => b.id.startsWith("ult:"))?.id).toBe("ult:ashen_wake");
+    expect(hubButtons(w).find((b) => b.id.startsWith("ultsee:"))?.id).toBe("ultsee:ashen_wake");
     // An accessory with an ultimate is shown too, though it has no model.
     w.hoverItem = w.profile.inventory[2];
     expect(previewItem(w)).toBe(w.profile.inventory[2]);
-    expect(hubButtons(w).find((b) => b.id.startsWith("ult:"))?.id).toBe("ult:breakwater");
+    expect(hubButtons(w).find((b) => b.id.startsWith("ultsee:"))?.id).toBe("ultsee:breakwater");
   });
 
   it("the practice room plays the ultimate, hurts no one who matters, and goes back with the cooldown intact", () => {
@@ -229,11 +229,11 @@ describe("seeing a mythic's ultimate", () => {
       expect(w.mode).toBe("gate");
       expect(w.enemies.length).toBeGreaterThan(0);
       const c = new FakeControls();
-      c.press("KeyY");
+      // It plays on its own: no key is pressed.
       run(w, c, 2);
-      expect(w.practice?.t ?? 0, power).toBeGreaterThan(0);
+      expect(w.practice?.fired, power).toBe(true);
       expect(w.player.hp).toBe(w.player.d.maxHp);
-      run(w, c, 6);
+      run(w, c, 5);
       expect(w.mode, power).toBe("select");
       expect(w.tab).toBe("gear");
       expect(w.player.ultCd).toBe(42);
@@ -242,15 +242,39 @@ describe("seeing a mythic's ultimate", () => {
     }
   });
 
-  it("Esc leaves the practice room at once", () => {
+  it("Space ends the showcase at once; Esc neither ends it nor opens a menu", () => {
     const w = createWorld(seeded(4));
     w.mode = "select";
     enterPractice(w, "trials_end");
     const c = new FakeControls();
     c.press("Escape");
     run(w, c, 0.1);
+    expect(w.mode).toBe("gate");
+    expect(w.menu).toBe("none");
+    c.press("Space");
+    run(w, c, 0.1);
     expect(w.mode).toBe("select");
     expect(w.practice).toBeNull();
+  });
+
+  it("with more than one mythic worn, the hunter picks which ultimate Y uses, and it is saved", () => {
+    const w = createWorld(seeded(4));
+    w.mode = "select";
+    w.tab = "gear";
+    w.profile.equipped.weapon = makeItem("ashen_wake", []);
+    w.profile.equipped.armour = makeItem("untouched_mantle", []);
+    w.profile.equipped.accessory = makeItem("breakwater", []);
+    expect(ultimateOf(w.profile)).toBe("ashen_wake");
+    const pick = hubButtons(w).find((b) => b.id === "ultpick:next")!;
+    expect(pick.enabled).toBe(true);
+    hubAction(w, "ultpick:next");
+    expect(ultimateOf(w.profile)).toBe("untouched_mantle");
+    hubAction(w, "ultpick:next");
+    expect(ultimateOf(w.profile)).toBe("breakwater");
+    expect(parseSave(toSave(w))?.profile.ultPick).toBe("breakwater");
+    // Taking the chosen one off falls back to the next worn.
+    delete w.profile.equipped.accessory;
+    expect(ultimateOf(w.profile)).toBe("ashen_wake");
   });
 });
 

@@ -154,6 +154,7 @@ export function newProfile(): Profile {
     replayed: [],
     marginFound: false,
     scenesSeen: [],
+    ultPick: null,
   };
 }
 
@@ -383,12 +384,19 @@ export const STING = 2.6;
 
 /** The mythic whose ultimate Y uses: the one in the weapon hand first, then armour, then accessory. */
 export function ultimateOf(pr: Profile): PowerId | null {
+  const worn = wornUltimates(pr);
+  return pr.ultPick && worn.includes(pr.ultPick) ? pr.ultPick : (worn[0] ?? null);
+}
+
+/** Every ultimate the hunter's worn gear carries, weapon in hand first. */
+export function wornUltimates(pr: Profile): PowerId[] {
+  const out: PowerId[] = [];
   for (const slot of wornSlots(pr.activeWeapon)) {
     const owned = pr.equipped[slot];
     const power = owned ? itemDef(owned)?.power : undefined;
-    if (power) return power;
+    if (power) out.push(power);
   }
-  return null;
+  return out;
 }
 
 /** The Redactor is struck out: its quill, its title, and the way back stays open. */
@@ -1212,6 +1220,16 @@ function hubActionInner(w: World, verb: string, arg: string, extra: string | und
       if (arg !== "+" && arg !== "-") return null;
       w.invPage = Math.max(0, w.invPage + (arg === "+" ? 1 : -1));
       return null;
+    case "ultpick": {
+      // Step Y to the next ultimate among the worn mythics.
+      const worn = wornUltimates(pr);
+      if (worn.length < 2) return null;
+      const now = ultimateOf(pr);
+      pr.ultPick = worn[(worn.indexOf(now!) + 1) % worn.length];
+      w.dirty = true;
+      sfx(w, "click");
+      return null;
+    }
     case "bag": {
       // Step the bag's filter or sort to its next choice, and go back to the first page.
       const next = <T>(list: readonly T[], now: T): T => list[(list.indexOf(now) + 1) % list.length];

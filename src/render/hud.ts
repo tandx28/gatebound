@@ -676,6 +676,36 @@ function drawStory(ctx: Ctx, w: World): void {
   }
 }
 
+/** The ultimate showcase: between black bars, the ultimate's name and what it does. */
+function drawShowcase(ctx: Ctx, w: World): void {
+  const show = w.practice!;
+  const ult = ULTIMATES[show.power];
+  const top = 64;
+  const bottom = 130;
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, VIEW_W, top);
+  ctx.fillRect(0, VIEW_H - bottom, VIEW_W, bottom);
+  ctx.textAlign = "left";
+  ctx.font = `bold 12px ${FONT}`;
+  ctx.fillStyle = "#6f8fbf";
+  ctx.fillText("ULTIMATE", 40, 38);
+  ctx.textAlign = "right";
+  ctx.font = `11px ${FONT}`;
+  ctx.fillText("SPACE / ENTER / click  back to the board", VIEW_W - 40, 38);
+  // The name fades in, then the line under it.
+  const k = Math.min(1, show.age / 0.6);
+  ctx.textAlign = "center";
+  ctx.font = `bold 26px ${FONT}`;
+  ctx.fillStyle = `rgba(255,216,74,${k})`;
+  ctx.shadowColor = GOLD;
+  ctx.shadowBlur = 14 * k;
+  ctx.fillText(ult.name.toUpperCase(), VIEW_W / 2, VIEW_H - bottom + 48);
+  ctx.shadowBlur = 0;
+  ctx.font = `14px ${FONT}`;
+  ctx.fillStyle = `rgba(207,228,255,${Math.min(1, Math.max(0, (show.age - 0.4) / 0.6))})`;
+  ctx.fillText(ult.about, VIEW_W / 2, VIEW_H - bottom + 80);
+}
+
 /** A cutscene: the stage between two black bars, with the line being spoken below. */
 function drawCutscene(ctx: Ctx, w: World): void {
   const cs = w.cutscene!;
@@ -1242,6 +1272,7 @@ export function drawHud(ctx: Ctx, w: World, mouseX: number, mouseY: number, proj
 
   if (w.mode === "title") return drawTitle(ctx, w);
   if (w.cutscene) return drawCutscene(ctx, w);
+  if (w.practice && w.mode === "gate") return drawShowcase(ctx, w);
 
   if (w.mode === "select") {
     drawHub(ctx, w);

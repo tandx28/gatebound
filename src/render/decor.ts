@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { seeded } from "../engine/rng";
 import { ROOM } from "../game/config";
 import type { Side } from "../game/dungeon";
-import type { Pillar, Theme } from "../game/rooms";
+import { WALL_STYLE, type Pillar, type Theme } from "../game/rooms";
 import { flame } from "./fire";
 
 /**
@@ -53,33 +53,143 @@ const solid = (geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: num
   return m;
 };
 
-/** A pillar in the manner of the room: a drum, a square pier, a post, a stalagmite, a rune stone. */
+/**
+ * A pillar in the manner of the room. Each theme has four shapes, chosen by
+ * the pillar's style: a hall's drum, broken drum, obelisk or statue; a
+ * crypt's or armoury's pier, chained pier, broken pier or pedestal; a
+ * cavern's stalagmite, crystal spire, stacked boulders or cluster. A block of
+ * a low wall is rough-cut stone in any room. Slender pillars are built thinner
+ * and a little lower.
+ */
 export function pillarFor(theme: Theme, p: Pillar, wallTex: THREE.Texture, tint: number): THREE.Object3D {
   const look = LOOK[theme];
   const stone = new THREE.MeshStandardMaterial({ map: wallTex, color: look.stone, roughness: 0.95 });
   const g = new THREE.Group();
   const r = p.radius;
+  const style = p.style ?? 0;
+  // Each pillar's own small differences come from where it stands, so a room always looks the same.
+  const rng = seeded(Math.round(p.x) * 7919 + Math.round(p.y) * 104729 + 11);
+  const tall = r < 28 ? 120 : 150;
+  const glow = (color: number, k: number) => new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: k, roughness: 0.3 });
+  const iron = new THREE.MeshStandardMaterial({ color: 0x2c2f36, roughness: 0.5, metalness: 0.8 });
+
+  if (style === WALL_STYLE) {
+    // A rough block, a little out of true; side by side they make a wall.
+    const rough = new THREE.MeshStandardMaterial({ map: wallTex, color: look.stone, roughness: 1, flatShading: true });
+    const h = 54 + rng() * 22;
+    const block = solid(new THREE.BoxGeometry(r * 1.9, h, r * 1.9), rough, p.x, h / 2, p.y);
+    block.rotation.y = (rng() - 0.5) * 0.25;
+    g.add(block);
+    if (rng() < 0.5) g.add(solid(new THREE.BoxGeometry(r * 1.2, 14, r * 1.1), rough, p.x + (rng() - 0.5) * 8, h + 7, p.y));
+    return g;
+  }
+
   if (theme === "cavern") {
-    // A stalagmite, with two lesser ones leaning on it.
     const rock = new THREE.MeshStandardMaterial({ color: look.stone, roughness: 1, flatShading: true });
-    g.add(solid(new THREE.ConeGeometry(r, 170, 7), rock, p.x, 85, p.y));
-    g.add(solid(new THREE.ConeGeometry(r * 0.5, 80, 6), rock, p.x + r * 0.7, 40, p.y + r * 0.3));
-    g.add(solid(new THREE.ConeGeometry(r * 0.4, 60, 6), rock, p.x - r * 0.6, 30, p.y - r * 0.5));
-    const crystal = new THREE.MeshStandardMaterial({ color: look.fire, emissive: look.fire, emissiveIntensity: 1.6, roughness: 0.2 });
-    g.add(solid(new THREE.OctahedronGeometry(r * 0.28), crystal, p.x + r * 0.5, 70, p.y - r * 0.4));
-  } else if (theme === "crypt" || theme === "armoury") {
-    // A square pier on a plinth.
+    if (style === 1) {
+      // A spire of crystal grown from a stone foot.
+      g.add(solid(new THREE.DodecahedronGeometry(r * 0.9), rock, p.x, r * 0.4, p.y));
+      const crystal = glow(look.fire, 0.9);
+      for (let i = 0; i < 4; i++) {
+        const c = solid(new THREE.ConeGeometry(r * (0.5 - i * 0.08), tall * (0.9 - i * 0.15), 5), crystal, p.x + (rng() - 0.5) * r * 0.6, (tall * (0.9 - i * 0.15)) / 2 + 10, p.y + (rng() - 0.5) * r * 0.6);
+        c.rotation.set((rng() - 0.5) * 0.4, rng() * 3, (rng() - 0.5) * 0.4);
+        c.castShadow = false;
+        g.add(c);
+      }
+    } else if (style === 2) {
+      // Boulders stacked by no hand.
+      let y = 0;
+      for (let i = 0; i < 4; i++) {
+        const s = r * (1.05 - i * 0.18);
+        g.add(solid(new THREE.DodecahedronGeometry(s), rock, p.x + (rng() - 0.5) * 10, y + s * 0.8, p.y + (rng() - 0.5) * 10));
+        y += s * 1.4;
+      }
+    } else if (style === 3) {
+      // A cluster of stalagmites, none the master.
+      for (let i = 0; i < 5; i++) {
+        const a = (i / 5) * Math.PI * 2 + rng();
+        const h = 60 + rng() * 90;
+        g.add(solid(new THREE.ConeGeometry(r * (0.35 + rng() * 0.25), h, 6), rock, p.x + Math.cos(a) * r * 0.5, h / 2, p.y + Math.sin(a) * r * 0.5));
+      }
+    } else {
+      // A stalagmite, with two lesser ones leaning on it.
+      g.add(solid(new THREE.ConeGeometry(r, tall + 20, 7), rock, p.x, (tall + 20) / 2, p.y));
+      g.add(solid(new THREE.ConeGeometry(r * 0.5, 80, 6), rock, p.x + r * 0.7, 40, p.y + r * 0.3));
+      g.add(solid(new THREE.ConeGeometry(r * 0.4, 60, 6), rock, p.x - r * 0.6, 30, p.y - r * 0.5));
+      g.add(solid(new THREE.OctahedronGeometry(r * 0.28), glow(look.fire, 1), p.x + r * 0.5, 70, p.y - r * 0.4));
+    }
+    return g;
+  }
+
+  if (theme === "crypt" || theme === "armoury") {
     const side = r * 1.55;
-    g.add(solid(new THREE.BoxGeometry(side * 1.2, 14, side * 1.2), stone, p.x, 7, p.y));
-    g.add(solid(new THREE.BoxGeometry(side, 150, side), stone, p.x, 75, p.y));
-    g.add(solid(new THREE.BoxGeometry(side * 1.2, 10, side * 1.2), stone, p.x, 150, p.y));
+    if (style === 1) {
+      // A pier bound in iron bands, with a chain hanging from it.
+      g.add(solid(new THREE.BoxGeometry(side, tall, side), stone, p.x, tall / 2, p.y));
+      for (const y of [30, tall - 30]) g.add(solid(new THREE.BoxGeometry(side + 3, 6, side + 3), iron, p.x, y, p.y));
+      for (let i = 0; i < 6; i++) {
+        const link = solid(new THREE.TorusGeometry(2.6, 0.7, 4, 8), iron, p.x + side / 2 + 2, tall - 40 - i * 6, p.y);
+        link.rotation.y = i % 2 ? Math.PI / 2 : 0;
+        g.add(link);
+      }
+    } else if (style === 2) {
+      // A pier broken off, its top lying beside it.
+      const h = tall * (0.4 + rng() * 0.2);
+      g.add(solid(new THREE.BoxGeometry(side, h, side), stone, p.x, h / 2, p.y));
+      const fallen = solid(new THREE.BoxGeometry(side * 0.9, side * 0.9, tall * 0.45), stone, p.x + side * 0.4, side * 0.45, p.y + side * 0.9);
+      fallen.rotation.set(0, rng() - 0.5, 0.15);
+      g.add(fallen);
+    } else if (style === 3) {
+      // A pedestal holding up a bowl of cold light.
+      g.add(solid(new THREE.BoxGeometry(side * 1.2, 14, side * 1.2), stone, p.x, 7, p.y));
+      g.add(solid(new THREE.CylinderGeometry(r * 0.45, r * 0.6, 70, 8), stone, p.x, 49, p.y));
+      g.add(solid(new THREE.CylinderGeometry(r * 0.9, r * 0.5, 12, 10), iron, p.x, 90, p.y));
+      g.add(solid(new THREE.SphereGeometry(r * 0.35, 10, 8), glow(look.fire, 0.8), p.x, 100, p.y));
+    } else {
+      // A square pier on a plinth.
+      g.add(solid(new THREE.BoxGeometry(side * 1.2, 14, side * 1.2), stone, p.x, 7, p.y));
+      g.add(solid(new THREE.BoxGeometry(side, tall, side), stone, p.x, tall / 2, p.y));
+      g.add(solid(new THREE.BoxGeometry(side * 1.2, 10, side * 1.2), stone, p.x, tall, p.y));
+    }
+    return g;
+  }
+
+  if (style === 1) {
+    // A drum broken at its height, and a piece of it on the floor.
+    const h = tall * (0.45 + rng() * 0.2);
+    g.add(solid(new THREE.CylinderGeometry(r * 1.12, r * 1.2, 12, 14), stone, p.x, 6, p.y));
+    g.add(solid(new THREE.CylinderGeometry(r * 0.88, r, h, 14), stone, p.x, h / 2 + 6, p.y));
+    const shard = solid(new THREE.ConeGeometry(r * 0.88, 22, 14), stone, p.x, h + 14, p.y);
+    shard.rotation.z = 0.25;
+    g.add(shard);
+    const piece = solid(new THREE.CylinderGeometry(r * 0.85, r * 0.85, r * 1.6, 12), stone, p.x + r * 1.4, r * 0.85, p.y + r * 0.5);
+    piece.rotation.set(0, rng() * 3, Math.PI / 2);
+    g.add(piece);
+  } else if (style === 2) {
+    // An obelisk, its rune band lit in the gate's colour.
+    const side = r * 1.4;
+    g.add(solid(new THREE.BoxGeometry(side * 1.3, 16, side * 1.3), stone, p.x, 8, p.y));
+    const shaft = solid(new THREE.CylinderGeometry(side * 0.42, side * 0.7, tall + 10, 4), stone, p.x, (tall + 10) / 2 + 16, p.y);
+    shaft.rotation.y = Math.PI / 4;
+    g.add(shaft);
+    const tip = solid(new THREE.ConeGeometry(side * 0.42, 22, 4), stone, p.x, tall + 37, p.y);
+    tip.rotation.y = Math.PI / 4;
+    g.add(tip);
+    for (let i = 0; i < 3; i++) g.add(solid(new THREE.BoxGeometry(side * 0.9, 3, side * 0.9), glow(tint, theme === "shrine" ? 1 : 0.5), p.x, 50 + i * 22, p.y).rotateY(Math.PI / 4));
+  } else if (style === 3) {
+    // A hooded figure of stone on a plinth, head bowed.
+    g.add(solid(new THREE.BoxGeometry(r * 2, 24, r * 2), stone, p.x, 12, p.y));
+    g.add(solid(new THREE.CylinderGeometry(r * 0.45, r * 0.85, tall * 0.6, 8), stone, p.x, 24 + tall * 0.3, p.y));
+    const head = solid(new THREE.ConeGeometry(r * 0.45, r * 1.1, 8), stone, p.x, 24 + tall * 0.6 + r * 0.45, p.y);
+    head.rotation.x = 0.25;
+    g.add(head);
+    g.add(solid(new THREE.BoxGeometry(r * 1.6, 8, 10), stone, p.x, 24 + tall * 0.42, p.y + r * 0.3));
   } else {
     // A drum on a base, with a capital, and a band in the gate's colour.
     g.add(solid(new THREE.CylinderGeometry(r * 1.12, r * 1.2, 12, 14), stone, p.x, 6, p.y));
-    g.add(solid(new THREE.CylinderGeometry(r * 0.88, r, 140, 14), stone, p.x, 80, p.y));
-    g.add(solid(new THREE.CylinderGeometry(r * 1.15, r * 0.9, 12, 14), stone, p.x, 152, p.y));
-    const band = new THREE.MeshStandardMaterial({ color: tint, emissive: tint, emissiveIntensity: theme === "shrine" ? 1.4 : 0.5 });
-    g.add(solid(new THREE.CylinderGeometry(r * 0.94, r * 0.94, 5, 14), band, p.x, 112, p.y));
+    g.add(solid(new THREE.CylinderGeometry(r * 0.88, r, tall - 10, 14), stone, p.x, tall / 2 + 5, p.y));
+    g.add(solid(new THREE.CylinderGeometry(r * 1.15, r * 0.9, 12, 14), stone, p.x, tall + 2, p.y));
+    g.add(solid(new THREE.CylinderGeometry(r * 0.94, r * 0.94, 5, 14), glow(tint, theme === "shrine" ? 1 : 0.4), p.x, tall * 0.75, p.y));
   }
   return g;
 }
@@ -243,6 +353,80 @@ export function dress(group: THREE.Group, theme: Theme, seed: number, doors: Par
         put(side, at, 30, (g) => {
           for (let i = 0; i < 5; i++) g.add(solid(new THREE.BoxGeometry(8 + rng() * 14, 6 + rng() * 8, 8 + rng() * 10), stone, (rng() - 0.5) * 50, 4, (rng() - 0.5) * 24));
         });
+      }
+    }
+  }
+
+  // The floor itself: cracks everywhere, and something of each kind of room.
+  const flat = (w: number, d: number, mat: THREE.Material, x: number, z: number, turn: number, y = 0.5): void => {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), mat);
+    m.rotation.set(-Math.PI / 2, 0, turn);
+    m.position.set(x, y, z);
+    m.receiveShadow = true;
+    group.add(m);
+  };
+  const crack = new THREE.MeshBasicMaterial({ color: 0x050608, transparent: true, opacity: 0.55, depthWrite: false });
+  for (let i = 0; i < 5 + Math.floor(rng() * 4); i++) {
+    // A crack runs in three crooked pieces.
+    let x = 120 + rng() * (W - 240);
+    let z = 100 + rng() * (H - 200);
+    let a = rng() * Math.PI;
+    for (let j = 0; j < 3; j++) {
+      const len = 30 + rng() * 40;
+      flat(len, 2 + rng() * 1.5, crack, x + (Math.cos(a) * len) / 2, z + (Math.sin(a) * len) / 2, -a, 0.45 + i * 0.01);
+      x += Math.cos(a) * len;
+      z += Math.sin(a) * len;
+      a += (rng() - 0.5) * 1.2;
+    }
+  }
+  if (theme === "hall" || theme === "throne" || theme === "gate") {
+    // A worn runner down the room, in the gate's colour (red before a throne).
+    const cloth = new THREE.MeshStandardMaterial({ color: theme === "throne" ? 0x5a1418 : tint, roughness: 1, transparent: true, opacity: theme === "throne" ? 0.8 : 0.2 });
+    flat(150, H - 60, cloth, W / 2, H / 2, 0, 0.6);
+    const hem = new THREE.MeshStandardMaterial({ color: 0xb08a3a, roughness: 0.8 });
+    for (const side of [-1, 1]) flat(6, H - 60, hem, W / 2 + side * 72, H / 2, 0, 0.7);
+  } else if (theme === "crypt") {
+    // Grave slabs set into the floor, a little proud of it, darker than the walls.
+    const graveStone = new THREE.MeshStandardMaterial({ color: 0x3e424a, roughness: 0.95 });
+    for (let i = 0; i < 4; i++) {
+      const slab = solid(new THREE.BoxGeometry(46, 3, 90), graveStone, 200 + rng() * (W - 400), 1.5, 140 + rng() * (H - 280));
+      slab.rotation.y = rng() < 0.5 ? 0 : Math.PI / 2;
+      group.add(slab);
+    }
+  } else if (theme === "armoury") {
+    // Iron drain grates.
+    for (let i = 0; i < 3; i++) {
+      const x = 220 + rng() * (W - 440);
+      const z = 160 + rng() * (H - 320);
+      flat(40, 40, new THREE.MeshBasicMaterial({ color: 0x030304 }), x, z, 0, 0.5);
+      for (let k = -2; k <= 2; k++) group.add(solid(new THREE.BoxGeometry(40, 1.2, 2.5), iron, x, 0.9, z + k * 8));
+    }
+  } else if (theme === "cavern") {
+    // Still black water, and loose stones.
+    const water = new THREE.MeshStandardMaterial({ color: 0x0a1218, roughness: 0.05, metalness: 0.6, transparent: true, opacity: 0.85 });
+    for (let i = 0; i < 3; i++) {
+      const pool = new THREE.Mesh(new THREE.CircleGeometry(30 + rng() * 40, 18), water);
+      pool.rotation.x = -Math.PI / 2;
+      pool.scale.set(1, 0.6 + rng() * 0.4, 1);
+      pool.position.set(200 + rng() * (W - 400), 0.55, 150 + rng() * (H - 300));
+      group.add(pool);
+    }
+    const rock = new THREE.MeshStandardMaterial({ color: look.stone, roughness: 1, flatShading: true });
+    for (let i = 0; i < 10; i++) group.add(solid(new THREE.DodecahedronGeometry(3 + rng() * 5), rock, 100 + rng() * (W - 200), 2, 80 + rng() * (H - 160)));
+  } else if (theme === "shrine") {
+    // Candles in little clusters near the walls.
+    const wax = new THREE.MeshStandardMaterial({ color: 0xe8e0c8, roughness: 0.7 });
+    for (let i = 0; i < 4; i++) {
+      const cx = rng() < 0.5 ? 90 + rng() * 120 : W - 90 - rng() * 120;
+      const cz = 90 + rng() * (H - 180);
+      for (let k = 0; k < 4; k++) {
+        const h = 6 + rng() * 10;
+        const x = cx + (rng() - 0.5) * 30;
+        const z = cz + (rng() - 0.5) * 30;
+        group.add(solid(new THREE.CylinderGeometry(1.6, 1.8, h, 6), wax, x, h / 2, z));
+        const f = flame(look.fire, 1.2, 4);
+        f.position.set(x, h, z);
+        group.add(f);
       }
     }
   }

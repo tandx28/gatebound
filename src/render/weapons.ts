@@ -123,7 +123,9 @@ export function formOf(type: WeaponType, base: string | null | undefined): Form 
 }
 
 /** How strongly a weapon glows in the hand: held back, so the fight stays readable. */
-export const HAND_GLOW = 0.55;
+export const HAND_GLOW = 0.4;
+/** Every glowing part's strength is scaled by this; the owner found the first pass too bright. */
+const GLOW_SCALE = 0.6;
 
 /** How an owned weapon looks: its form, rarity and first element. */
 export function lookOf(owned: string, bright = 1): WeaponLook {
@@ -167,9 +169,11 @@ function stuffMat(stuff: Stuff, tier: number): THREE.MeshStandardMaterial {
  * Each glowing mesh has its own, so runes can light one after another.
  */
 function glowMesh(geo: THREE.BufferGeometry, color: number, pattern: Pattern, strength: number, phase = 0): THREE.Mesh {
-  const mat = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: strength, roughness: 0.3 });
+  // Held back across the board: bloom makes any glow read brighter than its number.
+  const base = strength * GLOW_SCALE;
+  const mat = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: base, roughness: 0.3 });
   const m = new THREE.Mesh(geo, mat);
-  m.userData.glow = { pattern, base: strength, phase };
+  m.userData.glow = { pattern, base, phase };
   return m;
 }
 
@@ -717,7 +721,7 @@ export function weaponModel(type: WeaponType, look: WeaponLook): THREE.Group {
   // A blade of the finest make carries a little of its glow in the metal itself.
   if (tier >= 3 && form.stuff !== "glass") {
     metal.emissive.setHex(element ?? form.glow);
-    metal.emissiveIntensity = 0.08 * tier * (look.bright ?? 1);
+    metal.emissiveIntensity = 0.04 * tier * (look.bright ?? 1);
   }
   const kit: Kit = {
     form,

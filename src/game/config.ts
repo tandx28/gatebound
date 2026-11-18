@@ -469,12 +469,13 @@ export const ULT = {
 };
 
 /**
- * The practice room where a mythic's ultimate can be seen from the board:
- * inert targets in a ring, the hunter untouchable, back to the board this
- * long after the ultimate is used (or at once with Esc).
+ * The ultimate showcase, played from the board: inert targets in a ring,
+ * the hunter untouchable. The ultimate is used `lead` seconds in, and the
+ * scene ends `after` seconds later (or at once with Space, Enter or a click).
  */
 export const PRACTICE = {
-  after: 6,
+  lead: 1.2,
+  after: 4.5,
   ring: 230,
   hp: 1e7,
   dummies: ["brute", "charger", "swarmer", "shooter", "brute", "knight"] as EnemyKind[],

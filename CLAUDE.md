@@ -71,9 +71,13 @@ Conventions that everything relies on:
   legendary, moving parts only on mythics.
 - Anything drawn only for play (auras, rings, aim line, footprints, marks)
   is hidden while `w.cutscene` runs.
-- `GateKind` "practice" (`enterPractice`, `w.practice`) is the room for
-  seeing an ultimate: inert targets, the hunter untouchable, never settled,
-  never saved as a resumable gate. Ultimate names and text live in
+- `GateKind` "practice" (`enterPractice`, `w.practice`) is the ultimate
+  showcase: a scene in which the hunter uses the ultimate on its own (input
+  is replaced by `SHOWCASE_HANDS`), on inert targets, untouchable, never
+  settled, never saved as a resumable gate. `profile.ultPick` is which worn
+  mythic's ultimate Y uses (`ultimateOf`).
+- Pillars carry a `style` (view only, 0 to 3 per theme, or `WALL_STYLE`);
+  `pillarFor` in decor.ts builds each shape. Ultimate names and text live in
   `ULTIMATES` (items.ts).
 - `parseSave` also catches up rewards a save earned before they existed
   (New Game+ titles, ending titles, Nightmare); add to it when a new reward

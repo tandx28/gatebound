@@ -446,15 +446,16 @@ function beginArena(w: World, rank: Rank, kind: GateKind, doorsOpen: boolean): v
 }
 
 /**
- * The practice room: a sealed arena with inert targets in a ring, where a
- * mythic's ultimate can be tried from the board. Nothing here is earned or
- * lost, the hunter cannot be hurt, and the real cooldown is given back.
+ * The ultimate showcase: a sealed arena with inert targets in a ring, where
+ * the hunter uses a mythic's ultimate on their own while the camera watches.
+ * Nothing here is earned or lost, the hunter cannot be hurt, and the real
+ * cooldown is given back.
  */
 export function enterPractice(w: World, power: PowerId): void {
   if (!(power in ULTIMATES)) return;
   const cd = w.player.ultCd;
   beginArena(w, w.profile.hunterRank, "practice", false);
-  w.practice = { power, cd, t: 0 };
+  w.practice = { power, cd, t: PRACTICE.lead, fired: false, age: 0 };
   w.player.ultCd = 0;
   PRACTICE.dummies.forEach((kind, i) => {
     const a = (i / PRACTICE.dummies.length) * Math.PI * 2;
@@ -464,10 +465,9 @@ export function enterPractice(w: World, power: PowerId): void {
     e.t = 1e6;
     w.enemies.push(e);
   });
-  w.notices.push({ title: `ULTIMATE  ·  ${ULTIMATES[power].name.toUpperCase()}`, body: "Press Y to see it. Esc returns to the board.", life: 6 });
 }
 
-/** Leave the practice room for the gear tab, with the real cooldown back. */
+/** Leave the showcase for the tab it was opened from, with the real cooldown back. */
 export function endPractice(w: World): void {
   const back = w.practice;
   if (!back) return;
@@ -478,16 +478,33 @@ export function endPractice(w: World): void {
   w.tab = tab === "shop" ? "shop" : "gear";
 }
 
-/** One step of the practice room: the hunter untouchable, and home once the show is over. */
+/** The hunter stands still in the showcase, facing the first target. */
+const SHOWCASE_HANDS: Controls = {
+  mouseX: 0,
+  mouseY: 0,
+  aimX: ROOM.w / 2 + PRACTICE.ring,
+  aimY: ROOM.h / 2,
+  attackHeld: false,
+  axis: () => ({ x: 0, y: 0 }),
+  consume: () => false,
+};
+
+/** One step of the showcase: the hunter untouchable, the ultimate on cue, then home. */
 function stepPractice(w: World, dt: number): void {
   const pr = w.practice;
   if (!pr) return;
+  pr.age += dt;
   w.player.mantleT = Math.max(w.player.mantleT, 0.5);
-  for (const e of w.enemies) e.hp = Math.max(e.hp, 1);
-  if (pr.t > 0) {
-    pr.t -= dt;
-    if (pr.t <= 0) endPractice(w);
+  pr.t -= dt;
+  if (pr.t > 0) return;
+  if (!pr.fired) {
+    pr.fired = true;
+    pr.t = PRACTICE.after;
+    w.player.ultCd = 0;
+    useUltimate(w);
+    return;
   }
+  endPractice(w);
 }
 
 /** A single sealed, empty room with no doors. Used by tests. */
@@ -1457,7 +1474,6 @@ function useUltimate(w: World): void {
     w.fx.push({ kind: "ink", x: cx, y: cy, radius: 900, t: ULT.quill.delay + 0.4, total: ULT.quill.delay + 0.4, color: "#101018" });
   }
   p.ultCd = ULT.charge;
-  if (w.practice) w.practice.t = PRACTICE.after;
   w.shake = Math.max(w.shake, 10);
   floatText(w, p.x, p.y, "ULTIMATE", "#ff8fa3", true);
   sfx(w, "phase");
@@ -1895,7 +1911,7 @@ function stepSelect(w: World, input: Controls): void {
   }
   if (!action) return;
   // Seeing a mythic's ultimate: off to the practice room.
-  if (action.startsWith("ult:")) return enterPractice(w, action.slice(4) as PowerId);
+  if (action.startsWith("ultsee:")) return enterPractice(w, action.slice(7) as PowerId);
   const enter = hubAction(w, action);
   if (enter === "key") enterKeyGate(w);
   else if (enter === "rite") enterRite(w);
@@ -2043,8 +2059,11 @@ export function step(w: World, input: Controls, dt: number): void {
   }
   if (w.menu === "pause") return stepPause(w, input);
   if (w.menu === "keys") return stepKeys(w, input);
-  // In the practice room Esc goes straight back to the board.
-  if (w.practice && w.mode === "gate" && input.consume("Escape")) return endPractice(w);
+  // The showcase is a scene: Space, Enter or a click ends it; Esc opens no menu.
+  if (w.practice && w.mode === "gate") {
+    input.consume("Escape");
+    if (input.consume("Space", "Enter", "Mouse0")) return endPractice(w);
+  }
   if (w.mode === "gate" && input.consume("Escape")) {
     w.menu = "pause";
     sfx(w, "click");
@@ -2067,7 +2086,7 @@ export function step(w: World, input: Controls, dt: number): void {
   stepPractice(w, dt);
   if (w.mode !== "gate") return;
   const roomBefore = w.roomId;
-  stepPlayer(w, input, dt);
+  stepPlayer(w, w.practice ? SHOWCASE_HANDS : input, dt);
   // Walking through a door ends this step: the new room starts fresh.
   // So does leaving by stone. (`mode` changes deep inside, so widen it.)
   if (w.roomId !== roomBefore || (w.mode as string) !== "gate") return;

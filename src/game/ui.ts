@@ -13,13 +13,14 @@ import {
   STONE,
   SUPPLY_IDS,
   TITLES,
+  ULTIMATES,
   WEAPONS,
   type Rarity,
   type SupplyId,
 } from "./items";
 import { CUTSCENES, seenScenes } from "./cutscenes";
 import { BEAST_ORDER, BEAST_PAGE } from "./bestiary";
-import { activeEchoes, boundKey, canActivate, canNewGamePlus, classOpen, keyName, owns, redGateOpen, riteOpen, rushOpen, slotOpen, towerOpen } from "./profile";
+import { activeEchoes, boundKey, canActivate, canNewGamePlus, classOpen, keyName, owns, redGateOpen, riteOpen, rushOpen, slotOpen, towerOpen, ultimateOf, wornUltimates } from "./profile";
 import { MAIN } from "./quests";
 import { CHAPTERS } from "./story";
 import { isCaller, visibleTabs, type BagKind, type BagSort, type World } from "./state";
@@ -149,7 +150,7 @@ export const ULT_BUTTON: Rect = { x: PREVIEW.x + 12, y: PREVIEW.y + 130, w: 166,
 function ultButton(w: World): Button[] {
   const owned = previewItem(w);
   const power = owned ? itemDef(owned)?.power : undefined;
-  return power ? [{ rect: ULT_BUTTON, id: `ult:${power}`, label: "SEE ULTIMATE", enabled: true, kind: "plain" }] : [];
+  return power ? [{ rect: ULT_BUTTON, id: `ultsee:${power}`, label: "SEE ULTIMATE", enabled: true, kind: "plain" }] : [];
 }
 
 /** How many bag items the board shows at once. */
@@ -677,6 +678,13 @@ export function hubButtons(w: World): Button[] {
     const other = pr.equipped[pr.activeWeapon === 1 ? "weapon" : "weapon2"];
     // Narrow, so it stays clear of the bag column beside it.
     out.push({ rect: { x: LEFT + 466, y: TOP, w: 56, h: 28 }, id: "weapon:swap", label: "SWAP", enabled: !!other, kind: "plain" });
+    // Which worn mythic's ultimate Y uses, when there is a choice.
+    const worn = wornUltimates(pr);
+    const ult = ultimateOf(pr);
+    if (ult) {
+      const from = EQUIP_SLOTS.map((s) => pr.equipped[s]).find((o) => o && itemDef(o)?.power === ult);
+      out.push(row(LEFT, EQUIP_SLOTS.length, "ultpick:next", worn.length > 1 ? "CHANGE" : "ONLY ONE", worn.length > 1, `ULTIMATE (Y): ${ULTIMATES[ult].name}`, `from ${from ? itemName(from) : "?"}${worn.length > 1 ? `  ·  ${worn.length} worn to choose from` : ""}`));
+    }
     out.push(...ultButton(w));
     out.push(...bagRows(w, "equip", (o) => (itemDef(o)?.weapon ? WEAPONS[itemDef(o)!.weapon!].name.toUpperCase() : "EQUIP"), () => true));
   } else if (w.tab === "skills") {

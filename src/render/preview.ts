@@ -36,7 +36,7 @@ export class WeaponPreview {
     this.clear();
     const type = itemDef(owned)?.weapon;
     if (!type) return;
-    const model = weaponModel(type, lookOf(owned, 1));
+    const model = weaponModel(type, lookOf(owned, 0.8));
     // Point first, up and to the right, so the long weapons fit the box.
     const holder = new THREE.Group();
     holder.add(model);

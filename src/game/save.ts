@@ -14,6 +14,7 @@ import {
   PERK_COUNT,
   PERKS,
   perksOf,
+  POWERS,
   SHOP_POOL,
   STONE,
   SUPPLY_IDS,
@@ -266,6 +267,7 @@ export function parseSave(raw: unknown): SaveData | null {
   profile.replayed = [...new Set(strings(rf.replayed))].filter((id) => id in CUTSCENES);
   profile.marginFound = rf.marginFound === true;
   profile.scenesSeen = [...new Set(strings(rf.scenesSeen))].filter((id) => id in SPECIALS);
+  profile.ultPick = typeof rf.ultPick === "string" && rf.ultPick in POWERS ? (rf.ultPick as PowerId) : null;
   profile.cycle = int(rf.cycle, 0, NGPLUS.max, 0);
   // Tips are for new hunters: a save made before they existed has no need of them.
   profile.tips = rf.tips === true;

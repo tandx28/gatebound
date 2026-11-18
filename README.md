@@ -40,9 +40,14 @@ Play it: https://tandx28.github.io/gatebound/
   accessories) and by rarity, and sorted by newest, rarity, name or kind.
 - Crit chance stops at 60%; anything past that becomes extra crit damage.
 - Every mythic has an ultimate on Y that recharges over 90 s, faster with kills.
+  Wearing more than one mythic, choose which ultimate Y uses on the gear tab.
   Point at a mythic on the shop or gear tab to read what its ultimate does;
-  SEE ULTIMATE opens a practice room with targets to try it (nothing is won or
-  lost there, and the real cooldown is kept).
+  SEE ULTIMATE plays it as a short scene on a ring of targets (Space, Enter or
+  a click returns to the board; nothing is won or lost, the cooldown is kept).
+- Rooms vary: drums, broken columns, obelisks and statues; piers, chained and
+  broken piers, pedestals; stalagmites, crystal spires and stacked boulders;
+  low walls and groves of slender pillars; cracks, rugs, grave slabs, grates,
+  pools and candles on the floor.
   Legendary and mythic gear wears an aura by its perks.
 - A Bestiary tab: kills per enemy kind, lore at 10 kills, and +10/20/30%
   damage against that kind at 50, 150 and 500 (bosses need a tenth).
