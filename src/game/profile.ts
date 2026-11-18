@@ -1138,6 +1138,8 @@ function hubActionInner(w: World, verb: string, arg: string, extra: string | und
       return null;
     case "tab":
       if (visibleTabs(w).includes(arg as HubTab)) w.tab = arg as HubTab;
+      // A new tab starts its preview afresh.
+      w.hoverItem = null;
       return null;
     case "gate":
       if (arg === "key") return pr.keys > 0 ? "key" : null;

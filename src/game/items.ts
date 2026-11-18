@@ -160,6 +160,19 @@ export const POWERS: Record<PowerId, string> = {
   blank_quill: "Your bolts strike out a little of what they touch: +15% damage to bosses",
 };
 
+/** Each mythic's ultimate on Y: its name and what it does, short enough for the preview box. */
+export const ULTIMATES: Record<PowerId, { name: string; about: string }> = {
+  ashen_wake: { name: "Cinder Lines", about: "Five burning cuts sweep the room through your foes. Nothing touches you meanwhile." },
+  twin_fang: { name: "Fang Storm", about: "Twelve strikes fall on the enemies around you, one after another." },
+  trials_end: { name: "Final Verdict", about: "One line of light the length of the room where you aim. Enormous damage." },
+  hollow_crown: { name: "Hollow Court", about: "Every echo you own rises to fight beside you for 10 s." },
+  seal_breaker: { name: "Broken Seals", about: "Every guard shatters; foes are stunned 3 s and bosses held back." },
+  untouched_mantle: { name: "Untouchable", about: "5 s of no damage at all, and foes near you are thrown back." },
+  breakwater: { name: "Breakwater", about: "A wave crosses the room and hits every foe, harder the lower your health." },
+  ledgers_favour: { name: "Favour Called", about: "Full health, mana and flask; every foe is marked for 10 s." },
+  blank_quill: { name: "Erasure", about: "A moment's silence, then every foe in the room is struck out." },
+};
+
 export interface ItemDef {
   id: string;
   name: string;

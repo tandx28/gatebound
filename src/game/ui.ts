@@ -123,13 +123,33 @@ export function hoveredItem(w: World, x: number, y: number): string | null {
   return null;
 }
 
-/** The weapon the preview shows: the hovered row if it is a weapon, else the weapon in hand. */
-export function previewWeapon(w: World): string | null {
+/**
+ * What the preview shows: the last row pointed at if it is a weapon or
+ * carries an ultimate, else the weapon in hand.
+ */
+export function previewItem(w: World): string | null {
   if (w.mode !== "select" || (w.tab !== "shop" && w.tab !== "gear") || w.dialogue) return null;
-  if (w.hoverItem && itemDef(w.hoverItem)?.weapon) return w.hoverItem;
+  const def = w.hoverItem ? itemDef(w.hoverItem) : undefined;
+  if (w.hoverItem && (def?.weapon || def?.power)) return w.hoverItem;
   const pr = w.profile;
   const held = pr.equipped[pr.activeWeapon === 1 ? "weapon2" : "weapon"];
   return held && itemDef(held)?.weapon ? held : null;
+}
+
+/** The weapon model the preview turns, if what it shows has one. */
+export function previewWeapon(w: World): string | null {
+  const owned = previewItem(w);
+  return owned && itemDef(owned)?.weapon ? owned : null;
+}
+
+/** The button in the preview that takes a mythic's ultimate to the practice room. */
+export const ULT_BUTTON: Rect = { x: PREVIEW.x + 12, y: PREVIEW.y + 130, w: 166, h: 24 };
+
+/** "See ultimate", when the preview shows a mythic. */
+function ultButton(w: World): Button[] {
+  const owned = previewItem(w);
+  const power = owned ? itemDef(owned)?.power : undefined;
+  return power ? [{ rect: ULT_BUTTON, id: `ult:${power}`, label: "SEE ULTIMATE", enabled: true, kind: "plain" }] : [];
 }
 
 /** How many bag items the board shows at once. */
@@ -622,6 +642,7 @@ export function hubButtons(w: World): Button[] {
       kind: "plain",
     });
     out.push(...bagRows(w, "sell", (o) => (sellValue(o) > 0 ? `+${sellValue(o)} G` : "KEEP"), (o) => sellValue(o) > 0));
+    out.push(...ultButton(w));
   } else if (w.tab === "supplies") {
     SUPPLY_IDS.forEach((id, i) => out.push(...supplyRow(w, id, i)));
     const n = SUPPLY_IDS.length;
@@ -656,6 +677,7 @@ export function hubButtons(w: World): Button[] {
     const other = pr.equipped[pr.activeWeapon === 1 ? "weapon" : "weapon2"];
     // Narrow, so it stays clear of the bag column beside it.
     out.push({ rect: { x: LEFT + 466, y: TOP, w: 56, h: 28 }, id: "weapon:swap", label: "SWAP", enabled: !!other, kind: "plain" });
+    out.push(...ultButton(w));
     out.push(...bagRows(w, "equip", (o) => (itemDef(o)?.weapon ? WEAPONS[itemDef(o)!.weapon!].name.toUpperCase() : "EQUIP"), () => true));
   } else if (w.tab === "skills") {
     out.push(...skillButtons(w));

@@ -516,7 +516,7 @@ export const BAG_KINDS: BagKind[] = ["all", "weapon", "armour", "accessory"];
 export const BAG_RARITIES = [0, 2, 3, 4];
 export const BAG_SORTS: BagSort[] = ["newest", "rarity", "name", "kind"];
 
-export type GateKind = "normal" | "key" | "penalty" | "rite" | "break" | "tower" | "clock" | "rush" | "margin";
+export type GateKind = "normal" | "key" | "penalty" | "rite" | "break" | "tower" | "clock" | "rush" | "margin" | "practice";
 
 /** Enough of a gate in progress to resume it from the current room. */
 export interface GateSnapshot {
@@ -606,8 +606,18 @@ export interface World {
    * a click meant for a button never counts as a basic attack.
    */
   attackLatched: boolean;
-  /** The item row under the cursor on the shop or gear tab, for the weapon preview. */
+  /**
+   * The last item row pointed at on the shop or gear tab, for the preview.
+   * It stays when the cursor leaves the rows, so the preview's own button
+   * can be reached; changing tab clears it.
+   */
   hoverItem: string | null;
+  /**
+   * A visit to the practice room to see a mythic's ultimate: which one,
+   * the real cooldown to give back afterwards, and the seconds left once it
+   * has been used (0 until then).
+   */
+  practice: { power: PowerId; cd: number; t: number } | null;
   /** The Redactor's hazards: the floor about to be erased, walls sweeping across, bars about to fall. */
   erasure: Erasure | null;
   sweeps: Sweep[];

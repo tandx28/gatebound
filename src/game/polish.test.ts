@@ -2,13 +2,15 @@ import { describe, expect, it } from "vitest";
 import type { Controls } from "../engine/input";
 import { seeded } from "../engine/rng";
 import { PLAYER, ROOM, STEP, VIEW_W } from "./config";
-import { ITEMS, makeItem } from "./items";
+import { ITEMS, makeItem, ULTIMATES, type PowerId } from "./items";
+import { parseSave, toSave } from "./save";
+import { MAIN } from "./quests";
 import { refreshDerived, settleClear } from "./profile";
 import { addCrit, CRIT_CAP, CRIT_OVERFLOW, derive } from "./stats";
 import type { World } from "./state";
-import { bagView, hoveredItem, hubButtons, PREVIEW, PREVIEW_VIEW, previewWeapon } from "./ui";
+import { bagView, hoveredItem, hubButtons, previewItem, PREVIEW, PREVIEW_VIEW, previewWeapon } from "./ui";
 import { hubAction } from "./profile";
-import { createWorld, enterGate, enterKeyGate, step } from "./world";
+import { createWorld, enterGate, enterKeyGate, enterPractice, step } from "./world";
 
 class FakeControls implements Controls {
   mouseX = 0;
@@ -121,7 +123,7 @@ describe("the weapon preview", () => {
     for (const tab of ["shop", "gear"] as const) {
       w.tab = tab;
       for (const b of hubButtons(w)) {
-        if (b.kind === "tab") continue;
+        if (b.kind === "tab" || b.id.startsWith("ult:")) continue;
         const r = b.rect;
         const apart = r.x + r.w <= PREVIEW.x || r.x >= PREVIEW.x + PREVIEW.w || r.y + r.h <= PREVIEW.y || r.y >= PREVIEW.y + PREVIEW.h;
         expect(apart, `${tab} ${b.id}`).toBe(true);
@@ -190,5 +192,81 @@ describe("filtering and sorting the bag", () => {
     w.invPage = 2;
     hubAction(w, "bag:sort");
     expect(w.invPage).toBe(0);
+  });
+});
+
+describe("seeing a mythic's ultimate", () => {
+  it("every ultimate has a name and a description that fits the preview", () => {
+    for (const [id, u] of Object.entries(ULTIMATES)) {
+      expect(u.name.length, id).toBeGreaterThan(0);
+      expect(u.about.length, id).toBeLessThanOrEqual(90);
+    }
+  });
+
+  it("a mythic in the preview offers its ultimate; a plain weapon does not", () => {
+    const w = createWorld(seeded(4));
+    w.mode = "select";
+    w.tab = "gear";
+    w.profile.inventory = [makeItem("ashen_wake", []), makeItem("iron_fang", []), makeItem("breakwater", [])];
+    w.hoverItem = w.profile.inventory[1];
+    expect(hubButtons(w).some((b) => b.id.startsWith("ult:"))).toBe(false);
+    w.hoverItem = w.profile.inventory[0];
+    expect(hubButtons(w).find((b) => b.id.startsWith("ult:"))?.id).toBe("ult:ashen_wake");
+    // An accessory with an ultimate is shown too, though it has no model.
+    w.hoverItem = w.profile.inventory[2];
+    expect(previewItem(w)).toBe(w.profile.inventory[2]);
+    expect(hubButtons(w).find((b) => b.id.startsWith("ult:"))?.id).toBe("ult:breakwater");
+  });
+
+  it("the practice room plays the ultimate, hurts no one who matters, and goes back with the cooldown intact", () => {
+    for (const power of Object.keys(ULTIMATES) as PowerId[]) {
+      const w = createWorld(seeded(4));
+      w.mode = "select";
+      w.tab = "gear";
+      w.player.ultCd = 42;
+      const gold = w.profile.gold;
+      enterPractice(w, power);
+      expect(w.mode).toBe("gate");
+      expect(w.enemies.length).toBeGreaterThan(0);
+      const c = new FakeControls();
+      c.press("KeyY");
+      run(w, c, 2);
+      expect(w.practice?.t ?? 0, power).toBeGreaterThan(0);
+      expect(w.player.hp).toBe(w.player.d.maxHp);
+      run(w, c, 6);
+      expect(w.mode, power).toBe("select");
+      expect(w.tab).toBe("gear");
+      expect(w.player.ultCd).toBe(42);
+      expect(w.profile.gold).toBe(gold);
+      expect(w.profile.lines).toEqual([]);
+    }
+  });
+
+  it("Esc leaves the practice room at once", () => {
+    const w = createWorld(seeded(4));
+    w.mode = "select";
+    enterPractice(w, "trials_end");
+    const c = new FakeControls();
+    c.press("Escape");
+    run(w, c, 0.1);
+    expect(w.mode).toBe("select");
+    expect(w.practice).toBeNull();
+  });
+});
+
+describe("a save from before the New Game+ titles", () => {
+  it("gets every cycle's title it reached, and Nightmare if the last cycle's story is done", () => {
+    const w = createWorld(seeded(4));
+    w.profile.cycle = 3;
+    w.profile.titles = [];
+    w.profile.nightmareUnlocked = false;
+    const back = parseSave(toSave(w));
+    expect(back?.profile.titles).toEqual(expect.arrayContaining(["ng1", "ng2", "ng3"]));
+    expect(back?.profile.nightmareUnlocked).toBe(false);
+    w.profile.quests.main = MAIN.length;
+    w.profile.ending = "keeper";
+    const done = parseSave(toSave(w));
+    expect(done?.profile.nightmareUnlocked).toBe(true);
+    expect(done?.profile.titles).toContain("keeper");
   });
 });

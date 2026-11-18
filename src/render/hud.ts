@@ -23,7 +23,7 @@ import {
 import type { Rank } from "../game/config";
 import { isCaller, type World } from "../game/state";
 import { LEAVABLE, NOTICES_SHOWN } from "../game/world";
-import { FURY, itemDef, itemName, MYTHICS, POTION, POWERS, STONE, TITLES, WEAPONS, type Rarity } from "../game/items";
+import { FURY, itemDef, itemName, MYTHICS, POTION, POWERS, STONE, TITLES, ULTIMATES, WEAPONS, type Rarity } from "../game/items";
 import { BELT, beltCount, boundKey, keyName, slotOpen, STING, STRUCK_LINES, tutorialTip, ultimateOf } from "../game/profile";
 import { huntBonus, huntTier, LORE, tierKills } from "../game/bestiary";
 import { CUT, CUTSCENES, SKIP_HOLD } from "../game/cutscenes";
@@ -42,7 +42,7 @@ import {
   keysButtons,
   PREVIEW,
   PREVIEW_VIEW,
-  previewWeapon,
+  previewItem,
   PAUSE_PANEL,
   pauseButtons,
   pointIn,
@@ -198,7 +198,7 @@ function drawSkills(ctx: Ctx, w: World): void {
   // Only the open slots, then the class power on H once there is a class.
   const open = w.profile.loadout.map((id, i) => ({ id, i })).filter(({ i }) => slotOpen(w.profile, i));
   const power = w.profile.classUnlocked;
-  const ult = ultimateOf(w.profile);
+  const ult = w.practice?.power ?? ultimateOf(w.profile);
   const count = open.length + (power ? 1 : 0) + (ult ? 1 : 0);
   if (ult) {
     // The mythic's ultimate on Y: rose-red, and burning when ready.
@@ -758,6 +758,8 @@ function drawHub(ctx: Ctx, w: World): void {
   ctx.font = `bold 12px ${FONT}`;
   ctx.fillStyle = "#6f8fbf";
   for (const h of hubHeadings(w)) ctx.fillText(h.text, h.x, h.y);
+  // The preview's panel first, so its own button is drawn on top of it.
+  if (w.tab === "shop" || w.tab === "gear") drawPreview(ctx, w);
   for (const b of hubButtons(w)) drawButton(ctx, w, b);
 
   ctx.textAlign = "center";
@@ -821,7 +823,6 @@ function drawHub(ctx: Ctx, w: World): void {
       ctx.fillText(have ? `${itemName(m.id)}:  ${POWERS[m.id]}` : `???   ${m.how}`, 680, 568 + i * 14);
     });
   }
-  if (w.tab === "shop" || w.tab === "gear") drawPreview(ctx, w);
   if ((w.tab === "shop" || w.tab === "gear") && bagPage(w).shown === 0) {
     ctx.textAlign = "left";
     ctx.font = `13px ${FONT}`;
@@ -839,7 +840,7 @@ function drawHub(ctx: Ctx, w: World): void {
  * draws the weapon itself; the inside of its box is left clear for it.
  */
 function drawPreview(ctx: Ctx, w: World): void {
-  const owned = previewWeapon(w);
+  const owned = previewItem(w);
   const r = PREVIEW;
   ctx.fillStyle = "rgba(6,10,20,0.85)";
   ctx.fillRect(r.x, r.y, r.w, r.h);
@@ -856,7 +857,7 @@ function drawPreview(ctx: Ctx, w: World): void {
     return;
   }
   const def = itemDef(owned);
-  ctx.clearRect(PREVIEW_VIEW.x, PREVIEW_VIEW.y, PREVIEW_VIEW.w, PREVIEW_VIEW.h);
+  if (def?.weapon) ctx.clearRect(PREVIEW_VIEW.x, PREVIEW_VIEW.y, PREVIEW_VIEW.w, PREVIEW_VIEW.h);
   // A long name steps down in size until it fits beside the weapon.
   let size = 15;
   ctx.font = `bold ${size}px ${FONT}`;
@@ -865,14 +866,27 @@ function drawPreview(ctx: Ctx, w: World): void {
     ctx.font = `bold ${size}px ${FONT}`;
   }
   ctx.fillStyle = def ? RARITY_CSS[def.rarity] : "#cfe4ff";
-  ctx.fillText(itemName(owned), r.x + 12, r.y + 28);
+  ctx.fillText(itemName(owned), r.x + 12, r.y + 26);
   ctx.font = `12px ${FONT}`;
   ctx.fillStyle = "#9fc8ff";
-  if (def?.weapon) ctx.fillText(`${def.rarity.toUpperCase()}  ${WEAPONS[def.weapon].name.toUpperCase()}`, r.x + 12, r.y + 50);
-  ctx.fillStyle = "#6f8fbf";
+  const kind = def?.weapon ? WEAPONS[def.weapon].name : def?.slot ?? "";
+  if (def) ctx.fillText(`${def.rarity.toUpperCase()}  ${kind.toUpperCase()}`, r.x + 12, r.y + 46);
   const pr = w.profile;
   const inHand = owned === pr.equipped[pr.activeWeapon === 1 ? "weapon2" : "weapon"];
-  ctx.fillText(inHand && w.hoverItem !== owned ? "in your hand" : "", r.x + 12, r.y + 72);
+  if (def?.power) {
+    // A mythic: its ultimate, named and described, beside or instead of the model.
+    const ult = ULTIMATES[def.power];
+    const wide = def.weapon ? textW : r.w - 24;
+    ctx.font = `bold 12px ${FONT}`;
+    ctx.fillStyle = GOLD;
+    ctx.fillText(`Y  ${ult.name.toUpperCase()}`, r.x + 12, r.y + 68);
+    ctx.font = `11px ${FONT}`;
+    ctx.fillStyle = "#cfe4ff";
+    wrap(ctx, ult.about, wide).slice(0, def.weapon ? 4 : 3).forEach((line, i) => ctx.fillText(line, r.x + 12, r.y + 84 + i * 13));
+    return;
+  }
+  ctx.fillStyle = "#6f8fbf";
+  if (inHand && w.hoverItem !== owned) ctx.fillText("in your hand", r.x + 12, r.y + 68);
 }
 
 /**

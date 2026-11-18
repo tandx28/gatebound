@@ -71,6 +71,13 @@ Conventions that everything relies on:
   legendary, moving parts only on mythics.
 - Anything drawn only for play (auras, rings, aim line, footprints, marks)
   is hidden while `w.cutscene` runs.
+- `GateKind` "practice" (`enterPractice`, `w.practice`) is the room for
+  seeing an ultimate: inert targets, the hunter untouchable, never settled,
+  never saved as a resumable gate. Ultimate names and text live in
+  `ULTIMATES` (items.ts).
+- `parseSave` also catches up rewards a save earned before they existed
+  (New Game+ titles, ending titles, Nightmare); add to it when a new reward
+  hangs off progress the player may already have.
 - The attack button is latched (`w.attackLatched`) when play resumes with it
   held, so a click on the board or a menu never swings.
 - Special-gate scenes play in full only when `w.specialScenes` is on (the

@@ -468,6 +468,20 @@ export const ULT = {
   quill: { delay: 1.1, mult: 9 },
 };
 
+/**
+ * The practice room where a mythic's ultimate can be seen from the board:
+ * inert targets in a ring, the hunter untouchable, back to the board this
+ * long after the ultimate is used (or at once with Esc).
+ */
+export const PRACTICE = {
+  after: 6,
+  ring: 230,
+  hp: 1e7,
+  dummies: ["brute", "charger", "swarmer", "shooter", "brute", "knight"] as EnemyKind[],
+  /** Echoes lent for the Hollow Court when the hunter has none of their own. */
+  echoes: ["knight", "assassin", "brute", "shooter"] as EnemyKind[],
+};
+
 /** Kills of a kind that unlock its lore and then each damage bonus. Bosses need a tenth. */
 export const BESTIARY = { lore: 10, tiers: [50, 150, 500], bonus: [0.1, 0.2, 0.3], bossShare: 0.1 };
 

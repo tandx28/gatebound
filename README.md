@@ -40,6 +40,9 @@ Play it: https://tandx28.github.io/gatebound/
   accessories) and by rarity, and sorted by newest, rarity, name or kind.
 - Crit chance stops at 60%; anything past that becomes extra crit damage.
 - Every mythic has an ultimate on Y that recharges over 90 s, faster with kills.
+  Point at a mythic on the shop or gear tab to read what its ultimate does;
+  SEE ULTIMATE opens a practice room with targets to try it (nothing is won or
+  lost there, and the real cooldown is kept).
   Legendary and mythic gear wears an aura by its perks.
 - A Bestiary tab: kills per enemy kind, lore at 10 kills, and +10/20/30%
   damage against that kind at 50, 150 and 500 (bosses need a tenth).

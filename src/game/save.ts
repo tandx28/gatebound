@@ -278,6 +278,12 @@ export function parseSave(raw: unknown): SaveData | null {
   if (CLASS_IDS.includes(cls) && profile.classUnlocked && profile.cycle >= CLASSES[cls].cycle) profile.cls = cls;
   // The ending needs the whole chain behind it.
   if ((rf.ending === "keeper" || rf.ending === "unwritten") && profile.quests.main >= MAIN.length) profile.ending = rf.ending;
+  // Catch up what a save earned before the reward existed: each New Game+
+  // cycle reached has its title, an ending its own, and the story ended on
+  // the last cycle opens Nightmare.
+  for (let c = 1; c <= profile.cycle; c++) if (known.has(`ng${c}`) && !profile.titles.includes(`ng${c}`)) profile.titles.push(`ng${c}`);
+  if (profile.ending && known.has(profile.ending) && !profile.titles.includes(profile.ending)) profile.titles.push(profile.ending);
+  if (profile.ending && profile.cycle >= NGPLUS.max) profile.nightmareUnlocked = true;
   const sides = new Set(SIDE.map((s) => s.id));
   profile.quests.done = [...new Set(strings(rq.done))].filter((id) => sides.has(id));
   const rprog = isObj(rq.progress) ? rq.progress : {};
