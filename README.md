@@ -1,4 +1,4 @@
-# Gatebound
+# Untitled Levelling Game
 
 A browser action game. You are the lowest-ranked hunter in the city of Veyra.
 A gate goes wrong, you should have died, and you wake with your name entered
@@ -7,7 +7,7 @@ failure.
 
 **Play it: https://tandx28.github.io/gatebound/** (desktop browser, keyboard and mouse)
 
-![Gatebound title screen](docs/title.jpg)
+![Untitled Levelling Game title screen](docs/title.jpg)
 
 Built with TypeScript, Three.js, Vite and Vitest. More than 640 tests, a bot that
 plays every rank to pin the difficulty, and GitHub Actions that test and deploy

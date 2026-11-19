@@ -64,6 +64,9 @@ const RED = "#ff3355";
 const FONT = '"SF Mono", Menlo, Consolas, monospace';
 const RANK_CSS: Record<Rank, string> = { E: "#3aa0ff", D: "#35e0a0", C: "#b070ff", B: "#ff9a3c", A: "#ff4f6a", S: "#ffe9a0" };
 const RANK_KEY: Record<Rank, number> = { E: 1, D: 2, C: 3, B: 4, A: 5, S: 6 };
+/** The game's name as it is shown on the title screen and the board. */
+const GAME_NAME = "UNTITLED LEVELLING GAME";
+
 const RARITY_CSS: Record<Rarity, string> = {
   common: "#cfd8e6",
   uncommon: "#6dff9c",
@@ -776,11 +779,11 @@ function drawHub(ctx: Ctx, w: World): void {
   ctx.fillStyle = "rgba(4,6,11,0.6)";
   ctx.fillRect(0, 0, VIEW_W, VIEW_H);
   ctx.textAlign = "center";
-  ctx.font = `bold 40px ${FONT}`;
+  ctx.font = `bold 30px ${FONT}`;
   ctx.fillStyle = "#cfe4ff";
   ctx.shadowColor = BLUE;
   ctx.shadowBlur = 22;
-  ctx.fillText("GATEBOUND", VIEW_W / 2 + 140, 72);
+  ctx.fillText(GAME_NAME, VIEW_W / 2 + 140, 72);
   ctx.shadowBlur = 0;
   drawPurseStrip(ctx, w);
 
@@ -1199,11 +1202,11 @@ function drawTitle(ctx: Ctx, w: World): void {
   ctx.fillStyle = "rgba(4,6,11,0.82)";
   ctx.fillRect(0, 0, VIEW_W, VIEW_H);
   ctx.textAlign = "center";
-  ctx.font = `bold 72px ${FONT}`;
+  ctx.font = `bold 58px ${FONT}`;
   ctx.fillStyle = "#cfe4ff";
   ctx.shadowColor = BLUE;
   ctx.shadowBlur = 36;
-  ctx.fillText("GATEBOUND", VIEW_W / 2, 270);
+  ctx.fillText(GAME_NAME, VIEW_W / 2, 270);
   ctx.shadowBlur = 0;
   ctx.font = `14px ${FONT}`;
   ctx.fillStyle = "#9fc8ff";

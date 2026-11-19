@@ -1,11 +1,16 @@
-# Gatebound
+# Untitled Levelling Game
 
 Instructions for any model working in this repository. Read all of it before
 changing anything.
 
+The game was called Gatebound until 2026-11-19; the repository, the site's
+address, the package name and the save keys (`gatebound.save`,
+`gatebound.settings`) keep that name so every existing save still loads.
+Only what the player sees says "Untitled Levelling Game".
+
 ## What this is
 
-Gatebound is a single-player browser action game: a top-down 3D dungeon
+Untitled Levelling Game is a single-player browser action game: a top-down 3D dungeon
 crawler with levelling, loot, a bound army of "echoes", and a story told on a
 gate board and in short cutscenes. It is inspired by the *genre* of
 "weakest hunter levels up alone" stories, but everything in it is original:

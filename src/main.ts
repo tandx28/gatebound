@@ -147,7 +147,7 @@ function importSave(): void {
       data = null;
     }
     if (!data) {
-      world.notices.push({ title: "IMPORT FAILED", body: "That file is not a Gatebound save.", life: 4 });
+      world.notices.push({ title: "IMPORT FAILED", body: "That file is not a save from this game.", life: 4 });
       return;
     }
     toSelect(world);
