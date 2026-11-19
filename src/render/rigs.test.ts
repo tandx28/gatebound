@@ -158,14 +158,19 @@ describe("rigs", () => {
     expect(lit()).toBe(meshes(rig.root).length);
   });
 
-  it("an echo is see-through", () => {
+  // Echoes used to be see-through; their back parts showed through their
+  // front ones and read as a jumble, so a shade is now solid and dark.
+  it("an echo is a solid dark shade, drawn with depth so its parts hide each other", () => {
     const rig = buildRig("swarmer", 13);
+    const before = (meshes(rig.root)[0].material as THREE.MeshStandardMaterial).color.getHSL({ h: 0, s: 0, l: 0 }).l;
     ghostify(rig, 0x8a6cff);
     for (const m of meshes(rig.root)) {
       const mat = m.material as THREE.MeshStandardMaterial;
-      expect(mat.transparent).toBe(true);
-      expect(mat.opacity).toBeLessThan(1);
+      expect(mat.transparent).toBe(false);
+      expect(mat.depthWrite).toBe(true);
     }
+    const after = (meshes(rig.root)[0].material as THREE.MeshStandardMaterial).color.getHSL({ h: 0, s: 0, l: 0 }).l;
+    expect(after).toBeLessThan(Math.max(before, 0.2));
   });
 
   it("each enemy state maps to a sensible pose", () => {
