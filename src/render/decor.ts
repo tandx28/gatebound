@@ -385,7 +385,8 @@ export function dress(group: THREE.Group, theme: Theme, seed: number, doors: Par
   if (theme === "hall" || theme === "throne" || theme === "gate") {
     // A worn runner down the room, in the gate's colour (red before a throne).
     // The gate's colour, deep and dull: at full strength it outshone the fight.
-    const cloth = new THREE.MeshStandardMaterial({ color: theme === "throne" ? 0x5a1418 : new THREE.Color(tint).multiplyScalar(0.3), roughness: 1, transparent: true, opacity: theme === "throne" ? 0.8 : 0.55 });
+    // (Colours multiply in linear space, so it takes a small factor to darken much.)
+    const cloth = new THREE.MeshStandardMaterial({ color: theme === "throne" ? 0x5a1418 : new THREE.Color(tint).multiplyScalar(0.06), roughness: 1, transparent: true, opacity: theme === "throne" ? 0.8 : 0.6 });
     flat(150, H - 60, cloth, W / 2, H / 2, 0, 0.6);
     const hem = new THREE.MeshStandardMaterial({ color: 0xb08a3a, roughness: 0.8 });
     for (const side of [-1, 1]) flat(6, H - 60, hem, W / 2 + side * 72, H / 2, 0, 0.7);

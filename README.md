@@ -113,7 +113,7 @@ Desktop browser with keyboard and mouse. Progress saves in your browser.
 
 ## Run it locally
 
-Needs Node 20 or later.
+Needs Node 20.19 or later (or Node 22.12+).
 
 ```bash
 npm install

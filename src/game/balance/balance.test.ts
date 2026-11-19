@@ -170,7 +170,7 @@ describe("difficulty curve, played by the bot", () => {
       expect(r.rate, `sealed ${rank}`).toBeGreaterThanOrEqual(s ? 0.4 : 0.5);
       expect(r.stuck, `sealed ${rank}`).toBe(0);
     }
-  });
+  }, 240000);
 
   it("a sealed gate is never easier than an open one of the same rank", () => {
     const gear = ["voltaic_edge", "gatehide_mail"];

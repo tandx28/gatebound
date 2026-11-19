@@ -43,7 +43,8 @@ export default defineConfig({
       output: {
         // three.js changes far less often than the game: its own file stays
         // cached in the player's browser across most releases.
-        manualChunks: { three: ["three"] },
+        // (Vite 8 bundles with Rolldown, which takes only the function form.)
+        manualChunks: (id: string) => (id.includes("/node_modules/three/") ? "three" : undefined),
       },
     },
     // three.js alone is over 500 kB minified; that is expected, not a mistake.
