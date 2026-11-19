@@ -375,7 +375,8 @@ export class Scene3D {
     };
     this.slashes = { dagger: slash("dagger"), sword: slash("sword"), spear: slash("spear") };
     this.effects = new Effects(this.scene);
-    this.wardShell = new THREE.Mesh(new THREE.IcosahedronGeometry(38, 1), new THREE.MeshBasicMaterial({ color: 0xffd84a, wireframe: true, transparent: true, opacity: 0.2, depthWrite: false, blending: THREE.AdditiveBlending }));
+    // A soft gold bubble: a wireframe cage here read as a rendering fault.
+    this.wardShell = new THREE.Mesh(new THREE.SphereGeometry(36, 24, 16), new THREE.MeshBasicMaterial({ color: 0xffd84a, transparent: true, opacity: 0.08, depthWrite: false, blending: THREE.AdditiveBlending }));
     this.wardShell.visible = false;
     this.scene.add(this.wardShell);
 
@@ -923,7 +924,7 @@ export class Scene3D {
     if (this.wardShell.visible) {
       this.wardShell.position.set(p.x, 34, p.y);
       this.wardShell.rotation.y = this.clock * 0.8;
-      (this.wardShell.material as THREE.MeshBasicMaterial).opacity = 0.2 + 0.08 * Math.sin(this.clock * 5);
+      (this.wardShell.material as THREE.MeshBasicMaterial).opacity = 0.07 + 0.03 * Math.sin(this.clock * 5);
     }
     // A cutscene shows the hunter plain: no aim line, no rings underfoot.
     const field = w.mode === "gate" && !w.cutscene;

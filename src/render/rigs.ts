@@ -779,15 +779,19 @@ export function poseFor(kind: EnemyKind, state: string): Pose {
   }
 }
 
-/** Turn a figure into a shade: see-through, violet, faintly lit from within. */
+/**
+ * Turn a figure into a shade: dark violet, faintly lit from within. It is
+ * drawn solid: a see-through figure made of many overlapping parts shows its
+ * back parts through its front ones and reads as a jumble.
+ */
 export function ghostify(rig: Rig, tint: number): void {
   rig.root.traverse((o) => {
     const m = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined;
     if (!m || !("emissive" in m)) return;
-    m.transparent = true;
-    m.opacity = 0.72;
+    m.transparent = false;
+    m.opacity = 1;
     // A shade is a dark shape first, with the tint only at its edges and in its glow.
     m.color.lerp(new THREE.Color(tint), 0.7).lerp(new THREE.Color(0x0c0818), 0.72);
-    m.depthWrite = false;
+    m.depthWrite = true;
   });
 }

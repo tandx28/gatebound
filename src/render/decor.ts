@@ -365,19 +365,22 @@ export function dress(group: THREE.Group, theme: Theme, seed: number, doors: Par
     m.receiveShadow = true;
     group.add(m);
   };
-  const crack = new THREE.MeshBasicMaterial({ color: 0x050608, transparent: true, opacity: 0.55, depthWrite: false });
+  const crack = new THREE.MeshBasicMaterial({ color: 0x0a0b0e, transparent: true, opacity: 0.35, depthWrite: false });
   for (let i = 0; i < 5 + Math.floor(rng() * 4); i++) {
-    // A crack runs in three crooked pieces.
-    let x = 120 + rng() * (W - 240);
-    let z = 100 + rng() * (H - 200);
-    let a = rng() * Math.PI;
-    for (let j = 0; j < 3; j++) {
-      const len = 30 + rng() * 40;
-      flat(len, 2 + rng() * 1.5, crack, x + (Math.cos(a) * len) / 2, z + (Math.sin(a) * len) / 2, -a, 0.45 + i * 0.01);
-      x += Math.cos(a) * len;
-      z += Math.sin(a) * len;
-      a += (rng() - 0.5) * 1.2;
-    }
+    // A crack wanders in short crooked steps, thinning as it goes, and may fork once.
+    const start = { x: 120 + rng() * (W - 240), z: 100 + rng() * (H - 200), a: rng() * Math.PI * 2 };
+    const run = (x: number, z: number, a: number, steps: number, width: number, level: number): void => {
+      for (let j = 0; j < steps; j++) {
+        const len = 8 + rng() * 12;
+        const w = width * (1 - j / (steps + 1));
+        flat(len, w, crack, x + (Math.cos(a) * len) / 2, z + (Math.sin(a) * len) / 2, -a, 0.45 + i * 0.01);
+        x += Math.cos(a) * len;
+        z += Math.sin(a) * len;
+        a += (rng() - 0.5) * 1.4;
+        if (level === 0 && j === 2 && rng() < 0.6) run(x, z, a + (rng() < 0.5 ? 0.9 : -0.9), 3, w * 0.7, 1);
+      }
+    };
+    run(start.x, start.z, start.a, 6, 2.2, 0);
   }
   if (theme === "hall" || theme === "throne" || theme === "gate") {
     // A worn runner down the room, in the gate's colour (red before a throne).
