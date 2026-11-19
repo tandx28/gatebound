@@ -5,7 +5,13 @@ A gate goes wrong, you should have died, and you wake with your name entered
 in the Ledger: a system only you can see, which rewards progress and punishes
 failure.
 
-Play it: https://tandx28.github.io/gatebound/
+**Play it: https://tandx28.github.io/gatebound/** (desktop browser, keyboard and mouse)
+
+![Gatebound title screen](docs/title.jpg)
+
+Built with TypeScript, Three.js, Vite and Vitest. More than 640 tests, a bot that
+plays every rank to pin the difficulty, and GitHub Actions that test and deploy
+every push. Made by [Tan De Xun](https://tandx28.github.io).
 
 ## What is in it
 
