@@ -17,7 +17,16 @@ const hud = document.getElementById("hud") as HTMLCanvasElement;
 const ctx = hud.getContext("2d")!;
 // The HUD canvas sits on top, so it receives the mouse.
 const input = new Input(hud);
-let scene = new Scene3D(view);
+/** The loading message in the page, until the first frame is drawn. */
+const boot = document.getElementById("boot");
+let scene: Scene3D;
+try {
+  scene = new Scene3D(view);
+} catch (err) {
+  // No WebGL (switched off, or a very old device): say so instead of "Loading…" for ever.
+  if (boot) boot.querySelector("p")!.textContent = "This game needs WebGL, which this browser has switched off or does not support. Try a recent Chrome, Firefox, Edge or Safari on a desktop.";
+  throw err;
+}
 const world = createWorld();
 // The player sees special gates' scenes in full the first time (tests do not).
 world.specialScenes = true;
@@ -134,12 +143,21 @@ pick.accept = "application/json,.json";
 pick.style.display = "none";
 document.body.appendChild(pick);
 
+/** The largest file accepted as a save, in bytes. */
+const MAX_IMPORT = 2_000_000;
+
 function importSave(): void {
   // Cleared first, so choosing the same file twice still counts as a change.
   pick.value = "";
   pick.onchange = async () => {
     const file = pick.files?.[0];
     if (!file) return;
+    // A real save is a few tens of kilobytes; refuse anything far larger
+    // rather than parse it.
+    if (file.size > MAX_IMPORT) {
+      world.notices.push({ title: "IMPORT FAILED", body: "That file is far too large to be a save.", life: 4 });
+      return;
+    }
     let data = null;
     try {
       data = parseSave(JSON.parse(await file.text()));
@@ -369,6 +387,8 @@ function frame(now: number): void {
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
+// The canvases have drawn: the loading message goes.
+requestAnimationFrame(() => boot?.remove());
 
 if (import.meta.env.DEV) {
   // A getter, since the view can be rebuilt and replaced while the page lives.

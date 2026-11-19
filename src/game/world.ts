@@ -71,7 +71,7 @@ import {
 } from "./config";
 import { addTrialRoom, generateDungeon, keyDungeon, OPPOSITE, type Dungeon, type RoomNode, type Side } from "./dungeon";
 import { damageEnemy, isCommitted, spawnEnemy, spawnPoint, stepEnemy } from "./enemies";
-import { BOW, FURY, itemDef, PERK, perksOf, STAFF, ULTIMATES, WEAPONS, type PowerId } from "./items";
+import { BOW, FURY, has, itemDef, PERK, perksOf, STAFF, ULTIMATES, WEAPONS, type PowerId } from "./items";
 import { playerHit, stepEnemyPerks } from "./perks";
 import {
   healPlayer,
@@ -452,7 +452,7 @@ function beginArena(w: World, rank: Rank, kind: GateKind, doorsOpen: boolean): v
  * cooldown is given back.
  */
 export function enterPractice(w: World, power: PowerId): void {
-  if (!(power in ULTIMATES)) return;
+  if (!has(ULTIMATES, power)) return;
   const cd = w.player.ultCd;
   beginArena(w, w.profile.hunterRank, "practice", false);
   w.practice = { power, cd, t: PRACTICE.lead, fired: false, age: 0 };

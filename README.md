@@ -1,22 +1,39 @@
 # Untitled Levelling Game
 
-A browser action game. You are the lowest-ranked hunter in the city of Veyra.
-A gate goes wrong, you should have died, and you wake with your name entered
-in the Ledger: a system only you can see, which rewards progress and punishes
-failure.
+[![Play in your browser](https://img.shields.io/badge/play-in%20your%20browser-5ee6ff?style=flat-square)](https://tandx28.github.io/gatebound/)
+[![Test and deploy](https://github.com/tandx28/gatebound/actions/workflows/deploy.yml/badge.svg)](https://github.com/tandx28/gatebound/actions/workflows/deploy.yml)
+[![MIT licence](https://img.shields.io/badge/licence-MIT-ffd84a?style=flat-square)](LICENSE)
 
-**Play it: https://tandx28.github.io/gatebound/** (desktop browser, keyboard and mouse)
+**A free, open-source 3D action RPG that runs in your browser.** You are the
+lowest-ranked hunter in the city of Veyra. A gate goes wrong, you should have
+died, and you wake with your name entered in the Ledger: a system only you can
+see, which rewards progress and punishes failure.
 
-![Untitled Levelling Game title screen](docs/title.jpg)
+### ▶ [Play it now](https://tandx28.github.io/gatebound/) — no download, no account
 
-Built with TypeScript, Three.js, Vite and Vitest. More than 640 tests, a bot that
-plays every rank to pin the difficulty, and GitHub Actions that test and deploy
-every push. Made by [Tan De Xun](https://tandx28.github.io).
+Desktop browser with keyboard and mouse. Progress saves in your browser.
 
-## What is in it
+![A hunter facing the Knight Commander in a throne room, with the game's HUD](docs/screenshot.jpg)
 
-- Real-time combat in 3D: four weapon types, two weapon slots, a dash with
-  invulnerability, twelve skills in a four-slot loadout. Heavy blows stagger.
+## Why play it
+
+- **Hard but fair.** Three hits kill a fresh hunter, and every attack is
+  telegraphed on the floor before it lands.
+- **Level from nothing.** Ranks E to S, levels to 60, gear in six rarities with
+  random perks, nine mythics earned only by deeds, each with its own ultimate.
+- **Raise an army.** Bind the enemies you kill, bosses included, as echoes
+  that fight beside you.
+- **Four classes, twenty skills, five weapon types**, each with its own look and
+  effects.
+- **Endless after the story:** New Game+, Nightmare, the Tower, a Time Trial,
+  a Boss Rush, and a secret boss for those who read the margins.
+- **Everything is made in code:** the levels, the music, the sound, most of
+  the art. The whole game is about 6 MB.
+
+## Everything in it
+
+- Real-time combat in 3D: five weapon types, two weapon slots, a dash with
+  invulnerability, twenty skills in a loadout of up to seven. Heavy blows stagger.
 - Gates of rank E to S, each a generated set of rooms ending in a boss with
   phases. Rooms have pillars to fight around and traps in the floor that
   hurt whoever stands on them. Hard from the first room: three hits kill a
@@ -54,7 +71,7 @@ every push. Made by [Tan De Xun](https://tandx28.github.io).
   broken piers, pedestals; stalagmites, crystal spires and stacked boulders;
   low walls and groves of slender pillars; cracks, rugs, grave slabs, grates,
   pools and candles on the floor.
-  Legendary and mythic gear wears an aura by its perks.
+- Legendary and mythic gear wears an aura by its perks.
 - A Bestiary tab: kills per enemy kind, lore at 10 kills, and +10/20/30%
   damage against that kind at 50, 150 and 500 (bosses need a tenth).
 - Special gates (sealed, gate break, emergency, hidden door, the trials) open
@@ -114,11 +131,27 @@ npm run balance   # bot-played difficulty report
 ## How it is built
 
 TypeScript, Vite and Three.js. The game itself is a pure simulation on a flat
-plane (`src/game`), stepped at a fixed 120 Hz and covered by unit tests; it
-knows nothing about rendering or audio. The 3D view (`src/render/scene3d.ts`),
-the 2D overlay (`src/render/hud.ts`) and the audio (`src/audio`) only read its
-state. Difficulty is tuned against a scripted player (`src/game/balance`).
+plane (`src/game`), stepped at a fixed 120 Hz and covered by more than 670
+unit tests; it knows nothing about rendering or audio. The 3D view
+(`src/render/scene3d.ts`), the 2D overlay (`src/render/hud.ts`) and the audio
+(`src/audio`) only read its state. Difficulty is tuned against a scripted
+player (`src/game/balance`) that plays every rank. Every push to `main` is
+tested and deployed by GitHub Actions. [CLAUDE.md](CLAUDE.md) is the full map
+of the code and its rules.
+
+## Contributing
+
+Bug reports, ideas and pull requests are welcome; see
+[CONTRIBUTING.md](CONTRIBUTING.md). Found a security problem? See
+[SECURITY.md](SECURITY.md).
+
+## Licence
+
+The code is under the [MIT licence](LICENSE). The character models are CC0
+(see Credits).
 
 ## Credits
 
-Character models: KayKit Character Packs (Adventurers, Skeletons) by Kay Lousberg, CC0. See `public/models/LICENSE.txt`.
+Made by [Tan De Xun](https://tandx28.github.io). Character models: KayKit
+Character Packs (Adventurers, Skeletons) by Kay Lousberg, CC0. See
+`public/models/LICENSE.txt`.

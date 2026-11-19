@@ -94,6 +94,11 @@ Conventions that everything relies on:
 - The secret: five struck lines (`earnLine`, `STRUCK_LINES` in profile.ts),
   glyph stones on tower floor 13 (`GLYPH_ORDER`), the margin gate and the
   Redactor (`redactor.ts`). Do not print the answer in the README.
+- Look up tables keyed by outside strings (saves, ids) with `has()` from
+  items.ts, never `key in table` or a bare `table[key]`: those also find
+  `constructor`, `toString` and `__proto__`.
+- The published page carries a CSP (vite.config.ts): no inline scripts, no
+  eval, nothing from other sites. Anything new that loads a resource must fit it.
 - Saves: `localStorage["gatebound.save"]`, versioned (`SAVE_VERSION` in
   `save.ts`). `parseSave` rebuilds a profile field by field from untrusted
   input and is the only way a save gets in. Device settings live separately
@@ -143,6 +148,12 @@ src/render/
                         drawn by the main renderer into PREVIEW_VIEW (ui.ts)
 src/audio/              sfx.ts (effects), compose.ts + director.ts + music.ts
 public/models/          trimmed .glb files (CC0) and their LICENSE.txt
+public/                 favicon.svg, icon-512.png, og.jpg (social card), manifest,
+                        robots.txt, sitemap.xml: absolute URLs point at the live site
+vite.config.ts          relative base, three.js in its own chunk, and the
+                        Content-Security-Policy meta tag (build only)
+docs/                   screenshot.jpg for the README, LAUNCH.md (post drafts)
+LICENSE, CONTRIBUTING.md, SECURITY.md, .github/ISSUE_TEMPLATE/
 tools/trim_models.py    cuts source .glb files down to the clips in use
 .github/workflows/      deploy.yml: npm ci, npm test, npm run build, Pages
 ```

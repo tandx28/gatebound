@@ -1,0 +1,15 @@
+{
+  "name": "Untitled Levelling Game",
+  "short_name": "Levelling",
+  "description": "A free, open-source 3D action RPG in the browser.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#04060b",
+  "theme_color": "#04060b",
+  "icons": [
+    { "src": "favicon.svg", "sizes": "any", "type": "image/svg+xml" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

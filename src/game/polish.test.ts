@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Controls } from "../engine/input";
 import { seeded } from "../engine/rng";
 import { PLAYER, ROOM, STEP, VIEW_W } from "./config";
-import { ITEMS, makeItem, ULTIMATES, type PowerId } from "./items";
+import { itemDef, ITEMS, makeItem, ULTIMATES, type PowerId } from "./items";
 import { parseSave, toSave } from "./save";
 import { MAIN } from "./quests";
 import { refreshDerived, settleClear } from "./profile";
@@ -292,5 +292,71 @@ describe("a save from before the New Game+ titles", () => {
     const done = parseSave(toSave(w));
     expect(done?.profile.nightmareUnlocked).toBe(true);
     expect(done?.profile.titles).toContain("keeper");
+  });
+});
+
+describe("a hostile or broken save", () => {
+  const sneaky = ["constructor", "toString", "__proto__", "hasOwnProperty", "valueOf", ""];
+
+  it("names that every object inherits are never taken for items, kinds, scenes or ultimates", () => {
+    const w = createWorld(seeded(4));
+    const raw = JSON.parse(JSON.stringify(toSave(w)));
+    raw.profile.inventory = [...sneaky, ...sneaky.map((s) => `iron_fang+${s}`)];
+    raw.profile.equipped = { weapon: "constructor", armour: "toString+burn" };
+    raw.profile.kills = JSON.parse('{"__proto__": 5, "constructor": 3, "toString": 2, "swarmer": 4}');
+    raw.profile.bossKills = { constructor: 1, warden: 2 };
+    raw.profile.replayed = sneaky;
+    raw.profile.scenesSeen = sneaky;
+    raw.profile.ultPick = "constructor";
+    raw.profile.mythics = sneaky;
+    const back = parseSave(raw);
+    expect(back).not.toBeNull();
+    const pr = back!.profile;
+    // Only the real base survives, without the made-up perks.
+    expect(pr.inventory.length).toBeGreaterThan(0);
+    for (const owned of pr.inventory) expect(owned.startsWith("iron_fang")).toBe(true);
+    expect(pr.equipped.weapon).toBeUndefined();
+    expect(Object.keys(pr.kills)).toEqual(["swarmer"]);
+    expect(Object.keys(pr.bossKills)).toEqual(["warden"]);
+    expect(pr.replayed).toEqual([]);
+    expect(pr.scenesSeen).toEqual([]);
+    expect(pr.ultPick).toBeNull();
+    expect(pr.mythics).toEqual([]);
+    expect(Object.getPrototypeOf(pr.kills)).toBe(Object.prototype);
+  });
+
+  it("random junk in every field never throws and always yields a usable profile or nothing", () => {
+    const rng = seeded(99);
+    const junk = (depth: number): unknown => {
+      const r = rng();
+      if (depth > 2 || r < 0.2) return [null, -1, 1e308, NaN, "x", true, "constructor", "__proto__"][Math.floor(rng() * 8)];
+      if (r < 0.5) return Array.from({ length: Math.floor(rng() * 4) }, () => junk(depth + 1));
+      const o: Record<string, unknown> = {};
+      for (const k of ["gold", "inventory", "equipped", "kills", "cycle", "ultPick", "lines", "titles", "echoes", "quests", "__proto__"]) if (rng() < 0.5) o[k] = junk(depth + 1);
+      return o;
+    };
+    const base = toSave(createWorld(seeded(4)));
+    for (let i = 0; i < 300; i++) {
+      const raw = JSON.parse(JSON.stringify(base));
+      for (const k of Object.keys(raw.profile)) if (rng() < 0.3) raw.profile[k] = junk(0);
+      const back = parseSave(raw);
+      if (!back) continue;
+      expect(Number.isFinite(back.profile.gold)).toBe(true);
+      for (const owned of back.profile.inventory) expect(itemDef(owned)).toBeDefined();
+    }
+  });
+});
+
+describe("the preview after a sale", () => {
+  it("stops showing an item once it has left the bag", () => {
+    const w = createWorld(seeded(4));
+    w.mode = "select";
+    w.tab = "shop";
+    w.profile.equipped.weapon = makeItem("militia_sword", []);
+    w.profile.inventory = [makeItem("kingfisher", [])];
+    w.hoverItem = w.profile.inventory[0];
+    expect(previewItem(w)).toBe(w.profile.inventory[0]);
+    w.profile.inventory = [];
+    expect(previewItem(w)).toBe(w.profile.equipped.weapon);
   });
 });

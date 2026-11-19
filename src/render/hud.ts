@@ -243,9 +243,12 @@ function drawSkills(ctx: Ctx, w: World): void {
     ctx.font = `bold 20px ${FONT}`;
     ctx.fillStyle = cd > 0 ? "#56719c" : lit ? GOLD : "#b9a4ff";
     ctx.fillText(keyName(boundKey(w, "KeyH")), x + size / 2, y + 28);
+    // The power's whole name, shrunk to fit the box like the skills' names.
+    const label = cd > 0 ? cd.toFixed(1) : c.power.toUpperCase();
     ctx.font = `10px ${FONT}`;
+    if (ctx.measureText(label).width > size - 6) ctx.font = `${Math.max(6, Math.floor((10 * (size - 6)) / ctx.measureText(label).width))}px ${FONT}`;
     ctx.fillStyle = "#8f80c8";
-    ctx.fillText(cd > 0 ? cd.toFixed(1) : c.power.toUpperCase().slice(0, 10), x + size / 2, y + 46);
+    ctx.fillText(label, x + size / 2, y + 46);
   }
   open.forEach(({ id, i }, n) => {
     const x = x0 + n * (size + gap);

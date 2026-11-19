@@ -3,20 +3,76 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Untitled Levelling Game</title>
+    <title>Untitled Levelling Game · free browser action RPG</title>
+    <meta name="description" content="A free, open-source 3D action RPG that runs in your browser. Start as the weakest hunter, clear gates, level up, bind fallen enemies into an army, and find the boss nobody tells you about. No download, no account." />
+    <meta name="keywords" content="browser game, action RPG, dungeon crawler, levelling, roguelite, open source game, three.js, free online game" />
+    <meta name="author" content="tandx28" />
+    <meta name="theme-color" content="#04060b" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
+    <link rel="canonical" href="https://tandx28.github.io/gatebound/" />
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="./icon-512.png" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Untitled Levelling Game" />
+    <meta property="og:title" content="Untitled Levelling Game · free browser action RPG" />
+    <meta property="og:description" content="Start as the weakest hunter. Clear gates, level up, bind an army of echoes. Free, open source, plays in your browser." />
+    <meta property="og:url" content="https://tandx28.github.io/gatebound/" />
+    <meta property="og:image" content="https://tandx28.github.io/gatebound/og.jpg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="A hunter facing glowing enemies in a torch-lit stone hall, with the game's board and skill bar." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Untitled Levelling Game" />
+    <meta name="twitter:description" content="Free, open-source 3D action RPG in the browser. Weakest hunter, deadly gates, an army of echoes." />
+    <meta name="twitter:image" content="https://tandx28.github.io/gatebound/og.jpg" />
+
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "VideoGame",
+        "name": "Untitled Levelling Game",
+        "url": "https://tandx28.github.io/gatebound/",
+        "image": "https://tandx28.github.io/gatebound/og.jpg",
+        "description": "A free, open-source 3D action RPG that runs in the browser: clear gates, level up, bind fallen enemies into an army.",
+        "genre": ["Action role-playing", "Dungeon crawler"],
+        "gamePlatform": "Web browser",
+        "applicationCategory": "Game",
+        "operatingSystem": "Any (desktop browser with WebGL)",
+        "playMode": "SinglePlayer",
+        "isAccessibleForFree": true,
+        "license": "https://opensource.org/licenses/MIT",
+        "codeRepository": "https://github.com/tandx28/gatebound",
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+      }
+    </script>
+
     <style>
       html, body { margin: 0; height: 100%; background: #04060b; overflow: hidden; }
-      body { display: flex; align-items: center; justify-content: center; }
+      body { display: flex; align-items: center; justify-content: center; font-family: ui-monospace, Menlo, Consolas, monospace; color: #9fc8ff; }
       #stage { position: relative; }
       #stage canvas { position: absolute; left: 0; top: 0; width: 100%; height: 100%; display: block; }
       #hud { cursor: crosshair; }
+      #boot { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; text-align: center; padding: 16px; pointer-events: none; }
+      #boot h1 { margin: 0; font-size: clamp(22px, 5vw, 44px); letter-spacing: 0.06em; color: #cfe4ff; text-shadow: 0 0 18px #2f7dff; }
+      #boot p { margin: 0; font-size: 14px; opacity: 0.8; max-width: 560px; }
+      #boot a { color: #5ee6ff; pointer-events: auto; }
     </style>
   </head>
   <body>
     <div id="stage">
-      <canvas id="view"></canvas>
-      <canvas id="hud"></canvas>
+      <canvas id="view" aria-label="The game's 3D view"></canvas>
+      <canvas id="hud" aria-label="The game's menus and status"></canvas>
     </div>
+    <!-- Shown until the game starts drawing; also what search engines read. -->
+    <main id="boot">
+      <h1>UNTITLED LEVELLING GAME</h1>
+      <p>Loading… A free, open-source 3D action RPG: start as the weakest hunter, clear gates, level up and bind an army of echoes.</p>
+      <p>Best with a keyboard and mouse on a desktop browser.</p>
+      <noscript><p>This game needs JavaScript and WebGL. The source is on <a href="https://github.com/tandx28/gatebound">GitHub</a>.</p></noscript>
+    </main>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

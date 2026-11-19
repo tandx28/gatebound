@@ -343,6 +343,15 @@ export const TITLES: TitleDef[] = [
 ];
 
 /** The base id of an owned item, without its perks. */
+/**
+ * Whether a table really has this key as its own. Plain `key in table` and
+ * `table[key]` also find what every object inherits (`constructor`,
+ * `toString`, `__proto__`), and an edited save could name those.
+ */
+export function has(table: object, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(table, key);
+}
+
 export function baseOf(owned: string): string {
   const i = owned.indexOf("+");
   return i < 0 ? owned : owned.slice(0, i);
@@ -353,11 +362,12 @@ export function perksOf(owned: string): PerkId[] {
   return owned
     .split("+")
     .slice(1)
-    .filter((p): p is PerkId => p in PERKS);
+    .filter((p): p is PerkId => has(PERKS, p));
 }
 
 export function itemDef(owned: string): ItemDef | undefined {
-  return ITEMS[baseOf(owned)];
+  const base = baseOf(owned);
+  return has(ITEMS, base) ? ITEMS[base] : undefined;
 }
 
 export function makeItem(base: string, perks: PerkId[]): string {
@@ -366,7 +376,7 @@ export function makeItem(base: string, perks: PerkId[]): string {
 
 /** Roll the perks an item of this base gets: distinct, and fitting its slot. */
 export function rollPerks(base: string, rng: () => number): PerkId[] {
-  const def = ITEMS[base];
+  const def = has(ITEMS, base) ? ITEMS[base] : undefined;
   if (!def || def.unique) return [];
   const pool = PERK_IDS.filter((p) => PERKS[p].slots.includes(def.slot));
   const out: PerkId[] = [];

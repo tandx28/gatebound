@@ -915,8 +915,9 @@ function applyBeat(w: World, beat: Beat): void {
 
 /** Begin a scene. Returns false if there is no such scene. */
 export function startCutscene(w: World, id: string): boolean {
+  // Only a real scene: an id from a save could name something every object inherits.
+  if (!Object.prototype.hasOwnProperty.call(CUTSCENES, id)) return false;
   const scene = CUTSCENES[id];
-  if (!scene) return false;
   w.cutscene = { id, beat: 0, t: 0, hold: 0, flash: 0, actors: [] };
   applyBeat(w, scene.beats[0]);
   return true;

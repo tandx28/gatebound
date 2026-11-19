@@ -130,9 +130,11 @@ export function hoveredItem(w: World, x: number, y: number): string | null {
  */
 export function previewItem(w: World): string | null {
   if (w.mode !== "select" || (w.tab !== "shop" && w.tab !== "gear") || w.dialogue) return null;
-  const def = w.hoverItem ? itemDef(w.hoverItem) : undefined;
-  if (w.hoverItem && (def?.weapon || def?.power)) return w.hoverItem;
   const pr = w.profile;
+  // Only something still on this board: a sold or replaced item stops showing.
+  const there = (o: string) => pr.inventory.includes(o) || EQUIP_SLOTS.some((s) => pr.equipped[s] === o) || (w.tab === "shop" && pr.shop.stock.includes(o));
+  const def = w.hoverItem && there(w.hoverItem) ? itemDef(w.hoverItem) : undefined;
+  if (w.hoverItem && (def?.weapon || def?.power)) return w.hoverItem;
   const held = pr.equipped[pr.activeWeapon === 1 ? "weapon2" : "weapon"];
   return held && itemDef(held)?.weapon ? held : null;
 }

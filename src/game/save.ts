@@ -12,6 +12,7 @@ import {
   makeItem,
   MYTHICS,
   PERK_COUNT,
+  has,
   PERKS,
   perksOf,
   POWERS,
@@ -93,7 +94,7 @@ function parseGate(raw: unknown): GateSnapshot | null {
       doors[s] = to;
     }
     const spawns = strings(r.spawns);
-    if (spawns.length > 12 || spawns.some((k) => !KINDS[k as EnemyKind])) return null;
+    if (spawns.length > 12 || spawns.some((k) => typeof k !== "string" || !has(KINDS, k))) return null;
     rooms.push({
       id: i,
       gx: int(r.gx, -99, 99, 0),
@@ -228,7 +229,7 @@ export function parseSave(raw: unknown): SaveData | null {
   }
   const rk = isObj(rf.bossKills) ? rf.bossKills : {};
   for (const kind of Object.keys(rk)) {
-    if (KINDS[kind as EnemyKind]?.boss) profile.bossKills[kind as EnemyKind] = int(rk[kind], 0, 1e6, 0);
+    if (has(KINDS, kind) && KINDS[kind as EnemyKind].boss) profile.bossKills[kind as EnemyKind] = int(rk[kind], 0, 1e6, 0);
   }
   profile.dailiesDone = int(rf.dailiesDone, 0, 1e6, 0);
   const powers = new Set<string>(MYTHICS.map((m) => m.id));
@@ -261,13 +262,13 @@ export function parseSave(raw: unknown): SaveData | null {
   // The bestiary: a count per known kind. Unknown kinds are dropped.
   const rkills = isObj(rf.kills) ? rf.kills : {};
   for (const kind of Object.keys(rkills)) {
-    if (KINDS[kind as EnemyKind]) profile.kills[kind as EnemyKind] = int(rkills[kind], 0, 1e9, 0);
+    if (has(KINDS, kind)) profile.kills[kind as EnemyKind] = int(rkills[kind], 0, 1e9, 0);
   }
   profile.lines = [...new Set(Array.isArray(rf.lines) ? (rf.lines as unknown[]).filter((n): n is number => Number.isInteger(n) && (n as number) >= 0 && (n as number) < LINES.count) : [])].sort((a, b) => a - b);
-  profile.replayed = [...new Set(strings(rf.replayed))].filter((id) => id in CUTSCENES);
+  profile.replayed = [...new Set(strings(rf.replayed))].filter((id) => has(CUTSCENES, id));
   profile.marginFound = rf.marginFound === true;
-  profile.scenesSeen = [...new Set(strings(rf.scenesSeen))].filter((id) => id in SPECIALS);
-  profile.ultPick = typeof rf.ultPick === "string" && rf.ultPick in POWERS ? (rf.ultPick as PowerId) : null;
+  profile.scenesSeen = [...new Set(strings(rf.scenesSeen))].filter((id) => has(SPECIALS, id));
+  profile.ultPick = typeof rf.ultPick === "string" && has(POWERS, rf.ultPick) ? (rf.ultPick as PowerId) : null;
   profile.cycle = int(rf.cycle, 0, NGPLUS.max, 0);
   // Tips are for new hunters: a save made before they existed has no need of them.
   profile.tips = rf.tips === true;
