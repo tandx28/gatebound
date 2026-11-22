@@ -16,7 +16,8 @@ gate board and in short cutscenes. It is inspired by the *genre* of
 "weakest hunter levels up alone" stories, but everything in it is original:
 the city of Veyra, the Ledger, Mara Quill, Dov, the Hollow Monarch.
 
-- Live: https://tandx28.github.io/gatebound/ (GitHub Pages, public repository
+- Live: https://tandexun.dev/gatebound/ (GitHub Pages under the custom domain
+  tandexun.dev; tandx28.github.io/gatebound/ redirects there. Public repository
   `tandx28/gatebound`). Every push to `main` runs the tests and deploys.
 - The owner plays each change and reports back in plain language. They are not
   reading the code, so what you tell them must be true and checkable in play.

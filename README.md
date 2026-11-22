@@ -1,6 +1,6 @@
 # Untitled Levelling Game
 
-[![Play in your browser](https://img.shields.io/badge/play-in%20your%20browser-5ee6ff?style=flat-square)](https://tandx28.github.io/gatebound/)
+[![Play in your browser](https://img.shields.io/badge/play-in%20your%20browser-5ee6ff?style=flat-square)](https://tandexun.dev/gatebound/)
 [![Test and deploy](https://github.com/tandx28/gatebound/actions/workflows/deploy.yml/badge.svg)](https://github.com/tandx28/gatebound/actions/workflows/deploy.yml)
 [![MIT licence](https://img.shields.io/badge/licence-MIT-ffd84a?style=flat-square)](LICENSE)
 
@@ -9,7 +9,7 @@ lowest-ranked hunter in the city of Veyra. A gate goes wrong, you should have
 died, and you wake with your name entered in the Ledger: a system only you can
 see, which rewards progress and punishes failure.
 
-### ▶ [Play it now](https://tandx28.github.io/gatebound/) — no download, no account
+### ▶ [Play it now](https://tandexun.dev/gatebound/) — no download, no account
 
 Desktop browser with keyboard and mouse. Progress saves in your browser.
 
@@ -152,6 +152,6 @@ The code is under the [MIT licence](LICENSE). The character models are CC0
 
 ## Credits
 
-Made by [Tan De Xun](https://tandx28.github.io). Character models: KayKit
+Made by [Tan De Xun](https://tandexun.dev). Character models: KayKit
 Character Packs (Adventurers, Skeletons) by Kay Lousberg, CC0. See
 `public/models/LICENSE.txt`.

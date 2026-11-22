@@ -4,7 +4,7 @@ Drafts for telling people about the game. Nothing here has been posted:
 copy, edit to your own voice, and post yourself. Each site has its own rules
 about self-promotion; read them first (notes under each draft).
 
-- Play: https://tandx28.github.io/gatebound/
+- Play: https://tandexun.dev/gatebound/
 - Code: https://github.com/tandx28/gatebound
 - Social card: `public/og.jpg` (1200 × 630), screenshot: `docs/screenshot.jpg`
 
@@ -30,7 +30,7 @@ Title: **Untitled Levelling Game: a free 3D action RPG in the browser: weakest h
 > boss rush, and a secret boss for people who finish the story.
 >
 > Desktop, keyboard and mouse. No account, saves in your browser.
-> Play: https://tandx28.github.io/gatebound/
+> Play: https://tandexun.dev/gatebound/
 >
 > It's open source (MIT) if you want to look at how it works. Feedback very
 > welcome, especially on difficulty.
@@ -53,7 +53,7 @@ Title: **I made a 3D action RPG that runs in the browser, and a bot that plays e
 > sound, weapons built from shapes. The only outside assets are some CC0
 > character models.
 >
-> Play: https://tandx28.github.io/gatebound/
+> Play: https://tandexun.dev/gatebound/
 > Code (MIT): https://github.com/tandx28/gatebound
 >
 > Happy to answer questions about the architecture.
@@ -74,7 +74,7 @@ Title: **Show HN: A 3D action RPG in the browser, balanced by a bot that plays e
 > Music and sound are synthesised at runtime, rooms are generated, and the
 > whole download is about 6 MB. MIT licensed.
 >
-> Play: https://tandx28.github.io/gatebound/
+> Play: https://tandexun.dev/gatebound/
 > Code: https://github.com/tandx28/gatebound
 
 Notes: post the play link as the URL. Be around for the first hour or two to

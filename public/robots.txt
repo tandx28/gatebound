@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://tandx28.github.io/gatebound/sitemap.xml
+Sitemap: https://tandexun.dev/gatebound/sitemap.xml
